@@ -1,0 +1,10 @@
+# Local overrides (this file is gitignored — copy from this template)
+
+## Secrets / tokens
+<!-- e.g. ADO_PAT, SNYK_TOKEN — never commit real values -->
+
+## Machine-specific paths or hosts
+<!-- e.g. internal ADO org URL, VPN-only endpoints -->
+
+## Anything true only on this machine
+<!-- e.g. "this laptop is work-only, don't reference the side project" -->

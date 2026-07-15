@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy to settings.local.json (gitignored, machine-local, merged into settings.json at runtime). Personal/machine-specific overrides ONLY. Never credentials — those go in the OS keychain or ~/.claude/.credentials.json (also never committed). Per-PROJECT permissions (e.g. a repo's test/build commands) belong in that project's .claude/settings.local.json, NOT here. Everything below except permissions.allow is documentation in _comment keys so this file is inert if copied verbatim — uncomment the real keys you need.",
+  "_comment_statusLine": "Machine-local status line (the script path lives on this box): \"statusLine\": { \"type\": \"command\", \"command\": \"bash ~/.claude/my-statusline.sh\" }",
+  "_comment_additionalDirectories": "Extra roots Claude may access on THIS machine (absolute paths), nested under permissions: \"permissions\": { \"additionalDirectories\": [\"C:\\\\Users\\\\<you>\\\\Projects\"] }",
+  "_comment_extraKnownMarketplaces": "A directory-sourced (local-path) marketplace is machine-specific: \"extraKnownMarketplaces\": { \"<name>\": { \"source\": { \"source\": \"directory\", \"path\": \"C:\\\\Users\\\\<you>\\\\.claude\\\\plugins\\\\marketplaces\\\\<name>\" } } }. A github-sourced marketplace is portable — put it in the tracked settings.json instead.",
+  "_comment_enabledPlugins": "Toggle plugins per machine — enable one backed by a local marketplace, or disable a tracked one: \"enabledPlugins\": { \"some-plugin@some-marketplace\": true }",
+  "_comment_hooks": "install.py auto-injects the global Stop hook here (machine-local because the paths are resolved at install time — Claude Code does NOT expand ${CLAUDE_CONFIG_DIR}/~/$HOME inside a hook command/args). It fills in the running Python and the symlinked script path, e.g.: \"hooks\": { \"Stop\": [ { \"hooks\": [ { \"type\": \"command\", \"command\": \"/usr/bin/python3\", \"args\": [\"/home/<you>/.claude/hooks/record_stop.py\"], \"async\": true } ] } ] }. You normally don't hand-edit this — re-running install.py is idempotent and won't duplicate the entry.",
+  "_comment_other": "Any purely personal preference you don't want synced, e.g. \"outputStyle\": \"Explanatory\".",
+  "permissions": {
+    "allow": []
+  }
+}

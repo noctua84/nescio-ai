@@ -1,0 +1,2 @@
+- [overview](overview.md) — EXAMPLE repo note; shows the per-repo memory format
+- [readiness](readiness.md) — EXAMPLE readiness summary (the autonomy-dial input)

@@ -1,0 +1,99 @@
+# =============================================================================
+# Claude Code Review — manual dispatch wrapper
+# =============================================================================
+# Thin `workflow_dispatch` wrapper around claude-review-core.yml for manual
+# per-PR re-runs, e.g.:
+#   - branches or paths an automatic path skips by design
+#   - resuming reviews after removing a "skip review" label
+#     (removing a label does not re-trigger CI; push a commit or run this)
+#   - recovering from a review that died mid-run (fail-closed merge gate)
+#
+# If this repo also has an AUTOMATIC path (a job elsewhere calling the same
+# core workflow, gated via `needs:` on CI success), that path starts only
+# after CI is green WITHOUT holding a runner. This wrapper is the ONLY path
+# that polls CI status on a live runner — acceptable because manual
+# dispatches are rare and human-attended.
+# =============================================================================
+
+name: Claude Code Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+
+# A second dispatch for the same PR replaces an in-flight manual review.
+# (The automatic path is cancelled separately, via CI's concurrency group.)
+concurrency:
+  group: claude-review-manual-${{ github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  # Confirm CI is green on the PR's current head before spending review
+  # minutes. Poll every 30s up to ~20 min (tune to your CI's typical runtime
+  # plus queue delays). A non-success conclusion exits non-zero so the review
+  # is skipped on red PRs. The polled workflow name MUST match the `name:`
+  # field of your CI workflow (default here: "CI").
+  wait-for-ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      # Needed to call `gh api .../actions/runs` — returns 403 without it.
+      actions: read
+    steps:
+      - name: Wait for CI to pass
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr_number }}" --jq .head.sha)
+          echo "PR #${{ github.event.inputs.pr_number }} head: $HEAD_SHA"
+
+          deadline=$(( $(date +%s) + 20 * 60 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            status_json=$(gh api \
+              "repos/${{ github.repository }}/actions/runs?head_sha=$HEAD_SHA&per_page=20" \
+              --jq '[.workflow_runs[] | select(.name == "CI")] | first // empty')
+
+            if [ -z "$status_json" ]; then
+              echo "CI run not yet found for $HEAD_SHA — waiting 30s..."
+              sleep 30
+              continue
+            fi
+
+            status=$(echo "$status_json" | jq -r '.status')
+            conclusion=$(echo "$status_json" | jq -r '.conclusion // empty')
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "CI concluded success on $HEAD_SHA — proceeding."
+                exit 0
+              else
+                echo "CI concluded $conclusion on $HEAD_SHA — skipping review."
+                exit 1
+              fi
+            fi
+
+            echo "CI status=$status on $HEAD_SHA — waiting 30s..."
+            sleep 30
+          done
+
+          echo "Timed out waiting for CI on $HEAD_SHA" >&2
+          exit 1
+
+  review:
+    needs: wait-for-ci
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: ./.github/workflows/claude-review-core.yml
+    with:
+      pr_number: ${{ github.event.inputs.pr_number }}
+      # max_turns omitted — core default (30). Raise for larger diffs.
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

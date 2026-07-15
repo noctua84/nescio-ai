@@ -1,0 +1,720 @@
+# =============================================================================
+# Claude Code Review — reusable core (workflow_call) — generic nescio template
+# =============================================================================
+# The review ENGINE for the nescio PR-review pipeline. This is the generic,
+# reusable core: it carries no repo-specific knowledge — repo-specific
+# pitfalls are read at review time from `.claude/memory/review-learnings/`
+# and `CLAUDE.md` in the target repo (see check 3f), and grown over time by
+# a high-bar note-PR (see Step 7). Never triggered directly — two callers
+# invoke it:
+#
+#   1. The target's CI workflow (named `CI` by convention) calls it as a
+#      final job gated on `needs: [<your CI job ids>]`. GitHub holds a
+#      `needs:` job WITHOUT a runner until the dependencies succeed, so
+#      there is no idle-poll cost. Red CI skips the review instead of
+#      failing it after a long poll.
+#   2. claude-code-review.yml is a thin `workflow_dispatch` wrapper for
+#      manual per-PR re-runs (claude/* branches, post-label-removal, etc.).
+#
+# Callers own POLICY: event guards (dependabot, claude/* branches,
+# skip-claude-review label), the paths policy (doc-only / version-bump-only
+# PRs), concurrency + cancellation. This workflow owns MECHANISM: the
+# review itself and the merge gate.
+#
+# `max_turns` is an input because it is repo-specific (larger repos with
+# bigger diffs may need a higher budget).
+#
+# The review performed is:
+#   1. PR Summary           — What the PR does, scope, and files changed
+#   2. Comprehensive Review — Bug search, test gaps, dead code, regressions,
+#                             logical / config-drift consistency
+#
+# This review is INCREMENTAL — on subsequent runs for the same PR:
+#   - Existing summary/review comments are EDITED (not duplicated)
+#   - Fixed findings get a one-time "addressed" reply
+#   - A still-open finding gets the "still open" reply at most ONCE
+#     (marked with <!-- claude-stillopen -->); it is NOT re-posted on
+#     every subsequent run — silence is not resolution
+#   - A finding whose thread a human RESOLVED or ACKNOWLEDGED (reply
+#     accepting it, or a <!-- claude-ack --> marker) is suppressed:
+#     never re-nudged, excluded from the severity counts, and never a
+#     basis for CHANGES_REQUESTED (so it cannot block the merge-gate
+#     forever)
+#   - Only net-new findings get new inline comments
+#
+# HTML markers (invisible in rendered markdown) identify prior comments:
+#   <!-- claude-pr-summary -->
+#   <!-- claude-comprehensive-review -->
+#   <!-- claude-verdict: APPROVE|CHANGES_REQUESTED|COMMENT -->
+#   <!-- claude-finding: {fingerprint} -->
+#   <!-- claude-stillopen: {fingerprint} -->   (one-time persist nudge)
+#   <!-- claude-ack -->                         (human: accept/won't-fix)
+#
+# Tests are NEVER re-run here. The target's CI workflow already ran the
+# project's lint / type-check / test suite as a hard gate on the same SHA
+# — in the automatic path this job literally cannot start before they
+# succeed. The review reads test files as source only and reasons about
+# COVERAGE GAPS, not pass/fail.
+# =============================================================================
+
+name: Claude Code Review (core)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: string
+      max_turns:
+        description: "Claude turn budget (repo-specific; raise for larger diffs)"
+        required: false
+        type: number
+        default: 30
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  review:
+    # No `if:` here — callers gate this workflow (event guards, paths
+    # policy). No concurrency group either: the CI caller's workflow-level
+    # group cancels an in-flight review when a newer push lands.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Resolve PR context
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER='${{ inputs.pr_number }}'
+          META=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+            --jq '{title, user: .user.login, base_ref: .base.ref, base_sha: .base.sha, head_ref: .head.ref, head_sha: .head.sha}')
+          {
+            echo "number=$PR_NUMBER"
+            echo "title=$(echo "$META" | jq -r .title)"
+            echo "user=$(echo "$META" | jq -r .user)"
+            echo "base_ref=$(echo "$META" | jq -r .base_ref)"
+            echo "base_sha=$(echo "$META" | jq -r .base_sha)"
+            echo "head_ref=$(echo "$META" | jq -r .head_ref)"
+            echo "head_sha=$(echo "$META" | jq -r .head_sha)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        # Explicit ref pins to the PR HEAD SHA (important for the manual
+        # dispatch path, which otherwise checks out the default branch).
+        # fetch-depth 0 so `git diff base...head` resolves on multi-commit
+        # PRs.
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      # No Node / npm ci: this is static analysis only. Test execution
+      # — the project's test suite — is owned by the CI workflow.
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Surfaces per-turn tool-use records so denied calls are visible.
+          show_full_output: true
+          # Allow-list notes:
+          # - No `mcp__github_inline_comment__*` / `mcp__github_comment__*`
+          #   — this action version does not mount them; the prompt uses
+          #   plain `gh api` for inline comments instead.
+          # - The review must NOT re-run the project's tests; CI already
+          #   gated them on this SHA.
+          # - `Write` + `Bash(cat:*)` let Claude stage large comment
+          #   bodies to /tmp/*.md and post via `--body-file` / `-F
+          #   body=@file`. The `$(cat <<'EOF')` subshell pattern is
+          #   rejected by the Bash allow-list matcher.
+          claude_args: >-
+            --max-turns ${{ inputs.max_turns }}
+            --allowed-tools "Bash(gh api:*),Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(cat:*),Write,Bash(git fetch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Read,Grep,Glob"
+          prompt: |
+            You are performing a mandatory code review for PR #${{ steps.pr.outputs.number }} in ${{ github.repository }}.
+
+            PR title: "${{ steps.pr.outputs.title }}"
+            PR author: ${{ steps.pr.outputs.user }}
+            Base branch: ${{ steps.pr.outputs.base_ref }}
+            Head branch: ${{ steps.pr.outputs.head_ref }}
+            Base SHA: ${{ steps.pr.outputs.base_sha }}
+            Head SHA: ${{ steps.pr.outputs.head_sha }}
+            Trigger: ${{ github.event_name }} (CI green on this SHA)
+
+            **Tests have already passed.** The project's CI (lint /
+            type-check / test suite) has already passed on this SHA; this
+            review only runs after CI is green. Do NOT re-run tests —
+            focus on test COVERAGE GAPS (changed code without tests), not
+            pass/fail.
+
+            ---
+
+            ## CRITICAL: Incremental Review Protocol
+
+            This review pipeline runs on every push. You MUST avoid duplicating comments.
+            Follow the state management rules below EXACTLY.
+
+            ### Marker System
+
+            Every comment you create must contain an invisible HTML marker for identification:
+            - PR Summary comment: `<!-- claude-pr-summary -->`
+            - Comprehensive Review comment: `<!-- claude-comprehensive-review -->`
+            - Inline finding comments: `<!-- claude-finding: FINGERPRINT -->` where FINGERPRINT
+              is a stable identifier derived from: category + file path + finding description
+              (e.g., `bug:src/services/auth.ts:missing-null-check`)
+
+            ### State Discovery (Step 0 — do this FIRST)
+
+            Before doing ANYTHING else, discover prior review state:
+
+            1. List recent PR comments (issue-style):
+               `gh api "repos/${{ github.repository }}/issues/${{ steps.pr.outputs.number }}/comments?per_page=100"`
+
+            2. List recent PR review comments (inline):
+               `gh api "repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/comments?per_page=100"`
+
+            3. From these results, find comments containing your markers:
+               - Find the comment with `<!-- claude-pr-summary -->` → save its `id`
+               - Find the comment with `<!-- claude-comprehensive-review -->` → save its `id`
+               - Find all comments with `<!-- claude-finding: ... -->` → save each `id` and fingerprint
+
+            3b. Discover thread resolution + acknowledgement state. The
+            comment lists above do NOT tell you whether a finding thread
+            was resolved or accepted by a human — you MUST query the
+            review threads via GraphQL (the `gh api` allow-list covers
+            `gh api graphql`):
+
+            `gh api graphql -f query='{ repository(owner:"OWNER",name:"REPO"){ pullRequest(number:NUMBER){ reviewThreads(first:100){ nodes{ id isResolved comments(first:50){ nodes{ databaseId author{ login } body } } } } } } }'`
+
+            Substitute OWNER/REPO from `${{ github.repository }}` and
+            NUMBER from the PR number above. For each thread that contains
+            one of your `<!-- claude-finding: FP -->` comments, record
+            against that fingerprint:
+            - `threadResolved` = the thread's `isResolved`
+            - `humanAck` = true if ANY comment in the thread is authored
+              by a login OTHER than the bot posting this review AND
+              signals acceptance — case-insensitive match on:
+              "acknowledged", "ack", "wontfix", "won't fix", "by design",
+              "as designed", "accepted", "intended", "working as
+              intended", "wai" — OR the comment contains the literal
+              marker `<!-- claude-ack -->`
+            - `alreadyNudged` = true if ANY comment in the thread authored
+              by the bot login contains `<!-- claude-stillopen: FP -->`
+              — NOT just the last comment. A later human reply (a
+              question, a discussion) must NOT re-arm the nudge; "at most
+              once" is per finding for the life of the thread.
+
+            4. Record what you found:
+               - `HAS_PRIOR_SUMMARY` = true/false
+               - `HAS_PRIOR_REVIEW` = true/false
+               - `PRIOR_FINDINGS` = list of {id, fingerprint, body,
+                 threadResolved, humanAck, alreadyNudged} per inline finding
+               - A finding is **ACKNOWLEDGED** when `threadResolved` is
+                 true OR `humanAck` is true.
+
+            ---
+
+            ## Step 1: Understand the PR
+
+            Run `git diff ${{ steps.pr.outputs.base_sha }}...${{ steps.pr.outputs.head_sha }}` to get the full diff.
+            Run `git log --oneline ${{ steps.pr.outputs.base_sha }}...${{ steps.pr.outputs.head_sha }}` to see commit history.
+            Read all changed files fully (not just the diff hunks) to understand context.
+            Read CLAUDE.md for project coding guidelines and architecture rules.
+
+            You do NOT need `git fetch` for the diff. The checkout step
+            already set up base/head at `fetch-depth: 0`, so the diff and
+            log commands below resolve directly — running `git fetch` here
+            just burns a turn. (`git fetch` is allow-listed only so Step 7,
+            the optional learning-capture flow, can branch off the base.)
+
+            ---
+
+            ## Step 2: PR Summary
+
+            Format the summary content (without the marker — you'll add it when posting):
+
+            <!-- claude-pr-summary -->
+            ## PR Summary
+
+            **What this PR does:** <1-3 sentence plain-language description>
+
+            **Type:** <Bug fix | Feature | Refactor | Config | Docs | Test | Chore>
+
+            **Scope:** <Which parts of the system are touched>
+
+            ### Changes
+            <Bulleted list of concrete changes, grouped by area. Describe what changed and why.>
+
+            ### Risk Assessment
+            - **Breaking changes:** <Yes/No — if yes, explain>
+            - **Affected features:** <List>
+            - **Deployment notes:** <Special steps or "None">
+
+            **Posting rules — stage the body to a tempfile first:**
+
+            1. Use the `Write` tool to stage the full summary body to
+               `/tmp/summary.md`. Start the content with
+               `<!-- claude-pr-summary -->` on the first line.
+            2. Post:
+               - If `HAS_PRIOR_SUMMARY` is FALSE:
+                 `gh pr comment ${{ steps.pr.outputs.number }} --repo ${{ github.repository }} --body-file /tmp/summary.md`
+               - If `HAS_PRIOR_SUMMARY` is TRUE:
+                 `gh api repos/${{ github.repository }}/issues/comments/{id} -X PATCH -F body=@/tmp/summary.md`
+                 (the edited body replaces the prior one — not appended)
+
+            Do NOT embed the body via `"$(cat <<'EOF' ... EOF)"` — the
+            Bash allow-list matcher rejects commands containing `$(...)`
+            subshell substitutions, so subshell heredocs get denied even
+            when the outer `gh pr comment` / `gh api` prefix is allowed.
+
+            ---
+
+            ## Step 3: Perform Comprehensive Review
+
+            Analyze the PR diff against the full codebase. Perform ALL of the following checks:
+
+            ### 3a. Deep Bug Search
+            - **Obvious bugs:** Type errors, null dereferences, wrong variable names, incorrect logic
+            - **Hidden bugs:** Race conditions, state corruption, resource leaks, off-by-one errors, missing cleanup
+            - **Edge cases:** Empty inputs, boundary values, concurrent operations, error paths, async race during render/effect
+
+            For each bug found, note the exact file and line number in the diff.
+
+            ### 3b. Test Existence Check
+            For each changed file that contains business logic or behavior:
+            - Does a corresponding test file exist? Check for a test file
+              next to or mirroring the changed file, per this project's
+              test conventions.
+            - If no tests exist, flag this as a finding.
+            - If tests exist, do they cover the specific lines/functions changed in this PR?
+
+            ### 3c. Test Coverage Analysis (STATIC ONLY)
+            For each changed function or code path, assess whether existing tests cover:
+            - **Happy path:** Does the test verify the expected successful behavior?
+            - **Failure path:** Does the test verify error handling (invalid input, network failure, missing data)?
+            - **Edge cases:** Does the test cover boundary conditions, empty states, concurrent access?
+
+            Do NOT run the test suites yourself. The project's CI workflow
+            already ran the project's test suite (lint, type-check, and tests) as
+            a gate on the same PR SHA — in the automatic path this review
+            job cannot even start before those jobs succeed. Re-running
+            the test suite here would be duplicate billing for the same
+            work. Read the test files as source only.
+
+            ### 3d. Dead Code Check
+            Look for code introduced by this PR that is:
+            - Functions, components, or hooks that are defined but never rendered/called
+            - Variables or props that are assigned but never read
+            - Imports added but never used
+            - Exported symbols no consumer imports
+            - Commented-out code that should be deleted
+            - Conditional UI branches that are unreachable
+
+            ### 3e. Regression Analysis
+            Check whether the PR changes break or contradict:
+            - Existing type/interface contracts
+            - Public API / function signatures
+            - Data / schema expectations
+            - Any contracts documented in `CLAUDE.md`
+
+            ### 3f. Logical Consistency & Config / Contract Drift
+            This check catches defects that compile, pass type-check, and
+            often pass tests, yet are still wrong because two places that
+            must agree have silently diverged, or because code relies on
+            an observed implementation detail instead of the documented
+            contract. Rather than a fixed list, check the diff against
+            this repo's own recorded pitfalls:
+
+            Read every note under `.claude/memory/review-learnings/` and
+            the repo's `CLAUDE.md`. Each note records a past regression /
+            security / architectural pitfall for THIS repo (frontmatter
+            `kind:`). Check the diff against each one and flag any
+            recurrence, naming the note. If the directory is absent or
+            empty, state that no recorded learnings exist yet and rely on
+            3a–3e.
+
+            For each finding, name BOTH sides that disagree (file:line on
+            each) so the reviewer can verify the drift directly.
+
+            ---
+
+            ## Step 4: Post Comprehensive Review
+
+            Format the review content:
+
+            <!-- claude-comprehensive-review -->
+            <!-- claude-verdict: CHANGES_REQUESTED -->
+            ## Comprehensive Review
+
+            **Severity Summary:** X Critical | Y Major | Z Minor | W Info
+
+            (Counts cover OPEN findings only. Findings handled by Case 0 —
+            acknowledged or resolved by a human — are excluded here and
+            listed under "Acknowledged / Won't-fix" below.)
+
+            ### Bug Search Results
+
+            For each finding:
+            > **[CRITICAL|MAJOR|MINOR|INFO]** `file/path.ts:line` — **Title**
+            >
+            > Description of the issue, why it's a problem, and what could go wrong.
+            >
+            > **Suggested fix:** concrete code change or approach.
+
+            If no bugs found: "No bugs detected."
+
+            ### Test Analysis (static)
+
+            | Changed File | Test File | Happy Path | Fail Path | Edge Cases |
+            |---|---|---|---|---|
+            | `path/to/file.ts` | `path/to/test.ts` or MISSING | covered/gap | covered/gap | covered/gap |
+
+            **Coverage gaps:** <List specific untested scenarios that should have tests>
+
+            For authoritative pass/fail of the suites on this PR, refer to
+            the project's CI workflow's checks. Do not claim results yourself.
+
+            ### Dead Code
+
+            For each finding:
+            > `file/path.ts:line` — `symbolName` is defined but never used/called.
+
+            If none found: "No dead code detected."
+
+            ### Regression Check
+
+            | Contract/Feature | Status | Notes |
+            |---|---|---|
+            | <contract name> | PASS/WARN/FAIL | <details> |
+
+            ### Logical Consistency & Drift
+
+            For each finding:
+            > **[CRITICAL|MAJOR|MINOR]** `fileA:line` ↔ `fileB:line` — what diverged and why it breaks.
+
+            If none found: "No logical drift detected."
+
+            ### Acknowledged / Won't-fix
+
+            Findings a human resolved or accepted (Case 0). These are
+            informational only — NOT counted in the Severity Summary and
+            NOT a basis for CHANGES_REQUESTED.
+
+            For each:
+            > `file/path.ts:line` — <fingerprint> — acknowledged (<resolved | "quoted human reason">)
+
+            If none: "None."
+
+            ### Verdict
+
+            <One of: APPROVE — no issues found | CHANGES REQUESTED — issues must be fixed | COMMENT — minor suggestions only>
+
+            The verdict is driven ONLY by OPEN findings (Cases 2 and 3).
+            Acknowledged/resolved findings (Case 0) NEVER force
+            CHANGES_REQUESTED — if every remaining finding is acknowledged
+            and nothing new is open, the verdict is APPROVE (or COMMENT if
+            only minor open suggestions remain). This is what stops an
+            accepted finding from blocking the merge-gate forever.
+
+            <1-2 sentence overall assessment.>
+
+            **Posting rules — same tempfile pattern as Step 2:**
+
+            1. Use `Write` to stage the full review body to
+               `/tmp/review.md`. Start with
+               `<!-- claude-comprehensive-review -->` on line 1, then the
+               `<!-- claude-verdict: ... -->` marker (see Step 6) on line 2.
+            2. Post:
+               - If `HAS_PRIOR_REVIEW` is FALSE:
+                 `gh pr comment ${{ steps.pr.outputs.number }} --repo ${{ github.repository }} --body-file /tmp/review.md`
+               - If `HAS_PRIOR_REVIEW` is TRUE:
+                 `gh api repos/${{ github.repository }}/issues/comments/{id} -X PATCH -F body=@/tmp/review.md`
+                 (replaced, not appended)
+
+            ---
+
+            ## Step 5: Handle Inline Findings (Incremental)
+
+            This is the most important step for avoiding comment spam. Follow these rules precisely.
+
+            ### 5a. Build current findings list
+
+            From your analysis in Step 3, build a list of current findings. Each finding has:
+            - `fingerprint`: stable ID from category + file + description
+            - `file`, `line`, `severity`, `category`, `body`
+
+            ### 5b. Reconcile with prior findings
+
+            Compare `CURRENT_FINDINGS` against `PRIOR_FINDINGS`:
+
+            **Case 0 — Previously flagged, ACKNOWLEDGED or RESOLVED (takes precedence over Cases 1–3):**
+            The fingerprint's PRIOR_FINDINGS entry is ACKNOWLEDGED
+            (`threadResolved` true OR `humanAck` true).
+            → Post NOTHING. Do NOT reply. Do NOT open a new comment. Do
+              NOT re-nudge. A human has explicitly closed or accepted this
+              finding; re-raising it is exactly the chained-comment spam
+              this protocol exists to prevent.
+            → In Step 4, list it under "### Acknowledged / Won't-fix" and
+              EXCLUDE it from the Severity Summary counts and from the
+              verdict. An acknowledged finding must NEVER keep the PR in
+              CHANGES_REQUESTED.
+            → Sole exception — genuine regression: the fingerprint is in
+              CURRENT_FINDINGS, `threadResolved` was true, and the issue
+              demonstrably reappeared in NEW code in this diff. Then post
+              ONE reply (guarded exactly like Case 2's `alreadyNudged`
+              check and carrying the same `<!-- claude-stillopen: FP -->`
+              marker) noting the regression, and still leave re-opening
+              the thread to a maintainer. Never chain.
+
+            **Case 1 — Previously flagged, NOW FIXED (and NOT acknowledged):**
+            The fingerprint exists in PRIOR_FINDINGS but NOT in
+            CURRENT_FINDINGS, and Case 0 did not apply.
+            → Reply to the existing comment:
+            `gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/comments/{id}/replies -f body="Addressed in latest push. Thank you."`
+
+            **Case 2 — Previously flagged, STILL OPEN (and NOT acknowledged):**
+            The fingerprint is in BOTH PRIOR_FINDINGS and CURRENT_FINDINGS,
+            and Case 0 did not apply.
+            → If that fingerprint's `alreadyNudged` is TRUE: post NOTHING.
+              The original inline finding comment already stands; silence
+              is NOT resolution. Re-posting "still open" on every run is
+              forbidden comment spam — the nudge is a ONE-TIME signal, not
+              a per-run heartbeat.
+            → Only if `alreadyNudged` is FALSE: reply ONCE to the existing
+              comment (do NOT create a new one). Stage the body with
+              `Write` so the marker is line 1, then post via
+              `-F body=@file`:
+            `gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/comments/{id}/replies -F body=@/tmp/stillopen-<fingerprint>.md`
+            Body (marker MUST be line 1 so the next run sets `alreadyNudged`):
+            ```
+            <!-- claude-stillopen: <fingerprint> -->
+            Still needs to be addressed — this issue persists in the latest push.
+            ```
+
+            **Case 3 — NEW finding (not previously flagged):**
+            The finding fingerprint exists in CURRENT_FINDINGS but NOT in PRIOR_FINDINGS.
+            → Post ONE inline comment per finding via the
+              `POST /pulls/{n}/comments` single-comment endpoint. Do NOT
+              use `/pulls/{n}/reviews` — that endpoint is reserved for the
+              `merge-gate` job below (and is blocked in this sandbox). Do
+              NOT look for `mcp__github_inline_comment__create_inline_comment`
+              — the action version in use does not mount that MCP tool, so
+              `ToolSearch` will return 0 matches. Use plain `gh api`.
+
+            Stage each body with `Write`, then POST via `-F body=@file`:
+
+            ```
+            # 1. Write /tmp/finding-<fingerprint>.md — exact body structure:
+            #      <!-- claude-finding: <fingerprint> -->
+            #      **[CRITICAL|MAJOR|MINOR|INFO] <Category> — <Title>**
+            #      <explanation of the issue and why it matters>
+            #      **Suggested fix:** <concrete change or approach>
+            #
+            # 2. POST the inline comment (one call per finding, no batching):
+            gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/comments \
+              -X POST \
+              -f commit_id="${{ steps.pr.outputs.head_sha }}" \
+              -f path="<file/path.ts>" \
+              -F line=<N> \
+              -f side="RIGHT" \
+              -F body=@/tmp/finding-<fingerprint>.md
+            ```
+
+            Constraints that make the call succeed:
+            - `commit_id` MUST be the head SHA above — stale SHAs return 422.
+            - `line` MUST be a line present in the PR diff on the RIGHT
+              (head) side. Lines removed from the base side take `side=LEFT`.
+            - `Category` MUST be one of: Bug | Test Gap | Dead Code |
+              Regression | Logic Drift | Style.
+
+            ### 5c. If NO prior findings exist and NO current findings exist
+
+            Skip inline comments entirely. Do not post an empty review.
+
+            ### 5d. If NO prior findings exist but current findings exist
+
+            This is a first run — create all findings as new inline review comments (Case 3 for all).
+
+            ---
+
+            ## Step 6: Signal the verdict for the merge gate
+
+            Your Comprehensive Review comment (Step 4) must contain a
+            single-line marker the follow-up `merge-gate` job can parse:
+
+            `<!-- claude-verdict: APPROVE -->`
+            `<!-- claude-verdict: CHANGES_REQUESTED -->`
+            `<!-- claude-verdict: COMMENT -->`
+
+            Place this marker on its own line immediately after the
+            `<!-- claude-comprehensive-review -->` marker at the top of
+            the Comprehensive Review comment body. The verdict marker
+            must agree with the "Verdict" section you wrote.
+
+            Do NOT attempt to POST a formal PR review yourself — the
+            action sandbox blocks `gh api .../pulls/{n}/reviews`. The
+            `merge-gate` job (below, outside this prompt) handles the
+            actual `REQUEST_CHANGES` / `APPROVE` submission.
+
+            ---
+
+            ## Step 7: High-bar learning capture (rare)
+
+            After posting the review, decide whether it surfaced a
+            DURABLE, LIKELY-TO-RECUR learning of kind
+            `regression | security | architecture`. Usually it did NOT —
+            do nothing. Only if it did, AND no equivalent note already
+            exists in `.claude/memory/review-learnings/`, record it as a
+            note PR:
+
+            ```
+            git fetch origin "${{ steps.pr.outputs.base_ref }}"
+            git checkout -b "claude/review-learning/${{ steps.pr.outputs.number }}" "origin/${{ steps.pr.outputs.base_ref }}"
+            # Write .claude/memory/review-learnings/<slug>.md:
+            #   ---
+            #   kind: regression | security | architecture
+            #   ---
+            #   **What it is:** ... **Signal to watch:** ... **Where:** ... **Origin:** PR #<number>
+            git add .claude/memory/review-learnings/<slug>.md
+            git commit -m "chore: record review learning"
+            git push -u origin "claude/review-learning/${{ steps.pr.outputs.number }}"
+            gh pr create --title "chore: record review learning" --base "${{ steps.pr.outputs.base_ref }}" --body "Records a <kind> learning from PR #<number> so future reviews watch for it."
+            ```
+
+            Branching off `origin/<base_ref>` (NOT the checked-out head)
+            keeps the note PR limited to the note file. Never push to the
+            default branch directly. This is the ONLY step permitted to
+            commit or push, and only ever to the
+            `claude/review-learning/<number>` branch — never to the PR
+            under review and never to the base branch.
+
+            ---
+
+            ## Important Rules
+
+            - Do NOT commit or push to the PR under review or to any base /
+              default branch. This review is read-only EXCEPT for the
+              optional Step 7 note PR, which commits a single learning file
+              on its own `claude/review-learning/<number>` branch.
+            - Do NOT skip any of the six checks (3a–3f) — all are mandatory even if findings are empty.
+            - Do NOT tail or truncate test output — you are not running tests; reason from source.
+            - Do NOT create duplicate comments. Always check prior state first.
+            - Every finding MUST reference a specific file and line number from the PR diff.
+            - Be precise: only report issues you can trace through the code. No speculation.
+            - Follow the project's CLAUDE.md guidelines when evaluating code quality.
+            - The HTML markers MUST be present in every comment you create or edit.
+              Without them, future runs cannot find your comments.
+
+  # ---------------------------------------------------------------------------
+  # Merge gate
+  # ---------------------------------------------------------------------------
+  # Runs AFTER the Claude review job. Reads the verdict marker Claude
+  # embedded in the Comprehensive Review comment and submits a formal PR
+  # review of the matching state (REQUEST_CHANGES / APPROVE / COMMENT).
+  #
+  # Why a separate job: the claude-code-action sandbox blocks
+  # `POST /pulls/{n}/reviews`, so Claude cannot submit blocking reviews
+  # directly. This job runs outside that sandbox with a plain
+  # GITHUB_TOKEN, which can submit reviews freely.
+  #
+  # FAIL-CLOSED: if the review comment or verdict marker is missing
+  # (Claude run terminated mid-pipeline), submit REQUEST_CHANGES rather
+  # than silently leaving the PR unblocked. The idempotency check means
+  # repeated runs on the same broken PR don't spam the timeline.
+  #
+  # `!cancelled()` (NOT `always()`, NOT a bare custom `if:`):
+  #   - review FAILED → this still runs → fail-closed REQUEST_CHANGES. ✓
+  #   - review CANCELLED (newer push cancelled the CI run via the caller's
+  #     concurrency group) → skipped. `always()` would run here and spam a
+  #     misleading fail-closed REQUEST_CHANGES on every rapid push. ✓
+  #   - caller skipped the whole workflow_call job → nothing in this file
+  #     runs at all, so the old requirement to mirror the caller's `if:`
+  #     in lockstep is gone by construction. ✓
+  # ---------------------------------------------------------------------------
+  merge-gate:
+    needs: review
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Submit formal review based on Claude's verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '[.[] | select(.body | contains("<!-- claude-comprehensive-review -->"))] | last | .body // ""')
+
+          if [ -z "$REVIEW_BODY" ]; then
+            echo "No Comprehensive Review comment found — submitting REQUEST_CHANGES (fail-closed)."
+            VERDICT="CHANGES_REQUESTED"
+            FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment found). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+          else
+            VERDICT=$(echo "$REVIEW_BODY" | grep -oE '<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->' | head -1 | sed -E 's/.*claude-verdict: ([A-Z_]+) .*/\1/')
+
+            if [ -z "${VERDICT:-}" ]; then
+              echo "No verdict marker in Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+              VERDICT="CHANGES_REQUESTED"
+              FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+            fi
+          fi
+
+          echo "Parsed verdict: $VERDICT"
+
+          case "$VERDICT" in
+            CHANGES_REQUESTED)
+              EVENT="REQUEST_CHANGES"
+              DESIRED_STATE="CHANGES_REQUESTED"
+              if [ -n "${FAIL_CLOSED_REASON:-}" ]; then
+                BODY="$FAIL_CLOSED_REASON"
+              else
+                BODY="Blocking until the findings in the Comprehensive Review comment above are addressed."
+              fi
+              ;;
+            APPROVE)
+              EVENT="APPROVE"
+              DESIRED_STATE="APPROVED"
+              BODY="All prior findings addressed. See the Comprehensive Review comment above for the current assessment."
+              ;;
+            COMMENT)
+              EVENT="COMMENT"
+              DESIRED_STATE="COMMENTED"
+              BODY="Minor suggestions only — see the Comprehensive Review comment above. Not blocking."
+              ;;
+            *)
+              echo "Unknown verdict: $VERDICT — skipping."
+              exit 0
+              ;;
+          esac
+
+          BOT_LOGIN="github-actions[bot]"
+          PRIOR_STATE=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
+            --jq "[.[] | select(.user.login == \"$BOT_LOGIN\")] | last | .state // \"NONE\"")
+
+          echo "Prior bot review state: $PRIOR_STATE"
+          echo "Desired state:          $DESIRED_STATE"
+
+          if [ "$PRIOR_STATE" = "$DESIRED_STATE" ]; then
+            echo "Already in desired state — no new review submitted."
+            exit 0
+          fi
+
+          gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+            -X POST \
+            -f event="$EVENT" \
+            -f body="$BODY"
+
+          echo "Submitted $EVENT review on PR #$PR_NUMBER."

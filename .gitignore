@@ -1,0 +1,16 @@
+# Machine-local / private — never commit (templates ship as *.example)
+CLAUDE.local.md
+settings.local.json
+.superpowers/
+
+# Adoption staging + learning trail (machine-local, per-user)
+eval/
+learning-trail/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
