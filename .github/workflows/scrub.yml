@@ -1,0 +1,18 @@
+name: scrub
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scrub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # scrub-terms.local is gitignored and absent in CI, so this runs the
+      # secret/path baseline. Run scripts/scrub_check.py locally (with your
+      # scrub-terms.local) before publishing to enforce your own terms too.
+      - run: python scripts/scrub_check.py

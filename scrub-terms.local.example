@@ -1,0 +1,17 @@
+# scrub-terms.local — copy this to `scrub-terms.local` (gitignored) and add YOUR
+# private identifiers. `python scripts/scrub_check.py` FAILS on any match, so run
+# it before publishing / pushing.
+#
+# One Python regex per line. Blank lines and lines starting with `#` are ignored.
+# Add the distinctive strings that must never leak into a public repo:
+#   - employer / organization names
+#   - internal product or repository names
+#   - your work email domain, and your own name / usernames
+#   - internal hostnames or service names
+#
+# Examples (PLACEHOLDERS — replace with your own):
+# acme-corp
+# acmehq
+# \binternal-service-name\b
+# @acme\.com
+# \bjdoe\b

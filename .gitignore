@@ -1,6 +1,7 @@
 # Machine-local / private — never commit (templates ship as *.example)
 CLAUDE.local.md
 settings.local.json
+scrub-terms.local
 .superpowers/
 
 # Adoption staging + learning trail (machine-local, per-user)
