@@ -57,6 +57,7 @@ Nescio is organized around four dimensions of a useful AI operator:
 | `critic` | Devil's advocate — challenges the approach before it's built. |
 | `librarian` | External docs / OSS research with cited sources. |
 | `explore` | Fast codebase search. |
+| `multimodal-looker` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
 
 ## Memory & the learning loop
 
