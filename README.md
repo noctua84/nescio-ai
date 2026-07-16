@@ -10,8 +10,7 @@ Nescio is a portable, version-controlled configuration for
 memory that grows over time, and a learning loop. Built for software development
 with a security edge.
 
-> **Status:** early / working name. This README is a stub — full docs land in a
-> later phase.
+*Status: early and evolving — the name is provisional and the layout may shift.*
 
 ## What makes it different
 
@@ -44,6 +43,30 @@ Nescio is organized around four dimensions of a useful AI operator:
   sessions into durable memory. *(Unattended, autonomous action is on the
   roadmap, gated behind a readiness/autonomy dial.)*
 
+## Quickstart
+
+Requires [Claude Code](https://claude.com/claude-code) and Python 3.
+
+```bash
+git clone <this-repo> ~/dev/nescio
+cd ~/dev/nescio
+./install.sh          # POSIX (macOS / Linux)
+# …or, any OS incl. Windows:
+python install.py
+```
+
+The installer symlinks this repo's config — `agents/`, `skills/`, `commands/`,
+and `memory/` — into `~/.claude`, and creates `CLAUDE.local.md` /
+`settings.local.json` from the templates if missing. Edits here then take effect
+everywhere. It **refuses to overwrite an existing real file** at a target — back
+it up (or use `install.py`'s adoption flow) and re-run; both installers are
+idempotent. `settings.json` sets `orchestrator` as the default agent, so you talk
+to the crew by default.
+
+On Windows, creating symlinks needs **Developer Mode** (Settings → Privacy &
+security → For developers) or an elevated terminal; otherwise `install.py` reports
+what it couldn't link and continues.
+
 ## The crew
 
 | Agent | Role |
@@ -59,25 +82,58 @@ Nescio is organized around four dimensions of a useful AI operator:
 | `explore` | Fast codebase search. |
 | `multimodal-looker` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
 
+## Skills
+
+On-demand capability modules under `skills/`, loaded by name when relevant. Nescio
+ships a working set spanning development and security/compliance — e.g.
+`secure-code-review`, `threat-model`, `vuln-assessment`,
+`api-security-assessment`, the compliance suite (`soc2-report`, `iso27001-isms`,
+`hipaa-assessment`, `pci-dss-assessment`, `compliance-gap-analysis`), plus
+dev-workflow skills (`create-adr`, `repo-hygiene`, `handle-pr-comments`,
+`gh-milestones-projects`) and prompt/agent-evaluation skills. Add your own by
+dropping a `SKILL.md` into a new folder.
+
 ## Memory & the learning loop
 
-An on-demand `memory/` tree (per-repo, per-project, feedback, glossary) that ships
-here as *structure and templates* — you fill it with your own learnings, which
-sync across your machines via your own copy. A learning loop captures session
-activity and promotes durable learnings into memory with source-precedence and
-de-duplication.
+**Memory** (`memory/`) is durable, on-demand knowledge — per-repo notes,
+per-project notes, standing feedback, and a glossary — loaded only when relevant,
+not into the always-on prompt. It ships here as *structure + templates + one
+`EXAMPLE` note*; you fill it with your own learnings, which sync across your
+machines through your own clone.
+
+**The learning loop** captures session activity (a Stop hook writes a local
+trail) and, via `/harvest-memory`, curates durable learnings into `memory/` with
+source-precedence, contradiction resolution, and a de-duplication ledger. A
+per-repo `readiness.md` tracks how sessions have gone — the input for a planned
+autonomy dial.
 
 ## Optional: the philosopher theme
 
 The agent names above are functional on purpose. If you'd like personality, an
 optional theme renames the thinker/advisor agents after Graeco-Roman philosophers
 (`planner`→`plato`, `advisor`→`aristotle`, `reviewer`→`pyrrho`, `critic`→
-`socrates`).
+`socrates`) — tracing the Socrates → Plato → Aristotle lineage, plus Pyrrho the
+skeptic.
 
-## Install
+## Prerequisites
 
-_TODO (later phase): `git clone … && ./install.sh` — symlinks the crew, skills,
-and memory into `~/.claude`._
+- **Claude Code** and **Python 3**.
+- Recommended plugins (declared in `settings.json`, installed per machine):
+  `superpowers` (skills used across workflows) and `typescript-lsp` /
+  `pyright-lsp` (semantic code search for `explore`). No agent hard-depends on a
+  plugin — the crew works without them.
+
+## Keeping private data out
+
+If you fork Nescio and fill `memory/` with real, work-specific knowledge, keep it
+out of anything you publish: copy `scrub-terms.local.example` to
+`scrub-terms.local` (gitignored), add your employer / repo / personal
+identifiers, and run `python scripts/scrub_check.py` before pushing. The bundled
+`scrub` CI workflow runs a secret/path baseline on every push.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
