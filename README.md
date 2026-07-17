@@ -80,7 +80,7 @@ what it couldn't link and continues.
 | `critic` | Devil's advocate — challenges the approach before it's built. |
 | `librarian` | External docs / OSS research with cited sources. |
 | `explore` | Fast codebase search. |
-| `multimodal-looker` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
+| `vision` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
 
 ## Skills
 
