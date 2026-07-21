@@ -33,5 +33,36 @@ class TestSplitFrontmatter(unittest.TestCase):
         self.assertEqual(wc.split_frontmatter("---\nname: x\n"), ({}, "---\nname: x\n"))
 
 
+import json
+import tempfile
+from pathlib import Path
+
+
+class TestIterNotes(unittest.TestCase):
+    def test_skips_index_and_dotdirs(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.md").write_text("---\nname: a\n---\nbody\n", encoding="utf-8")
+            (root / "MEMORY.md").write_text("- index\n", encoding="utf-8")
+            (root / ".obsidian").mkdir()
+            (root / ".obsidian" / "x.md").write_text("hidden\n", encoding="utf-8")
+            names = sorted(p.name for p, _, _ in wc.iter_notes(root))
+            self.assertEqual(names, ["a.md"])
+
+
+class TestLoadStores(unittest.TestCase):
+    def test_absent_returns_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(wc.load_stores(Path(d)), {})
+
+    def test_reads_stores_key(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "stores.json").write_text(
+                json.dumps({"stores": {"vault": {"path": "vault"}}}), encoding="utf-8"
+            )
+            self.assertEqual(wc.load_stores(root), {"vault": {"path": "vault"}})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,9 @@ and extracts [[wikilinks]]. Path-parameterized for tests.
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
@@ -49,3 +51,38 @@ def split_frontmatter(text: str) -> tuple[dict[str, object], str]:
             v = v.strip()
             fm[key] = v if v else []
     return fm, body
+
+
+def iter_notes(
+    dir_path: Path, *, recursive: bool = True
+) -> Iterator[tuple[Path, dict[str, object], str]]:
+    """Yield (path, frontmatter, body) for each note under dir_path.
+
+    Skips MEMORY.md / index.md and anything inside a dot-directory (e.g.
+    .obsidian). Sorted for deterministic output.
+    """
+    globber = dir_path.rglob("*.md") if recursive else dir_path.glob("*.md")
+    for p in sorted(globber):
+        rel_parts = p.relative_to(dir_path).parts
+        if any(part.startswith(".") for part in rel_parts):
+            continue
+        if p.name in {"MEMORY.md", "index.md"}:
+            continue
+        text = p.read_text(encoding="utf-8")
+        fm, body = split_frontmatter(text)
+        yield p, fm, body
+
+
+def load_stores(repo_dir: Path = REPO_DIR) -> dict[str, dict]:
+    """Load stores.json (store name -> config); {} when absent.
+
+    stores.example.json documents the schema; the real stores.json is
+    machine-local (gitignored in a consuming repo).
+    """
+    cfg = repo_dir / "stores.json"
+    if not cfg.exists():
+        return {}
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "stores" in data:
+        return data["stores"]
+    return data if isinstance(data, dict) else {}
