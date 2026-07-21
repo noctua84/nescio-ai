@@ -80,6 +80,7 @@ VALID_SCOPE_BUCKETS = {
     "feedback",
     "people",
     "glossary",
+    "concepts",
 }
 
 # Matches the trailing provenance line this script writes, so an existing note's

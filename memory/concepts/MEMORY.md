@@ -1,0 +1,1 @@
+- [EXAMPLE-concept](EXAMPLE.md) — Template concept note — a cross-cutting truth generalized from ≥2 repos. Replace with real content.
