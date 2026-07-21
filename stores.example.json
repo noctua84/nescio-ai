@@ -1,0 +1,16 @@
+{
+  "stores": {
+    "operational": {
+      "path": "memory",
+      "profile": "operational",
+      "layers": ["concepts", "references"],
+      "obsidian": false
+    },
+    "vault": {
+      "path": "vault",
+      "profile": "knowledge",
+      "layers": ["sources", "entities", "concepts", "domains"],
+      "obsidian": true
+    }
+  }
+}
