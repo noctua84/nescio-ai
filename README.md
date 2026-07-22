@@ -116,6 +116,10 @@ optional theme renames the thinker/advisor agents after Graeco-Roman philosopher
 `socrates`) — tracing the Socrates → Plato → Aristotle lineage, plus Pyrrho the
 skeptic.
 
+Apply it with `python scripts/apply_theme.py philosophers` (and
+`python scripts/apply_theme.py functional` to revert). It renames the agent files,
+frontmatter, and all cross-references; it's idempotent and reversible.
+
 ## Prerequisites
 
 - **Claude Code** and **Python 3**.
