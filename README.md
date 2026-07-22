@@ -1,11 +1,12 @@
-# Nescio
+# NescioAI
 
 > *"I know that I do not know."*
 >
 > An agent crew for Claude Code that says **"I don't know"** — and argues with
 > itself before it argues with you.
 
-Nescio is a portable, version-controlled configuration for
+NescioAI (**Nescio** for short — Latin *"I do not know,"* the Socratic starting
+point of real knowledge) is a portable, version-controlled configuration for
 [Claude Code](https://claude.com/claude-code): a crew of specialized agents, a
 memory that grows over time, and a learning loop. Built for software development
 with a security edge.
