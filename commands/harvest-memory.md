@@ -17,7 +17,7 @@ Two memory stores coexist:
 - `~/.claude/projects/<path-slug>/memory/` — where session-captured memory lands
   automatically. Keyed by the absolute clone path → **machine-local, not synced,
   not portable**.
-- repo `memory/` (symlinked to `~/.claude/memory` by `install.sh`) —
+- repo `memory/` (symlinked to `~/.claude/memory` by `install.py`) —
   **version-controlled and synced** across machines.
 
 This command curates the former into the latter. Nothing here is automatic;
