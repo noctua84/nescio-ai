@@ -1,6 +1,6 @@
 ---
 name: adopt-config
-description: Discover pre-existing Claude config on this machine (files install.sh/install.py won't overwrite, plus other known sources) and integrate the worthwhile parts into this repo. Two-stage flow (adopt inbox -> adopted archive) with a tracked ledger so nothing is evaluated twice. Use when setting up on a new machine, when the installer reports "exists and is not a symlink", or to learn from prior config/memory.
+description: Discover pre-existing Claude config on this machine (files install.py won't overwrite, plus other known sources) and integrate the worthwhile parts into this repo. Two-stage flow (adopt inbox -> adopted archive) with a tracked ledger so nothing is evaluated twice. Use when setting up on a new machine, when the installer reports "exists and is not a symlink", or to learn from prior config/memory.
 user-invocable: true
 ---
 
@@ -85,9 +85,9 @@ python install.py --relink --dry-run   # preview first
 `--relink` never deletes (it backs up first), and for a conflicting
 `settings.json` it auto-rescues the machine-specific keys into
 `settings.local.json` before the swap (see the installer's rule-based split — it
-does **not** touch `allow` rules or `CLAUDE.md`, which stay your judgment). On
-POSIX you can instead back up the files by hand and re-run `install.sh` (the
-simple symlinker, no adoption automation).
+does **not** touch `allow` rules or `CLAUDE.md`, which stay your judgment). You
+can instead back up the files by hand and re-run `python install.py` (which
+detects the conflict and stages it for review).
 
 ## Guardrails
 

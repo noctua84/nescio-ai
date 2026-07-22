@@ -52,7 +52,6 @@ Requires [Claude Code](https://claude.com/claude-code) and Python 3.
 git clone <this-repo> ~/dev/nescio
 cd ~/dev/nescio
 python install.py               # any OS incl. Windows (prompts for settings + CLAUDE.md)
-# …or POSIX symlinks only:  ./install.sh   (then run install.py for settings + CLAUDE.md)
 ```
 
 `install.py` symlinks the config Claude Code reads at user scope — `agents/`,
@@ -86,10 +85,10 @@ Claude Code, so the installer doesn't create them, and removes any left by older
 versions.) Pass `--settings full|minimal|skip` and `--claude-md import|replace|skip`
 for an unattended install; re-runs are idempotent.
 
-`./install.sh` is the POSIX symlink-only path (no Python needed): it makes the
-same symlinks, then points you at `python install.py` for the `settings.json` +
-`CLAUDE.md` + hooks steps. On Windows, symlinks need **Developer Mode** or an
-elevated terminal.
+`install.py` is the single installer (pure standard-library Python, no
+dependencies). On Windows, symlink creation needs **Developer Mode** (Settings >
+Privacy & security > For developers) or an elevated terminal — the script says so
+and changes nothing if it can't.
 
 ## The crew
 
