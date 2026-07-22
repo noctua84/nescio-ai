@@ -51,29 +51,45 @@ Requires [Claude Code](https://claude.com/claude-code) and Python 3.
 ```bash
 git clone <this-repo> ~/dev/nescio
 cd ~/dev/nescio
-python install.py               # any OS incl. Windows (prompts for settings)
-# …or POSIX symlinks only:  ./install.sh   (then run install.py for settings)
+python install.py               # any OS incl. Windows (prompts for settings + CLAUDE.md)
+# …or POSIX symlinks only:  ./install.sh   (then run install.py for settings + CLAUDE.md)
 ```
 
 `install.py` symlinks the config Claude Code reads at user scope — `agents/`,
-`skills/`, `memory/`, `commands/`, `hooks/`, `CLAUDE.md` — into `~/.claude`, then
-asks **how to integrate `settings.json`**:
+`skills/`, `memory/`, `commands/`, `hooks/` — into `~/.claude`, then asks two
+consent questions: how to integrate **`settings.json`** and **`CLAUDE.md`**.
+
+**`settings.json`** — `full | minimal | skip`:
 
 - **full** — the whole `settings.json` (default agent + permissions + plugins) + hooks
 - **minimal** — only `agent: orchestrator` (+ the learning-loop hooks)
 - **skip** — change nothing
 
-`settings.json` is written as a **real, merged file** in `~/.claude` (not a
-symlink): the chosen keys win, your existing settings are preserved, and the
-hooks — which Claude Code honors **only** in `~/.claude/settings.json` — are wired
-with absolute paths. (`~/.claude/settings.local.json` and `~/.claude/CLAUDE.local.md`
-are *not* read by Claude Code, so the installer doesn't create them, and removes
-any left by older versions.) Pass `--settings full|minimal|skip` for an
-unattended install; re-runs are idempotent.
+It's written as a **real, merged file** in `~/.claude` (not a symlink): the chosen
+keys win, your existing settings are preserved, and the hooks — which Claude Code
+honors **only** in `~/.claude/settings.json` — are wired with absolute paths.
+
+**`CLAUDE.md`** — `import | replace | skip`:
+
+- **import** — your `~/.claude/CLAUDE.md` `@`-imports the framework's, keeping any
+  instructions you already have (the recommended, non-destructive default)
+- **replace** — symlink the framework's `CLAUDE.md` as your global (an existing one
+  is backed up first)
+- **skip** — leave `~/.claude/CLAUDE.md` untouched
+
+`CLAUDE.md` is composed via Claude Code's `@path` import because only one
+user-scope `CLAUDE.md` is read: **import** makes `~/.claude/CLAUDE.md` a real file
+whose first line is `@<repo>/CLAUDE.md` (resolved live) with your own lines below.
+
+(`~/.claude/settings.local.json` and `~/.claude/CLAUDE.local.md` are *not* read by
+Claude Code, so the installer doesn't create them, and removes any left by older
+versions.) Pass `--settings full|minimal|skip` and `--claude-md import|replace|skip`
+for an unattended install; re-runs are idempotent.
 
 `./install.sh` is the POSIX symlink-only path (no Python needed): it makes the
-same symlinks, then points you at `python install.py` for the settings + hooks
-step. On Windows, symlinks need **Developer Mode** or an elevated terminal.
+same symlinks, then points you at `python install.py` for the `settings.json` +
+`CLAUDE.md` + hooks steps. On Windows, symlinks need **Developer Mode** or an
+elevated terminal.
 
 ## The crew
 

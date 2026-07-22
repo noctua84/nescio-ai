@@ -20,10 +20,11 @@ link() {
   echo "  linked $dst -> $src"
 }
 
-# Symlink the config Claude Code reads at user scope. settings.json is NOT
-# symlinked here: it needs a consent step + machine-specific hooks (absolute
-# paths), which install.py handles — see the note below.
-link "$REPO_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+# Symlink the config Claude Code reads at user scope. settings.json and CLAUDE.md
+# are NOT symlinked here: settings.json needs a consent step + machine-specific
+# hooks (absolute paths), and CLAUDE.md needs a consent step too (import vs
+# replace, so it can compose with a CLAUDE.md you already have). install.py handles
+# both — see the note below.
 link "$REPO_DIR/memory"    "$CLAUDE_DIR/memory"
 link "$REPO_DIR/skills"    "$CLAUDE_DIR/skills"
 link "$REPO_DIR/agents"    "$CLAUDE_DIR/agents"
@@ -40,8 +41,9 @@ for dead in settings.local.json CLAUDE.local.md; do
 done
 
 echo ""
-echo "Symlinks done. settings.json + the learning-loop hooks must live in"
+echo "Symlinks done. settings.json + the learning-loop hooks live in"
 echo "~/.claude/settings.json (Claude Code ignores user-scope .local files), and"
-echo "adopting settings needs a consent step — run:"
-echo "    python install.py --settings minimal   # or: full | skip"
+echo "both settings.json and CLAUDE.md need a consent step — run:"
+echo "    python install.py --settings minimal --claude-md import"
+echo "    # --settings: full|minimal|skip   --claude-md: import|replace|skip"
 echo "Then restart Claude Code / Desktop to pick up the changes."
