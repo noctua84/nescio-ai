@@ -12,10 +12,11 @@ a **conflict** and is never overwritten silently:
     python install.py             detect conflicts; auto-stage any not-yet-adopted
                                    ones into eval/adopt/ for review with /adopt-config
     python install.py --relink     back up each conflicting real file to
-                                   <name>.pre-adopt-<ts>.bak, then symlink. For a
-                                   conflicting settings.json, first rescue the
-                                   unambiguously machine-specific keys into
-                                   settings.local.json (rule-based split).
+                                   <name>.pre-adopt-<ts>.bak, then symlink it into
+                                   the repo. settings.json and CLAUDE.md are not
+                                   symlinked — they're integrated per the --settings
+                                   / --claude-md consent choice (see install_settings
+                                   / install_claude_md).
     python install.py --dry-run    preview any of the above without writing
 
 The content merge itself (which `allow` rules / CLAUDE.md lines are worth
@@ -41,12 +42,13 @@ sys.path.insert(0, str(REPO_DIR / "scripts"))
 from _adopt_common import is_done, parse_ledger, sha8  # noqa: E402
 from _settings_split import deep_merge  # noqa: E402
 
-# Repo path -> target name under ~/.claude. NOTE: settings.json is deliberately
-# NOT symlinked — it's generated as a real, merged file by install_settings()
-# (Claude Code ignores ~/.claude/settings.local.json, and user-scope hooks must
-# live in ~/.claude/settings.json, which is machine-specific, not synced).
+# Repo path -> target name under ~/.claude. NOTE: settings.json and CLAUDE.md are
+# deliberately NOT symlinked. settings.json is generated as a real, merged file by
+# install_settings() (Claude Code ignores ~/.claude/settings.local.json, and
+# user-scope hooks must live in ~/.claude/settings.json, which is machine-specific
+# and not synced). CLAUDE.md is handled by install_claude_md() per a consent choice
+# (import the framework's into / replace / skip the user's ~/.claude/CLAUDE.md).
 LINKS = [
-    ("CLAUDE.md", "CLAUDE.md"),
     ("memory", "memory"),
     ("skills", "skills"),
     ("agents", "agents"),
@@ -61,6 +63,7 @@ LINKS = [
 TEMPLATES: list[tuple[str, str]] = []
 
 SETTINGS_CHOICES = ("full", "minimal", "skip")
+CLAUDEMD_CHOICES = ("import", "replace", "skip")
 
 
 def is_conflict(dst: Path) -> bool:
@@ -226,6 +229,90 @@ def cleanup_dead_user_local(dry_run: bool) -> None:
             print(f"  note: {p} is ignored by Claude Code (user-scope .local files aren't read) — safe to delete.")
 
 
+def resolve_claudemd_choice(cli_choice: str | None) -> str:
+    """Return 'import' | 'replace' | 'skip'. Ask every time — never a silent default.
+
+    A non-interactive run must pass --claude-md, mirroring resolve_settings_choice
+    so an unattended install can't quietly pick for the user.
+    """
+    if cli_choice:
+        return cli_choice
+    if not sys.stdin.isatty():
+        print("  ! Non-interactive install: pass --claude-md {import,replace,skip}.", file=sys.stderr)
+        print("    import  = your ~/.claude/CLAUDE.md @-imports the framework's (keeps your own);", file=sys.stderr)
+        print("    replace = symlink the framework's CLAUDE.md as your global (backs up an existing one);", file=sys.stderr)
+        print("    skip    = leave ~/.claude/CLAUDE.md untouched.", file=sys.stderr)
+        sys.exit(2)
+    print("\nHow should this framework's CLAUDE.md integrate with ~/.claude/CLAUDE.md?")
+    print("  import   your ~/.claude/CLAUDE.md @-imports the framework's (keeps your own additions)")
+    print("  replace  symlink the framework's CLAUDE.md as your global (backs up an existing one)")
+    print("  skip     leave ~/.claude/CLAUDE.md untouched")
+    while True:
+        ans = input("  choose [import/replace/skip]: ").strip().lower()
+        if ans in CLAUDEMD_CHOICES:
+            return ans
+        print("    please type one of: import, replace, skip")
+
+
+def install_claude_md(choice: str, dry_run: bool) -> None:
+    """Integrate the framework's CLAUDE.md with ~/.claude/CLAUDE.md per the choice.
+
+    Only one user-scope CLAUDE.md is read, so composition is via Claude Code's
+    `@path` import mechanism (documented + reliable at user scope — unlike the
+    ignored settings.local.json):
+
+      import   ~/.claude/CLAUDE.md becomes a REAL file whose first line is
+               `@<repo>/CLAUDE.md` (the framework brief, resolved live) with the
+               user's own instructions preserved below. Idempotent.
+      replace  symlink ~/.claude/CLAUDE.md -> the repo's CLAUDE.md (an existing
+               real file is backed up first). The framework brief IS the global.
+      skip     leave ~/.claude/CLAUDE.md untouched.
+    """
+    target = CLAUDE_DIR / "CLAUDE.md"
+    repo_md = REPO_DIR / "CLAUDE.md"
+    import_line = f"@{repo_md}"
+
+    if choice == "skip":
+        print("  CLAUDE.md: skip — leaving ~/.claude/CLAUDE.md unchanged")
+        return
+
+    if choice == "replace":
+        if is_conflict(target):  # a real file — preserve it before symlinking
+            backup(target, datetime.now().strftime("%Y%m%d-%H%M%S"), dry_run)
+        symlink(repo_md, target, dry_run)
+        return
+
+    # choice == "import"
+    existing = ""
+    if target.is_symlink():
+        # An older installer symlinked this into the repo; become a real file that
+        # imports it instead, so the user can keep their own lines below.
+        if dry_run:
+            print(f"  CLAUDE.md: would replace the repo symlink at {target} with a real importing file")
+        else:
+            target.unlink()
+    elif target.is_file():
+        existing = target.read_text(encoding="utf-8")
+
+    if import_line in existing:
+        print(f"  CLAUDE.md: {target} already imports the framework — nothing to do")
+        return
+
+    if existing.strip():
+        new_text = f"{import_line}\n\n{existing}"
+    else:
+        new_text = (
+            f"{import_line}\n\n"
+            "# Your instructions\n\n"
+            "# Add your own global instructions below; they load alongside the import above.\n"
+        )
+    if dry_run:
+        print(f"  CLAUDE.md: would add `{import_line}` to {target} (import)")
+        return
+    target.write_text(new_text, encoding="utf-8")
+    print(f"  CLAUDE.md: wrote {target} importing the framework (import)")
+
+
 def _norm_path(p: str) -> str:
     """Case/separator-insensitive path key for comparing wired hook paths.
 
@@ -245,7 +332,7 @@ def _wire_command_hook(
     use_async: bool,
     dry_run: bool,
 ) -> None:
-    """Inject a global command hook for ``event_name`` into settings.local.json.
+    """Inject a global command hook for ``event_name`` into ~/.claude/settings.json.
 
     Claude Code does not expand ${CLAUDE_CONFIG_DIR}, ~, or $HOME inside a hook
     command/args, so a user-level hook must be wired with an install-time
@@ -253,10 +340,12 @@ def _wire_command_hook(
     (``sys.executable``) and the script is the symlinked
     ``<config_dir>/hooks/<script_name>``.
 
-    The write goes into settings.local.json (machine-local, gitignored) — never
-    the committed settings.json — because the resolved paths are machine
-    specific. Existing keys are preserved (raw load + merge, so ``_comment_*``
-    docs survive) and the injection is idempotent: a repeated run (including
+    The write goes into ~/.claude/settings.json — the only user-scope settings
+    file Claude Code reads (settings.local.json is ignored at user scope). That
+    file is generated as a real, machine-local file (never symlinked into the
+    repo), so the resolved absolute paths stay off the synced tree. Existing keys
+    are preserved (raw load + merge, so ``_comment_*`` docs survive) and the
+    injection is idempotent: a repeated run (including
     ``--relink``) that finds an ``event_name`` entry already referencing this
     script path — compared path-normalized — is a no-op, unless the recorded
     interpreter ``command`` has drifted from the current ``sys.executable`` (e.g.
@@ -367,7 +456,7 @@ def _wire_command_hook(
 
 
 def wire_stop_hook(config_dir: Path, *, dry_run: bool) -> None:
-    """Wire the global Stop hook (``record_stop.py``, async) into settings.local.json."""
+    """Wire the global Stop hook (``record_stop.py``, async) into ~/.claude/settings.json."""
     _wire_command_hook(
         config_dir,
         event_name="Stop",
@@ -378,7 +467,7 @@ def wire_stop_hook(config_dir: Path, *, dry_run: bool) -> None:
 
 
 def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
-    """Wire the global SessionStart hook (``harvest_nudge.py``) into settings.local.json.
+    """Wire the global SessionStart hook (``harvest_nudge.py``) into ~/.claude/settings.json.
 
     Synchronous (no ``async`` key): its stdout is injected as session context, so
     it must run to completion before the session proceeds.
@@ -392,7 +481,7 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
     )
 
 
-def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str) -> int:
+def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
     """Back up each conflicting real target and symlink it into the repo."""
     # Refuse before touching anything if we can't create symlinks — otherwise we'd
     # back up real files and then fail to link them, leaving ~/.claude half-broken.
@@ -450,6 +539,7 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str) -> int:
     # worse, leave a real settings.local.json blocking future installs.
     cleanup_dead_user_local(dry_run)
     install_settings(choice, dry_run)
+    install_claude_md(claudemd_choice, dry_run)
     if choice != "skip" and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
@@ -474,7 +564,7 @@ def stage_conflicts(dry_run: bool) -> None:
     adopt_existing_config.main()
 
 
-def do_default(dry_run: bool, ledger: dict, choice: str) -> int:
+def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
     """Link safe targets; detect conflicts and route them to staging or --relink."""
     if not dry_run:
         CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -507,6 +597,7 @@ def do_default(dry_run: bool, ledger: dict, choice: str) -> int:
     if not conflicts:
         cleanup_dead_user_local(dry_run)
         install_settings(choice, dry_run)
+        install_claude_md(claudemd_choice, dry_run)
         # Hooks live in ~/.claude/settings.json now; wire them only if the hooks/
         # symlink is in place and the user didn't skip settings integration.
         if choice != "skip" and hooks_linked:
@@ -545,6 +636,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settings", choices=SETTINGS_CHOICES, default=None,
                     help="settings.json integration: full | minimal | skip "
                          "(prompted if omitted; required when non-interactive)")
+    ap.add_argument("--claude-md", choices=CLAUDEMD_CHOICES, default=None,
+                    help="CLAUDE.md integration: import | replace | skip "
+                         "(prompted if omitted; required when non-interactive)")
     args = ap.parse_args(argv)
 
     print(f"Repo:   {REPO_DIR}")
@@ -556,9 +650,10 @@ def main(argv: list[str] | None = None) -> int:
     ledger = parse_ledger()
 
     choice = resolve_settings_choice(args.settings)
+    claudemd_choice = resolve_claudemd_choice(args.claude_md)
     if args.relink:
-        return do_relink(stamp, args.dry_run, ledger, choice)
-    return do_default(args.dry_run, ledger, choice)
+        return do_relink(stamp, args.dry_run, ledger, choice, claudemd_choice)
+    return do_default(args.dry_run, ledger, choice, claudemd_choice)
 
 
 if __name__ == "__main__":
