@@ -51,22 +51,29 @@ Requires [Claude Code](https://claude.com/claude-code) and Python 3.
 ```bash
 git clone <this-repo> ~/dev/nescio
 cd ~/dev/nescio
-./install.sh          # POSIX (macOS / Linux)
-# …or, any OS incl. Windows:
-python install.py
+python install.py               # any OS incl. Windows (prompts for settings)
+# …or POSIX symlinks only:  ./install.sh   (then run install.py for settings)
 ```
 
-The installer symlinks this repo's config — `agents/`, `skills/`, `commands/`,
-and `memory/` — into `~/.claude`, and creates `CLAUDE.local.md` /
-`settings.local.json` from the templates if missing. Edits here then take effect
-everywhere. It **refuses to overwrite an existing real file** at a target — back
-it up (or use `install.py`'s adoption flow) and re-run; both installers are
-idempotent. `settings.json` sets `orchestrator` as the default agent, so you talk
-to the crew by default.
+`install.py` symlinks the config Claude Code reads at user scope — `agents/`,
+`skills/`, `memory/`, `commands/`, `hooks/`, `CLAUDE.md` — into `~/.claude`, then
+asks **how to integrate `settings.json`**:
 
-On Windows, creating symlinks needs **Developer Mode** (Settings → Privacy &
-security → For developers) or an elevated terminal; otherwise `install.py` reports
-what it couldn't link and continues.
+- **full** — the whole `settings.json` (default agent + permissions + plugins) + hooks
+- **minimal** — only `agent: orchestrator` (+ the learning-loop hooks)
+- **skip** — change nothing
+
+`settings.json` is written as a **real, merged file** in `~/.claude` (not a
+symlink): the chosen keys win, your existing settings are preserved, and the
+hooks — which Claude Code honors **only** in `~/.claude/settings.json` — are wired
+with absolute paths. (`~/.claude/settings.local.json` and `~/.claude/CLAUDE.local.md`
+are *not* read by Claude Code, so the installer doesn't create them, and removes
+any left by older versions.) Pass `--settings full|minimal|skip` for an
+unattended install; re-runs are idempotent.
+
+`./install.sh` is the POSIX symlink-only path (no Python needed): it makes the
+same symlinks, then points you at `python install.py` for the settings + hooks
+step. On Windows, symlinks need **Developer Mode** or an elevated terminal.
 
 ## The crew
 

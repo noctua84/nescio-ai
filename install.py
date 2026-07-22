@@ -39,13 +39,12 @@ CLAUDE_DIR = Path.home() / ".claude"
 
 sys.path.insert(0, str(REPO_DIR / "scripts"))
 from _adopt_common import is_done, parse_ledger, sha8  # noqa: E402
-from _settings_split import (  # noqa: E402
-    classify_machine_local,
-    deep_merge,
-    leftover_top_level_keys,
-)
+from _settings_split import deep_merge  # noqa: E402
 
-# Repo path -> target name under ~/.claude
+# Repo path -> target name under ~/.claude. NOTE: settings.json is deliberately
+# NOT symlinked — it's generated as a real, merged file by install_settings()
+# (Claude Code ignores ~/.claude/settings.local.json, and user-scope hooks must
+# live in ~/.claude/settings.json, which is machine-specific, not synced).
 LINKS = [
     ("CLAUDE.md", "CLAUDE.md"),
     ("memory", "memory"),
@@ -53,14 +52,15 @@ LINKS = [
     ("agents", "agents"),
     ("commands", "commands"),
     ("hooks", "hooks"),
-    ("settings.json", "settings.json"),
 ]
 
-# Machine-local files created from a template if missing, then symlinked.
-TEMPLATES = [
-    ("settings.local.json", "settings.local.json.example"),
-    ("CLAUDE.local.md", "CLAUDE.local.md.example"),
-]
+# No user-scope template files: Claude Code does not read ~/.claude/settings.local.json
+# or ~/.claude/CLAUDE.local.md (both are project-scope-only). Settings + hooks go
+# into ~/.claude/settings.json (see install_settings); old dead .local symlinks are
+# cleaned up by cleanup_dead_user_local().
+TEMPLATES: list[tuple[str, str]] = []
+
+SETTINGS_CHOICES = ("full", "minimal", "skip")
 
 
 def is_conflict(dst: Path) -> bool:
@@ -151,42 +151,79 @@ def ensure_from_template(real: Path, template: Path, dry_run: bool) -> None:
     print(f"  created {real} from template (gitignored, edit freely)")
 
 
-def split_settings_local(stamp: str, dry_run: bool) -> None:
-    """Rescue machine-specific keys from a real ~/.claude/settings.json into the
-    repo's settings.local.json, so they survive the symlink swap. Portable keys
-    (allow rules, model, etc.) are left in the backup for manual review.
-    """
-    home_settings = CLAUDE_DIR / "settings.json"
-    if not is_conflict(home_settings):
-        return  # nothing real to split (fresh machine or already symlinked)
+def resolve_settings_choice(cli_choice: str | None) -> str:
+    """Return 'full' | 'minimal' | 'skip'. Ask every time — never a silent default.
 
-    settings = load_json(home_settings)
-    machine = classify_machine_local(settings)
-    if not machine:
-        print("  split: no unambiguous machine-specific keys in settings.json — nothing to move")
+    A non-interactive run must pass --settings, so an unattended install can't
+    quietly pick for the user.
+    """
+    if cli_choice:
+        return cli_choice
+    if not sys.stdin.isatty():
+        print("  ! Non-interactive install: pass --settings {full,minimal,skip}.", file=sys.stderr)
+        print("    full = adopt the whole settings.json (default agent + permissions +", file=sys.stderr)
+        print("    plugins) + hooks;  minimal = set agent=orchestrator (+ hooks);", file=sys.stderr)
+        print("    skip = change ~/.claude/settings.json not at all.", file=sys.stderr)
+        sys.exit(2)
+    print("\nIntegrate this framework's settings into ~/.claude/settings.json?")
+    print("  full     adopt the whole settings.json (default agent + permissions + plugins) + hooks")
+    print("  minimal  set only agent=orchestrator, plus the learning-loop hooks")
+    print("  skip     change nothing (the crew won't be your default agent)")
+    while True:
+        ans = input("  choose [full/minimal/skip]: ").strip().lower()
+        if ans in SETTINGS_CHOICES:
+            return ans
+        print("    please type one of: full, minimal, skip")
+
+
+def install_settings(choice: str, dry_run: bool) -> None:
+    """Write ~/.claude/settings.json as a REAL, merged file per the consent choice.
+
+    Claude Code ignores ~/.claude/settings.local.json, so user-scope settings AND
+    hooks must live in ~/.claude/settings.json. We generate it as a real file
+    (never a symlink into the repo — machine-specific hook paths must not be
+    committed/synced), deep-merging the chosen framework keys OVER any existing
+    user settings so the adopted keys win while the user's other keys and
+    allow-list are preserved. Hooks are wired separately, after this.
+    """
+    target = CLAUDE_DIR / "settings.json"
+    if choice == "skip":
+        print("  settings: skip — leaving ~/.claude/settings.json unchanged")
         return
 
-    # Base = existing local content (repo file first, then any real ~/.claude one),
-    # so the user's explicit local values stay authoritative over extracted keys.
-    repo_local = REPO_DIR / "settings.local.json"
-    existing = load_json(repo_local)
-    home_local = CLAUDE_DIR / "settings.local.json"
-    if is_conflict(home_local):
-        existing = deep_merge(load_json(home_local), existing)
+    if target.is_symlink():
+        # An older installer symlinked this into the repo; we manage a real file now.
+        if dry_run:
+            print(f"  settings: would replace the repo symlink at {target} with a real merged file")
+        else:
+            target.unlink()
 
-    merged = deep_merge(existing, machine)
-    moved = ", ".join(sorted(machine))
+    existing = load_json(target)  # {} if absent / just-unlinked symlink
+    overlay = {"agent": "orchestrator"} if choice == "minimal" else load_json(REPO_DIR / "settings.json")
+    merged = deep_merge(overlay, existing)  # overlay (framework) wins; user's extras kept
+
     if dry_run:
-        print(f"  split: would move [{moved}] into {repo_local}")
-    else:
-        repo_local.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-        print(f"  split: moved [{moved}] into {repo_local}")
+        print(f"  settings: would write {target} — {choice} ({', '.join(sorted(overlay)) or 'no keys'})")
+        return
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    print(f"  settings: wrote {target} ({choice})")
 
-    leftover = leftover_top_level_keys(settings, machine)
-    if leftover:
-        print(f"  split: left [{', '.join(leftover)}] in the backup — merge any you still")
-        print("         want into the repo's settings.json by hand (allow rules are judgment,")
-        print("         not a rule). additionalDirectories are copied verbatim — review them.")
+
+def cleanup_dead_user_local(dry_run: bool) -> None:
+    """Remove the user-scope *.local files an older installer symlinked into
+    ~/.claude — Claude Code never read them (they are project-scope-only). A real
+    (non-symlink) file is left in place but flagged, so we never delete user data.
+    """
+    for name in ("settings.local.json", "CLAUDE.local.md"):
+        p = CLAUDE_DIR / name
+        if p.is_symlink():
+            if dry_run:
+                print(f"  cleanup: would remove dead symlink {p} (Claude Code ignores user-scope .local files)")
+            else:
+                p.unlink()
+                print(f"  cleanup: removed dead symlink {p} (ignored by Claude Code)")
+        elif p.is_file():
+            print(f"  note: {p} is ignored by Claude Code (user-scope .local files aren't read) — safe to delete.")
 
 
 def _norm_path(p: str) -> str:
@@ -243,7 +280,7 @@ def _wire_command_hook(
               "(hooks link not created) — nothing wired")
         return
 
-    local_path = config_dir / "settings.local.json"
+    local_path = config_dir / "settings.json"
     # Read the raw JSON (not the comment-stripping load_json) so unrelated keys,
     # including the _comment_* guidance seeded in the template, survive the write.
     settings: dict = {}
@@ -355,7 +392,7 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
     )
 
 
-def do_relink(stamp: str, dry_run: bool, ledger: dict) -> int:
+def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str) -> int:
     """Back up each conflicting real target and symlink it into the repo."""
     # Refuse before touching anything if we can't create symlinks — otherwise we'd
     # back up real files and then fail to link them, leaving ~/.claude half-broken.
@@ -365,10 +402,6 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict) -> int:
             print("    Enable Developer Mode (Settings > Privacy & security > For")
             print("    developers) or run this terminal as Administrator, then re-run.")
         return 1
-
-    # Settings split must happen before the symlink replaces the live file; it may
-    # write settings.local.json, so run it before ensuring the templates exist.
-    split_settings_local(stamp, dry_run)
 
     template_srcs = {REPO_DIR / real for real, _ in TEMPLATES}
     for real, template in TEMPLATES:
@@ -415,7 +448,9 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict) -> int:
     # Only wire the hook when the hooks/ link specifically is (or would be) in
     # place; otherwise we'd reference a record_stop.py that never got linked and,
     # worse, leave a real settings.local.json blocking future installs.
-    if dry_run or hooks_linked:
+    cleanup_dead_user_local(dry_run)
+    install_settings(choice, dry_run)
+    if choice != "skip" and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
 
@@ -439,7 +474,7 @@ def stage_conflicts(dry_run: bool) -> None:
     adopt_existing_config.main()
 
 
-def do_default(dry_run: bool, ledger: dict) -> int:
+def do_default(dry_run: bool, ledger: dict, choice: str) -> int:
     """Link safe targets; detect conflicts and route them to staging or --relink."""
     if not dry_run:
         CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -470,14 +505,15 @@ def do_default(dry_run: bool, ledger: dict) -> int:
             symlink(real, dst, dry_run)
 
     if not conflicts:
-        # Only wire the Stop hook if the hooks/ symlink was (or would be) created;
-        # otherwise record_stop.py is absent and a wired file would just block
-        # future installs (and, on Windows without Developer Mode, the link fails).
-        if hooks_linked:
+        cleanup_dead_user_local(dry_run)
+        install_settings(choice, dry_run)
+        # Hooks live in ~/.claude/settings.json now; wire them only if the hooks/
+        # symlink is in place and the user didn't skip settings integration.
+        if choice != "skip" and hooks_linked:
             wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
-        else:
-            print("  skipping Stop hook: hooks/ link was not created")
+        elif choice != "skip":
+            print("  skipping hooks: hooks/ link was not created")
         print("Done. Restart Claude Code / Desktop to pick up changes.")
         return 0
 
@@ -503,9 +539,12 @@ def do_default(dry_run: bool, ledger: dict) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Install this claude-config repo into ~/.claude.")
     ap.add_argument("--relink", action="store_true",
-                    help="back up conflicting real files and symlink them (runs the settings split first)")
+                    help="back up conflicting real files and symlink them")
     ap.add_argument("--dry-run", action="store_true",
                     help="preview actions without writing anything")
+    ap.add_argument("--settings", choices=SETTINGS_CHOICES, default=None,
+                    help="settings.json integration: full | minimal | skip "
+                         "(prompted if omitted; required when non-interactive)")
     args = ap.parse_args(argv)
 
     print(f"Repo:   {REPO_DIR}")
@@ -516,9 +555,10 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     ledger = parse_ledger()
 
+    choice = resolve_settings_choice(args.settings)
     if args.relink:
-        return do_relink(stamp, args.dry_run, ledger)
-    return do_default(args.dry_run, ledger)
+        return do_relink(stamp, args.dry_run, ledger, choice)
+    return do_default(args.dry_run, ledger, choice)
 
 
 if __name__ == "__main__":
