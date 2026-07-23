@@ -24,8 +24,10 @@ any machine skips sources already recorded terminal (`integrated` / `no-change` 
 
 ## When to use
 
-- The installer printed `! … exists and is not a symlink — back it up and rerun,
-  skipping.` for `CLAUDE.md`, `settings.json`, or `settings.local.json`.
+- The installer reported `N existing real file(s) block symlinking:` — a real
+  file/dir (e.g. `~/.claude/agents`, `memory`, or `skills`) sitting where it wants
+  a symlink. (`settings.json` and `CLAUDE.md` are integrated by the `--settings` /
+  `--claude-md` consent steps, not symlinked, so they never appear here.)
 - Setting up on a machine that already had Claude Code / Desktop use.
 - Pulling prior per-project memory (`~/.claude/projects/*/memory/`) into the repo.
 
@@ -82,12 +84,13 @@ python install.py --relink        # back up each real file to *.pre-adopt-<ts>.b
 python install.py --relink --dry-run   # preview first
 ```
 
-`--relink` never deletes (it backs up first), and for a conflicting
-`settings.json` it auto-rescues the machine-specific keys into
-`settings.local.json` before the swap (see the installer's rule-based split — it
-does **not** touch `allow` rules or `CLAUDE.md`, which stay your judgment). You
-can instead back up the files by hand and re-run `python install.py` (which
-detects the conflict and stages it for review).
+`--relink` never deletes — it backs up each conflicting real file to
+`*.pre-adopt-<ts>.bak`, then symlinks it. `settings.json` and `CLAUDE.md` are the
+exceptions: they're **not** symlinked. `settings.json` is deep-merged into a real
+`~/.claude/settings.json` (the adopted keys win; your `allow` list and other keys
+are preserved) per the `--settings` choice, and `CLAUDE.md` is integrated per
+`--claude-md` (import / replace / skip). You can instead back up the files by hand
+and re-run `python install.py` (which detects the conflict and stages it for review).
 
 ## Guardrails
 
