@@ -150,6 +150,32 @@ frontmatter, and all cross-references; it's idempotent and reversible.
   `pyright-lsp` (semantic code search for `explore`). No agent hard-depends on a
   plugin — the crew works without them.
 
+### Optional: Serena semantic backend
+
+The `code-navigation` doctrine works out of the box on Claude Code's native `LSP`
+tool (TypeScript + Python, via the enabled plugins). For 40+ languages and
+symbol-level *editing*, connect [Serena](https://github.com/oraios/serena) as an
+optional MCP server — it stays fully optional; no agent depends on it.
+
+Install once (`uv` required):
+
+```bash
+uv tool install -p 3.13 serena-agent
+```
+
+Register it at user scope, **memory-disabled** so it never competes with Nescio's
+own `memory/` tree:
+
+```bash
+claude mcp add --scope user serena -- \
+  serena start-mcp-server --context claude-code --mode no-memories --project-from-cwd
+```
+
+The equivalent `mcpServers` block is in [`serena.mcp.example.json`](serena.mcp.example.json).
+This exposes only Serena's symbol navigation and symbol-safe editing tools; Claude
+Code's own Read/Edit/Grep/shell continue to handle everything else. Serena's
+JetBrains backend (paid, non-MIT) is not used.
+
 ## Keeping private data out
 
 If you fork Nescio and fill `memory/` with real, work-specific knowledge, keep it
