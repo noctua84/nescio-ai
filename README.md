@@ -153,9 +153,13 @@ frontmatter, and all cross-references; it's idempotent and reversible.
 ### Optional: Serena semantic backend
 
 The `code-navigation` doctrine works out of the box on Claude Code's native `LSP`
-tool (TypeScript + Python, via the enabled plugins). For 40+ languages and
-symbol-level *editing*, connect [Serena](https://github.com/oraios/serena) as an
-optional MCP server — it stays fully optional; no agent depends on it.
+tool (TypeScript + Python, via the enabled plugins) — provided the language-server
+binary is on your `PATH` (e.g. `pyright-langserver` for Python); enabling the
+plugin does not install the server itself. If it's missing, the doctrine falls
+back to text search and says so. For 40+ languages and symbol-level *editing* —
+and to sidestep the `PATH` requirement, since it bundles its own servers via
+`solidlsp` — connect [Serena](https://github.com/oraios/serena) as an optional MCP
+server; it stays fully optional, and no agent depends on it.
 
 Install once (`uv` required):
 
