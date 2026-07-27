@@ -6,74 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-import _settings_split as ss  # noqa: E402
-
-
-# A settings.json shaped like the real-world adopt case: one directory-sourced
-# marketplace (machine-local) and one github-sourced (portable), plus statusLine,
-# additionalDirectories, an allow list, and plugins from both marketplaces.
-SAMPLE = {
-    "permissions": {
-        "allow": ["Bash(git commit:*)", "Bash(npx prisma migrate:*)"],
-        "additionalDirectories": ["C:\\Users\\me\\Projects"],
-        "defaultMode": "auto",
-    },
-    "statusLine": {"type": "command", "command": "bash ~/.claude/my-statusline.sh"},
-    "model": "opus[1m]",
-    "extraKnownMarketplaces": {
-        "localmkt": {"source": {"source": "directory", "path": "C:\\Users\\me\\mkt"}},
-        "acme": {"source": {"source": "github", "repo": "acme-org/claude-marketplace"}},
-    },
-    "enabledPlugins": {
-        "figma@claude-plugins-official": True,     # builtin marketplace -> portable
-        "localmkt-hooks@localmkt": True,         # local-path marketplace -> machine
-        "acme-agent-skills@acme": True,          # github marketplace -> portable
-    },
-}
-
-
-class DirectoryMarketplacesTest(unittest.TestCase):
-    def test_only_directory_sourced_are_flagged(self):
-        self.assertEqual(ss.directory_marketplaces(SAMPLE), {"localmkt"})
-
-    def test_empty_when_no_marketplaces(self):
-        self.assertEqual(ss.directory_marketplaces({}), set())
-
-
-class ClassifyMachineLocalTest(unittest.TestCase):
-    def setUp(self):
-        self.machine = ss.classify_machine_local(SAMPLE)
-
-    def test_statusline_moved(self):
-        self.assertEqual(self.machine["statusLine"], SAMPLE["statusLine"])
-
-    def test_additional_directories_moved_under_permissions(self):
-        self.assertEqual(
-            self.machine["permissions"]["additionalDirectories"],
-            ["C:\\Users\\me\\Projects"],
-        )
-
-    def test_allow_list_not_moved(self):
-        # allow-list portability is judgment, never a rule
-        self.assertNotIn("allow", self.machine.get("permissions", {}))
-
-    def test_only_directory_marketplace_moved(self):
-        self.assertEqual(set(self.machine["extraKnownMarketplaces"]), {"localmkt"})
-
-    def test_only_local_marketplace_plugin_moved(self):
-        self.assertEqual(set(self.machine["enabledPlugins"]), {"localmkt-hooks@localmkt"})
-
-    def test_portable_keys_absent(self):
-        for key in ("model",):
-            self.assertNotIn(key, self.machine)
-
-    def test_does_not_mutate_input(self):
-        before = json.dumps(SAMPLE, sort_keys=True)
-        ss.classify_machine_local(SAMPLE)
-        self.assertEqual(before, json.dumps(SAMPLE, sort_keys=True))
-
-    def test_empty_settings_yield_empty(self):
-        self.assertEqual(ss.classify_machine_local({}), {})
+import _settings_merge as ss  # noqa: E402
 
 
 class DeepMergeTest(unittest.TestCase):
@@ -92,9 +25,9 @@ class DeepMergeTest(unittest.TestCase):
         self.assertEqual(out["l"], ["a", "b", "c"])
 
     def test_existing_local_plugin_value_preserved(self):
-        # user disabled a plugin locally; extracted machine keys must not flip it
+        # user disabled a plugin locally; a merged-in machine fragment must not flip it
         base = {"enabledPlugins": {"acme-agent-plugin@acme": False}}
-        machine = ss.classify_machine_local(SAMPLE)
+        machine = {"enabledPlugins": {"localmkt-hooks@localmkt": True}}
         out = ss.deep_merge(base, machine)
         self.assertFalse(out["enabledPlugins"]["acme-agent-plugin@acme"])
         self.assertTrue(out["enabledPlugins"]["localmkt-hooks@localmkt"])
@@ -104,22 +37,6 @@ class DeepMergeTest(unittest.TestCase):
         ss.deep_merge(base, overlay)
         self.assertEqual(base, {"a": {"x": 1}})
         self.assertEqual(overlay, {"a": {"y": 2}})
-
-
-class LeftoverKeysTest(unittest.TestCase):
-    def test_reports_permissions_and_portable_keys(self):
-        machine = ss.classify_machine_local(SAMPLE)
-        leftover = ss.leftover_top_level_keys(SAMPLE, machine)
-        # allow list still lives under permissions -> flagged for manual review
-        self.assertIn("permissions", leftover)
-        self.assertIn("model", leftover)
-        # fully-moved keys are not reported
-        self.assertNotIn("statusLine", leftover)
-
-    def test_permissions_not_reported_when_only_additionaldirs(self):
-        settings = {"permissions": {"additionalDirectories": ["/x"]}}
-        machine = ss.classify_machine_local(settings)
-        self.assertEqual(ss.leftover_top_level_keys(settings, machine), [])
 
 
 class InstallModuleTest(unittest.TestCase):
