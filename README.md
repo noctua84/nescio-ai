@@ -188,6 +188,35 @@ out of anything you publish: copy `scrub-terms.local.example` to
 identifiers, and run `python scripts/scrub_check.py` before pushing. The bundled
 `scrub` CI workflow runs a secret/path baseline on every push.
 
+## Keeping your instance in sync
+
+Nescio is the framework's **source of truth for everything except your memory
+records**. Your private instance is a downstream fork: it pulls framework
+improvements from here and layers its own `memory/` on top.
+
+- **Set it up once.** Fork or clone this repo as your private instance — its
+  `origin` is your own private remote, and that's where your `memory/` syncs
+  across machines. Add this repo as `upstream`:
+
+  ```bash
+  git remote add upstream https://github.com/noctua84/nescio-ai.git
+  ```
+
+- **Pull framework updates.** `git pull upstream main` brings agents, skills,
+  scripts, hooks, and docs down. Your memory is never touched by the pull — this
+  repo ships only the `memory/` scaffolding, so your real notes live only on your
+  side.
+
+- **Push direction is the only rule.** Pull the framework from `upstream`; push
+  your own work — memory included — only to your private `origin`. Never push your
+  working branch to `upstream`; contribute a framework improvement back up only on
+  a dedicated branch you've scrubbed (see *Keeping private data out* above).
+
+- **The philosopher theme is rendered, not committed.** If you use the
+  [philosopher theme](#optional-the-philosopher-theme), apply it with
+  `scripts/apply_theme.py` at install/render time rather than committing the
+  renamed agents — so `git pull upstream` never conflicts on agent files.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
