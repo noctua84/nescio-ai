@@ -61,9 +61,12 @@ Always end with this exact format:
 
 ## Tool Strategy
 
-Use the right tool for the job:
-- **Semantic search** (definitions, references): LSP tools
-- **Text patterns** (strings, comments, logs): grep
+Navigate by **symbol first** — see `skills/code-navigation` for the full doctrine
+and the grep-vs-semantic decision table. Default routing:
+- **Semantic navigation** (where defined, who references, who implements, call
+  hierarchy): the `LSP` tool (or Serena's symbol tools if connected). Prefer this
+  for any code-structure question — don't fall back to grep for "just one symbol".
+- **Text patterns** (strings, comments, logs, config keys): grep
 - **File patterns** (find by name/extension): glob
 - **History/evolution** (when added, who changed): git commands
 - **Prior work (last resort)**: when the above come up empty, grep prior session transcripts at `~/.claude/projects/<project-slug>/*.jsonl` — they can hold file paths, decisions, and gotchas from earlier sessions on this repo.

@@ -25,6 +25,10 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 
 ### 2. Static Analysis
 - Trace execution paths by reading the actual code, not by inferring from names.
+- Use semantic navigation to establish what "correct" looks like — follow
+  references, implementations, and the call hierarchy (per `skills/code-navigation`)
+  rather than grepping names, so you judge the real callers and contracts, not
+  guessed ones.
 - Check type safety: implicit `any`/untyped escape hatches, missing null/undefined checks, unsound type narrowing.
 - Verify error handling completeness — enumerate the failure modes and confirm each is handled, not just the happy path.
 - Check the codebase's own stated architecture (layering, module boundaries) is respected — read its CLAUDE.md / README / lint config to learn what that architecture is; don't assume one.
