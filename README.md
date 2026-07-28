@@ -113,7 +113,7 @@ ships a working set spanning development and security/compliance — e.g.
 `api-security-assessment`, the compliance suite (`soc2-report`, `iso27001-isms`,
 `hipaa-assessment`, `pci-dss-assessment`, `compliance-gap-analysis`), plus
 dev-workflow skills (`create-adr`, `repo-hygiene`, `handle-pr-comments`,
-`gh-milestones-projects`) and prompt/agent-evaluation skills. Add your own by
+`gh-milestones-projects`, `dependency-pr-ci-fix`) and prompt/agent-evaluation skills. Add your own by
 dropping a `SKILL.md` into a new folder.
 
 ## Memory & the learning loop
