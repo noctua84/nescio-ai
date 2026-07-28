@@ -701,6 +701,43 @@ jobs:
           esac
 
           BOT_LOGIN="github-actions[bot]"
+
+          # Clear any stale fail-closed block.
+          #
+          # GitHub auto-dismisses a prior CHANGES_REQUESTED only when the same
+          # author later submits an APPROVE — NOT on a COMMENT. Without this,
+          # a fail-closed block from a run that never completed (transient API
+          # or quota failure) outlives the successful review that superseded
+          # it, leaving the PR blocked by a review of a run that never
+          # happened. COMMENT ("minor suggestions, not blocking") is the
+          # common good outcome, so this is not a corner case.
+          #
+          # Runs BEFORE the idempotency exit below so a re-run also heals a PR
+          # that is already in the desired state but still carries the block.
+          # Non-fatal: this script runs under `set -e`, so an unguarded
+          # dismissal failure would abort before the verdict is submitted.
+          # Note this block still RUNS for APPROVE — it is a no-op only because
+          # GitHub has already auto-dismissed those reviews, so STALE_IDS comes
+          # back empty and the loop body never executes. Same for PRs that
+          # carry no block.
+          if [ "$EVENT" != "REQUEST_CHANGES" ]; then
+            # Non-fatal: an unguarded substitution would abort under `set -e`,
+            # killing the job before the verdict is submitted — worse than the
+            # stale block this clears. On failure STALE_IDS is empty and the
+            # loop is a no-op. stderr is left visible for debugging.
+            STALE_IDS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
+              --jq "[.[] | select(.user.login == \"$BOT_LOGIN\" and .state == \"CHANGES_REQUESTED\")] | .[].id" || true)
+            for RID in $STALE_IDS; do
+              if gh api "repos/$REPO/pulls/$PR_NUMBER/reviews/$RID/dismissals" \
+                -X PUT \
+                -f message="Superseded by a newer Claude review verdict ($VERDICT)." >/dev/null; then
+                echo "Dismissed stale fail-closed CHANGES_REQUESTED review $RID."
+              else
+                echo "WARNING: could not dismiss stale review $RID — continuing so the verdict is still submitted."
+              fi
+            done
+          fi
+
           PRIOR_STATE=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
             --jq "[.[] | select(.user.login == \"$BOT_LOGIN\")] | last | .state // \"NONE\"")
 
