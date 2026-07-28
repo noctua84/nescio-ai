@@ -191,31 +191,36 @@ identifiers, and run `python scripts/scrub_check.py` before pushing. The bundled
 ## Keeping your instance in sync
 
 Nescio is the framework's **source of truth for everything except your memory
-records**. Your private instance is a downstream fork: it pulls framework
-improvements from here and layers its own `memory/` on top.
+records**. Your private instance keeps its own history and its own `memory/`, and
+pulls *framework* updates from here by overlay — not by a git merge.
 
-- **Set it up once.** Fork or clone this repo as your private instance — its
-  `origin` is your own private remote, and that's where your `memory/` syncs
-  across machines. Add this repo as `upstream`:
+Why overlay and not `git pull`: your private instance and this repo have
+**unrelated git histories** (a derived instance starts from its own `initial`
+commit, not a fork of this one), so a merge isn't meaningful. Instead, a script
+copies just the framework files across.
+
+- **Update the framework.** Point the sync script at a checkout of this repo; it
+  copies the framework paths (agents, skills, commands, hooks, scripts,
+  `github-action/`, installer, examples) into your instance and mirrors any
+  removals — **without ever touching `memory/`, `docs/`, your notes, or your
+  instance config**:
 
   ```bash
-  git remote add upstream https://github.com/noctua84/nescio-ai.git
+  python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
+  python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
   ```
 
-- **Pull framework updates.** `git pull upstream main` brings agents, skills,
-  scripts, hooks, and docs down. Your memory is never touched by the pull — this
-  repo ships only the `memory/` scaffolding, so your real notes live only on your
-  side.
+  Review the diff, then commit it in your instance like any other change.
 
-- **Push direction is the only rule.** Pull the framework from `upstream`; push
-  your own work — memory included — only to your private `origin`. Never push your
-  working branch to `upstream`; contribute a framework improvement back up only on
-  a dedicated branch you've scrubbed (see *Keeping private data out* above).
+- **Your memory stays private.** It lives only in your instance's own remote —
+  the sync never reads or writes it, and you never push framework changes back to
+  this public repo except deliberately, on a scrubbed branch (see *Keeping private
+  data out* above).
 
-- **The philosopher theme is rendered, not committed.** If you use the
-  [philosopher theme](#optional-the-philosopher-theme), apply it with
-  `scripts/apply_theme.py` at install/render time rather than committing the
-  renamed agents — so `git pull upstream` never conflicts on agent files.
+- **The philosopher theme is rendered, not committed.** After a sync, if you use
+  the [philosopher theme](#optional-the-philosopher-theme), re-apply it with
+  `python scripts/apply_theme.py philosophers` — the framework ships the functional
+  names, and the theme is a local render step, so syncs never fight your renames.
 
 ## Contributing
 
