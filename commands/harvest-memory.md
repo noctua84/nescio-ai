@@ -159,6 +159,40 @@ durable repo memory:
    outcome summary, and add or clear recurring flags. This is the tracked
    summary Phase 3's autonomy dial reads; see `memory/repo/myrepo/readiness.md`
    for the format. Stage only that file.
+10. **Deliver via branch + PR — never commit the harvest on `main`.** The
+    harvest itself has to run in the **main checkout**, not a worktree:
+    `~/.claude/memory` symlinks to `<repo>/memory` and
+    `scripts/promote_learnings.py` writes relative to the repo root, so promoted
+    notes necessarily land in the shared clone's working tree. Deliver them from
+    a branch rather than committing where you happen to be standing:
+
+    ```bash
+    # staged changes travel with the switch
+    git switch -c chore/memory-harvest-<YYYY-MM-DD>
+
+    # scoped to memory/ so unrelated working-tree noise (.idea/, …) is never
+    # swept in
+    git commit memory/ -m "chore(memory): harvest <session> learnings"
+
+    git push -u origin chore/memory-harvest-<YYYY-MM-DD>
+
+    # PR body: summarise each promoted note (scope, target, source class) and
+    # reference the issue
+    gh pr create --base main
+
+    # hand the shared clone back
+    git switch main
+    ```
+
+    **Why:** `main` is unprotected, so a direct commit lands unreviewed. The PR
+    is the review gate and the audit trail for content every future session will
+    read as authoritative.
+
+    **Caveat:** keep the branch switch brief — the clone is shared with
+    concurrent sessions (an active instance routinely has several worktrees and
+    parallel harvests open). Commit promptly and switch back to `main`. If
+    another session has staged work sitting in the index, do **not** sweep it
+    into your commit; commit only the paths this harvest wrote.
 
 ## Guardrails
 
@@ -168,6 +202,9 @@ durable repo memory:
   step 6.
 - Never `git add -A` — the promote tool stages only the notes it wrote; stage
   the readiness update by path.
+- Never commit the harvest on `main` — deliver through a branch + PR (step 10).
+  `main` is unprotected, and an unreviewed memory note silently misleads every
+  future session that reads it.
 - Do not delete the source stores unless the user asks; harvesting is a copy +
   curate, not a move. The learning-trail pruning is now harvest-aware: records
   newer than the last harvest watermark (stamped by step 8's
