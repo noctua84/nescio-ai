@@ -37,7 +37,7 @@ import json
 import shutil
 from pathlib import Path
 
-from _hygiene_common import (
+from hygiene_common import (
     branch_ahead_count,
     current_branch,
     current_git_common_dir,

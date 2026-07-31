@@ -20,7 +20,7 @@ import argparse
 import re
 from pathlib import Path
 
-from _wiki_common import REPO_DIR, extract_wikilinks, iter_notes, load_stores
+from wiki_common import REPO_DIR, extract_wikilinks, iter_notes, load_stores
 
 _MDLINK_RE = re.compile(r"\]\(([^)]+\.md)\)")
 _REQUIRED_FIELDS = ("name", "description", "type")

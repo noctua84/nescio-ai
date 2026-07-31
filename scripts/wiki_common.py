@@ -1,4 +1,4 @@
-# scripts/_wiki_common.py
+# scripts/wiki_common.py
 """Shared helpers for the knowledge-wiki engine (lint, index, and later ingest).
 
 Stdlib-only. Parses the flat YAML frontmatter that promote_learnings.py writes

@@ -24,7 +24,7 @@ import json
 import shutil
 from datetime import datetime
 
-from _adopt_common import ADOPT, ADOPTED, LEDGER, MAX_LEDGER_LINES, TERMINAL
+from adopt_common import ADOPT, ADOPTED, LEDGER, MAX_LEDGER_LINES, TERMINAL
 
 
 def main() -> int:
