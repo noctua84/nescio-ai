@@ -38,9 +38,12 @@ class PlanSyncTest(unittest.TestCase):
         _write(self.dst / "agents" / "stale.md", "remove me\n")
 
         added, updated, deleted = sfu.plan_sync(self.up, self.dst)
-        self.assertIn("skills/s/SKILL.md", added)
-        self.assertIn("agents/explore.md", updated)
-        self.assertIn("agents/stale.md", deleted)
+        # plan_sync returns OS-native separators (backslash on Windows); compare
+        # on a normalized posix form so the assertion holds on every platform.
+        as_posix = lambda xs: [Path(x).as_posix() for x in xs]
+        self.assertIn("skills/s/SKILL.md", as_posix(added))
+        self.assertIn("agents/explore.md", as_posix(updated))
+        self.assertIn("agents/stale.md", as_posix(deleted))
 
     def test_memory_and_non_framework_paths_are_ignored(self):
         # differences outside the allowlist must never be reported
