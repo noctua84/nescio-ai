@@ -35,9 +35,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+
 from scripts import adopt_existing_config
-from scripts.adopt_common import is_done, sha8, parse_ledger
-from scripts.settings_merge import deep_merge
+from scripts._adopt_common import is_done, sha8, parse_ledger
+from scripts._settings_merge import deep_merge
 
 REPO_DIR = Path(__file__).resolve().parent
 CLAUDE_DIR = Path.home() / ".claude"

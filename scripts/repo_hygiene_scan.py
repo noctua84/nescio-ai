@@ -33,7 +33,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from hygiene_common import (
+from _hygiene_common import (
     Worktree,
     branch_ahead_count,
     current_branch,

@@ -47,7 +47,7 @@ import json
 import re
 from pathlib import Path
 
-from learning_common import (
+from _learning_common import (
     MAX_LEDGER_LINES,
     REPO_DIR,
     VALID_SOURCES,

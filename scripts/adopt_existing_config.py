@@ -20,7 +20,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from adopt_common import ADOPT, is_done, parse_ledger, sha8
+from _adopt_common import ADOPT, is_done, parse_ledger, sha8
 
 HOME = Path.home()
 CLAUDE_DIR = HOME / ".claude"

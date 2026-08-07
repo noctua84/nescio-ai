@@ -8,10 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "hooks"))
-import record_stop as rs  # noqa: E402
-import harvest_nudge  # noqa: E402
+from hooks import harvest_nudge, record_stop as rs  # noqa: E402
 
 
 class HarvestNudgeTest(unittest.TestCase):

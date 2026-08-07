@@ -25,7 +25,7 @@ from pathlib import Path
 # ``sha8`` hashes a *file* (adopt flow) and is out of scope to rename here; it is
 # re-exported only for callers that already depend on it. New learning-loop code
 # uses ``content_hash12`` below, whose name reflects the 12 hex chars it returns.
-from adopt_common import sha8, MAX_LEDGER_LINES  # noqa: F401  (re-exported)
+from _adopt_common import sha8, MAX_LEDGER_LINES  # noqa: F401  (re-exported)
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 LEARNING_LEDGER = REPO_DIR / "memory" / "learning-log.md"

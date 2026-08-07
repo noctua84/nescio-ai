@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from wiki_common import REPO_DIR, iter_notes, load_stores
+from _wiki_common import REPO_DIR, iter_notes, load_stores
 
 
 def build_index(dir_path: Path) -> str:
