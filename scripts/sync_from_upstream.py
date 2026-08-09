@@ -23,6 +23,7 @@ After --apply, if your instance uses the philosopher theme, re-render it:
 from __future__ import annotations
 
 import argparse
+import difflib
 import filecmp
 import shutil
 import sys
@@ -118,6 +119,81 @@ def apply_sync(upstream: Path, dest: Path, paths=FRAMEWORK_PATHS):
     return added, updated, deleted
 
 
+def _read_text(path: Path):
+    """Return the file's UTF-8 text as a list of lines, or None if it's binary."""
+    try:
+        return path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def render_diff(upstream: Path, dest: Path, added, updated, deleted) -> str:
+    """Return a human-readable content diff for a sync plan (no printing).
+
+    For each UPDATED file, a unified diff of dest (current) vs upstream (new);
+    binary files get a one-line size note instead. ADDED files are marked
+    NET-NEW (with a content preview) and DELETED files get a one-line note.
+    Output is deterministic (paths sorted within each section).
+    """
+    lines: list[str] = []
+
+    for rel in sorted(updated):
+        up = upstream / rel
+        dst = dest / rel
+        posix = Path(rel).as_posix()
+        old = _read_text(dst)
+        new = _read_text(up)
+        if old is None or new is None:
+            old_size = dst.stat().st_size if dst.exists() else 0
+            new_size = up.stat().st_size if up.exists() else 0
+            lines.append(f"~ UPDATED  {posix}")
+            lines.append(f"  (binary file, {old_size} bytes -> {new_size} bytes)")
+            lines.append("")
+            continue
+        diff = difflib.unified_diff(
+            old, new,
+            fromfile=f"a/{posix} (current)",
+            tofile=f"b/{posix} (upstream)",
+        )
+        text = "".join(diff)
+        if not text.endswith("\n"):
+            text += "\n"
+        lines.append(text.rstrip("\n"))
+        lines.append("")
+
+    for rel in sorted(added):
+        up = upstream / rel
+        posix = Path(rel).as_posix()
+        lines.append(f"+++ ADDED  {posix}  (NET-NEW)")
+        content = _read_text(up)
+        if content is None:
+            size = up.stat().st_size if up.exists() else 0
+            lines.append(f"  (binary file, {size} bytes)")
+        else:
+            preview = content[:20]
+            for pline in preview:
+                lines.append(f"  +{pline.rstrip(chr(10))}")
+            if len(content) > 20:
+                lines.append(f"  ... ({len(content) - 20} more line(s))")
+        lines.append("")
+
+    for rel in sorted(deleted):
+        posix = Path(rel).as_posix()
+        lines.append(f"--- DELETED  {posix}")
+
+    if deleted:
+        lines.append("")
+
+    if not (added or updated or deleted):
+        return ""
+
+    lines.append(
+        f"net-new: {len(added)} added file(s), {len(updated)} updated, "
+        f"{len(deleted)} deleted"
+    )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -129,6 +205,9 @@ def main(argv=None) -> int:
                     help="downstream instance root (default: current directory)")
     ap.add_argument("--apply", action="store_true",
                     help="perform the sync (default: dry run, prints the plan only)")
+    ap.add_argument("--diff", action="store_true",
+                    help="after the summary, show per-file content diffs so you can see "
+                         "exactly WHAT would change (works with dry run; no --apply needed)")
     args = ap.parse_args(argv)
 
     upstream = args.upstream.resolve()
@@ -146,7 +225,12 @@ def main(argv=None) -> int:
         print("error: --upstream and --dest are the same directory", file=sys.stderr)
         return 2
 
-    added, updated, deleted = (apply_sync if args.apply else plan_sync)(upstream, dest)
+    # Compute the plan first so a --diff preview can read dest files *before*
+    # --apply overwrites them (renders "what would/did change" either way).
+    added, updated, deleted = plan_sync(upstream, dest)
+    diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
+    if args.apply:
+        apply_sync(upstream, dest)
     total = len(added) + len(updated) + len(deleted)
 
     if total == 0:
@@ -158,6 +242,10 @@ def main(argv=None) -> int:
     for label, items in (("+ add   ", added), ("~ update", updated), ("- delete", deleted)):
         for it in items:
             print(f"  {label}  {it}")
+
+    if diff_text:
+        print()
+        print(diff_text, end="")
 
     if args.apply:
         print("\nmemory/ and all non-framework paths were left untouched. "

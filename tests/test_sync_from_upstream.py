@@ -96,6 +96,56 @@ class ApplySyncTest(unittest.TestCase):
         self.assertEqual((added, updated, deleted), ([], [], []))
 
 
+class RenderDiffTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        _make_checkout(self.up)
+        _make_checkout(self.dst)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_updated_file_shows_minus_plus_change(self):
+        _write(self.dst / "agents" / "explore.md", "line one\nold line\n")
+        _write(self.up / "agents" / "explore.md", "line one\nnew line\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
+
+        # normalize the header path to posix so the assertion is Windows-safe
+        self.assertIn("agents/explore.md", out)
+        self.assertIn("-old line", out)
+        self.assertIn("+new line", out)
+
+    def test_added_file_marked_net_new(self):
+        _write(self.up / "skills" / "s" / "SKILL.md", "brand new\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
+
+        self.assertIn("skills/s/SKILL.md", out)
+        self.assertIn("NET-NEW", out)
+        self.assertIn("+brand new", out)
+        self.assertIn("net-new: 1 added file(s)", out)
+
+    def test_deleted_file_is_noted(self):
+        _write(self.dst / "agents" / "stale.md", "remove me\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
+
+        self.assertIn("--- DELETED", out)
+        self.assertIn("agents/stale.md", out)
+
+    def test_in_sync_yields_empty_diff(self):
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
+        self.assertEqual(out, "")
+
+
 class MainCliTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
