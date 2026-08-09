@@ -11,7 +11,7 @@ point of real knowledge) is a portable, version-controlled configuration for
 memory that grows over time, and a learning loop. Built for software development
 with a security edge.
 
-*Status: early and evolving — the name is provisional and the layout may shift.*
+*Status: 1.0 — the name and layout are settled; actively developed and in daily use.*
 
 ## What makes it different
 
@@ -46,7 +46,7 @@ Nescio is organized around four dimensions of a useful AI operator:
 
 ## Quickstart
 
-Requires [Claude Code](https://claude.com/claude-code) and Python 3.
+Requires [Claude Code](https://claude.com/claude-code) and Python 3.13+.
 
 ```bash
 git clone <this-repo> ~/dev/nescio
@@ -144,7 +144,7 @@ frontmatter, and all cross-references; it's idempotent and reversible.
 
 ## Prerequisites
 
-- **Claude Code** and **Python 3**.
+- **Claude Code** and **Python 3.13+**.
 - Recommended plugins (declared in `settings.json`, installed per machine):
   `superpowers` (skills used across workflows) and `typescript-lsp` /
   `pyright-lsp` (semantic code search for `explore`). No agent hard-depends on a
@@ -207,6 +207,7 @@ copies just the framework files across.
 
   ```bash
   python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
+  python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --diff     # dry run + per-file content diff
   python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
   ```
 
