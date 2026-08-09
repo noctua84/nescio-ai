@@ -361,5 +361,161 @@ class DryRunManifestDedupTest(unittest.TestCase):
             self.assertIn("[dry-run] promoted 1, skipped 1", summary)
 
 
+class ManagedBlockTest(unittest.TestCase):
+    """Issue #25 (1): promote OWNS a delimited block; content outside it survives."""
+
+    def test_overwrite_preserves_human_content_outside_block(self):
+        # (a) A note with a managed block AND human content outside it; a
+        # higher-priority nomination updates the block but leaves the human
+        # content verbatim.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/mixed.md"
+
+            pl.promote(
+                [_nom(target=target, source="empirical", date="2026-07-10",
+                      body="Original promoted body.")],
+                repo_dir=repo,
+            )
+            note = repo / "memory" / target
+            human = "\n## Human notes\n\nHand-written detail that must survive.\n"
+            note.write_text(note.read_text(encoding="utf-8") + human, encoding="utf-8")
+
+            rc, summary = pl.promote(
+                [_nom(target=target, source="user override", date="2026-07-12",
+                      body="Updated promoted body.")],
+                repo_dir=repo,
+            )
+            self.assertEqual(rc, 0, summary)
+            out = note.read_text(encoding="utf-8")
+            self.assertIn("Updated promoted body.", out)
+            self.assertNotIn("Original promoted body.", out)
+            # Human content OUTSIDE the block preserved verbatim.
+            self.assertIn("## Human notes", out)
+            self.assertIn("Hand-written detail that must survive.", out)
+
+    def test_legacy_note_without_block_gets_block_and_keeps_content(self):
+        # (b) Legacy migration: existing note with content but NO block markers.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/legacy.md"
+            note = repo / "memory" / target
+            note.parent.mkdir(parents=True, exist_ok=True)
+            legacy = (
+                "---\nname: legacy\ndescription: old\ntype: feedback\nkeep: me\n---\n"
+                "Existing legacy prose that must be preserved.\n"
+            )
+            note.write_text(legacy, encoding="utf-8")
+
+            rc, summary = pl.promote(
+                [_nom(target=target, body="Freshly promoted learning.")],
+                repo_dir=repo,
+            )
+            self.assertEqual(rc, 0, summary)
+            out = note.read_text(encoding="utf-8")
+            # Nothing deleted.
+            self.assertIn("Existing legacy prose that must be preserved.", out)
+            # Extra frontmatter key preserved.
+            self.assertIn("keep: me", out)
+            # A managed block with the new learning was inserted.
+            self.assertIn(pl.PROMOTED_BEGIN, out)
+            self.assertIn(pl.PROMOTED_END, out)
+            self.assertIn("Freshly promoted learning.", out)
+
+    def test_fresh_note_has_frontmatter_then_block(self):
+        # (c) Fresh note: frontmatter + block; body+provenance INSIDE the block.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo)
+            self.assertEqual(rc, 0, summary)
+            out = (repo / "memory" / nom["target"]).read_text(encoding="utf-8")
+            self.assertTrue(out.startswith("---\n"))
+            self.assertIn(pl.PROMOTED_BEGIN, out)
+            self.assertIn(pl.PROMOTED_END, out)
+            block = out[out.index(pl.PROMOTED_BEGIN):out.index(pl.PROMOTED_END)]
+            self.assertIn("The body of the note.", block)
+            self.assertIn(f"[Source: {nom['source']} — {nom['date']}]", block)
+
+
+class ReindexTest(unittest.TestCase):
+    """Issue #25 (2): MEMORY.md indexes regenerated for touched directories."""
+
+    def test_promote_regenerates_memory_index(self):
+        # (d) After promote writes a note, that dir's MEMORY.md lists the note.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo)
+            self.assertEqual(rc, 0, summary)
+            index = repo / "memory" / "feedback" / "MEMORY.md"
+            self.assertTrue(index.is_file(), summary)
+            idx = index.read_text(encoding="utf-8")
+            self.assertIn(nom["name"], idx)
+            self.assertIn("sample-learning.md", idx)
+
+    def test_dry_run_writes_no_index_and_prints_would_reindex(self):
+        # (e) Dry-run: no note, no MEMORY.md; prints a would-reindex line.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo, dry_run=True)
+            self.assertEqual(rc, 0, summary)
+            self.assertFalse((repo / "memory" / "feedback" / "sample-learning.md").exists())
+            self.assertFalse((repo / "memory" / "feedback" / "MEMORY.md").exists())
+            self.assertTrue(any("would reindex" in s for s in summary), summary)
+
+
+class ProvenanceInBlockTest(unittest.TestCase):
+    """Issue #25: contradiction check still reads provenance now stored in-block."""
+
+    def test_existing_provenance_reads_source_from_block(self):
+        # (f) existing_provenance reads source/date from a note whose provenance
+        # lives inside the managed block.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            nom = _nom(source="empirical", date="2026-07-12")
+            pl.promote([nom], repo_dir=repo)
+            note = repo / "memory" / nom["target"]
+
+            prov = pl.existing_provenance(note)
+            self.assertEqual(prov, ("empirical", "2026-07-12"))
+
+            out = note.read_text(encoding="utf-8")
+            block = out[out.index(pl.PROMOTED_BEGIN):out.index(pl.PROMOTED_END)]
+            self.assertIn("[Source:", block)
+
+    def test_stale_source_below_block_is_ignored(self):
+        # A migrated legacy note keeps its old body (with a stale [Source]) BELOW
+        # the managed block. existing_provenance must read the in-block one, not
+        # the file-wide last match.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/stale-below.md"
+            note = repo / "memory" / target
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text(
+                "---\nname: n\ndescription: d\ntype: feedback\n---\n"
+                f"{pl.PROMOTED_BEGIN}\n"
+                "Authoritative in-block learning.\n"
+                "[Source: user override — 2026-08-01]\n"
+                f"{pl.PROMOTED_END}\n"
+                "\n## Legacy body\n\n"
+                "Old preserved prose.\n"
+                "[Source: empirical — 2026-01-01]\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                pl.existing_provenance(note), ("user override", "2026-08-01")
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
