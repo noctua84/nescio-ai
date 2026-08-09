@@ -3,10 +3,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import scripts._settings_merge as ss
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-import _settings_merge as ss  # noqa: E402
 
 
 class DeepMergeTest(unittest.TestCase):

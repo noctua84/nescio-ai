@@ -35,12 +35,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+
+from scripts import adopt_existing_config
+from scripts._adopt_common import is_done, sha8, parse_ledger
+from scripts._settings_merge import deep_merge
+
 REPO_DIR = Path(__file__).resolve().parent
 CLAUDE_DIR = Path.home() / ".claude"
-
-sys.path.insert(0, str(REPO_DIR / "scripts"))
-from _adopt_common import is_done, parse_ledger, sha8  # noqa: E402
-from _settings_merge import deep_merge  # noqa: E402
 
 # Repo path -> target name under ~/.claude. NOTE: settings.json and CLAUDE.md are
 # deliberately NOT symlinked. settings.json is generated as a real, merged file by
@@ -560,7 +562,7 @@ def stage_conflicts(dry_run: bool) -> None:
     if dry_run:
         print("  would run scripts/adopt_existing_config.py to stage conflicts for review")
         return
-    import adopt_existing_config
+
     adopt_existing_config.main()
 
 

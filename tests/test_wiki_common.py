@@ -1,6 +1,12 @@
 # tests/test_wiki_common.py
+import sys
 import unittest
-import _wiki_common as wc
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import _wiki_common as wc  # noqa: E402
 
 
 class TestExtractWikilinks(unittest.TestCase):
