@@ -64,7 +64,6 @@ LINKS = [
 # cleaned up by cleanup_dead_user_local().
 TEMPLATES: list[tuple[str, str]] = []
 
-SETTINGS_CHOICES = ("full", "minimal", "skip")
 CLAUDEMD_CHOICES = ("import", "replace", "skip")
 
 # Selectable top-level parts of the framework settings.json -> the key(s) each maps to.
@@ -689,8 +688,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="back up conflicting real files and symlink them")
     ap.add_argument("--dry-run", action="store_true",
                     help="preview actions without writing anything")
-    ap.add_argument("--settings", choices=SETTINGS_CHOICES, default=None,
-                    help="settings.json integration: full | minimal | skip "
+    ap.add_argument("--settings", default=None, metavar="full|minimal|skip|part,part",
+                    help="settings.json integration: keyword (full|minimal|skip) or a "
+                         "comma-list of parts (agent,permissions,plugins) "
                          "(prompted if omitted; required when non-interactive)")
     ap.add_argument("--claude-md", choices=CLAUDEMD_CHOICES, default=None,
                     help="CLAUDE.md integration: import | replace | skip "
@@ -705,7 +705,11 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     ledger = parse_ledger()
 
-    parts = resolve_settings_choice(args.settings)
+    try:
+        parts = resolve_settings_choice(args.settings)
+    except ValueError as e:
+        print(f"error: --settings: {e}", file=sys.stderr)
+        raise SystemExit(2)
     claudemd_choice = resolve_claudemd_choice(args.claude_md)
     if args.relink:
         return do_relink(stamp, args.dry_run, ledger, parts, claudemd_choice)

@@ -429,5 +429,30 @@ class InstallSettingsPartsTest(unittest.TestCase):
             self.assertFalse((claude / "settings.json").exists())
 
 
+class SettingsCliIntegrationTest(unittest.TestCase):
+    def test_part_list_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fw = {"agent": "orchestrator",
+                  "permissions": {"allow": ["Bash(x:*)"]},
+                  "enabledPlugins": {"p@x": True}}
+            repo = Path(tmp) / "repo"; repo.mkdir()
+            (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+            claude = Path(tmp) / "claude"; claude.mkdir()
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                parts = install.resolve_settings_choice("agent,plugins")
+                install.install_settings(parts, dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(set(out), {"agent", "enabledPlugins"})
+
+    def test_bad_settings_value_exits_2(self):
+        # main() must convert a ValueError from --settings into exit code 2.
+        with mock.patch.object(sys, "argv", ["install.py", "--settings", "bogus",
+                                             "--claude-md", "skip", "--dry-run"]):
+            with self.assertRaises(SystemExit) as cm:
+                install.main()
+            self.assertEqual(cm.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
