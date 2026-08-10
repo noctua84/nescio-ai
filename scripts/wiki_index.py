@@ -50,7 +50,8 @@ def _resolve_dir(args: argparse.Namespace) -> Path | None:
     store = stores.get(args.store)
     if not store:
         return None
-    return (REPO_DIR / store["path"]).resolve()
+    path = store.get("path")
+    return (REPO_DIR / path).resolve() if path else None
 
 
 def main() -> int:
