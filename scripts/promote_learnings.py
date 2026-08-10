@@ -47,6 +47,8 @@ import json
 import re
 from pathlib import Path
 
+import wiki_index
+
 from _learning_common import (
     MAX_LEDGER_LINES,
     REPO_DIR,
@@ -83,34 +85,135 @@ VALID_SCOPE_BUCKETS = {
     "concepts",
 }
 
-# Matches the trailing provenance line this script writes, so an existing note's
-# recorded source/date can be read back for the contradiction check.
+# Matches the provenance line this script writes (now inside the managed block),
+# so an existing note's recorded source/date can be read back for the
+# contradiction check.
 _SOURCE_RE = re.compile(
     r"\[Source:\s*(user override|empirical|agent inference)\s*[—-]\s*"
     r"(\d{4}-\d{2}-\d{2})\s*\]"
 )
 
+# Markers delimiting the block promote OWNS. Everything inside is rewritten on
+# each promotion; everything outside (human edits, extra sections) is left alone.
+PROMOTED_BEGIN = "<!-- promoted:begin -->"
+PROMOTED_END = "<!-- promoted:end -->"
 
-def render_note(nom: dict) -> str:
-    """YAML frontmatter + markdown body + trailing provenance line."""
-    frontmatter = (
+
+def render_frontmatter(nom: dict) -> str:
+    """The YAML frontmatter block promote manages (name/description/type)."""
+    return (
         "---\n"
         f"name: {nom['name']}\n"
         f"description: {nom['description']}\n"
         f"type: {nom['type']}\n"
         "---\n"
     )
-    return frontmatter + nom["body"] + f"\n[Source: {nom['source']} — {nom['date']}]\n"
+
+
+def render_block(nom: dict) -> str:
+    """The managed promoted block: markers wrapping the body + provenance line."""
+    return (
+        f"{PROMOTED_BEGIN}\n"
+        + nom["body"]
+        + f"\n[Source: {nom['source']} — {nom['date']}]\n"
+        + f"{PROMOTED_END}\n"
+    )
+
+
+def render_note(nom: dict) -> str:
+    """A fresh note: managed frontmatter followed by the managed block."""
+    return render_frontmatter(nom) + render_block(nom)
+
+
+def _split_raw_frontmatter(text: str) -> tuple[str, str]:
+    """Split ``text`` into (frontmatter, rest).
+
+    ``frontmatter`` keeps its enclosing ``---`` lines and trailing newline; it is
+    ``""`` when no frontmatter block opens at the start (mirrors
+    ``_wiki_common.split_frontmatter`` but preserves the raw text verbatim).
+    """
+    if not text.startswith("---\n"):
+        return "", text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return "", text
+    return text[: end + 5], text[end + 5:]
+
+
+def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
+    """Update name/description/type in ``fm_raw``, preserving every other line.
+
+    Extra keys, ordering, and formatting are kept; managed keys absent from the
+    block are inserted before the closing ``---``.
+    """
+    managed = {"name": nom["name"], "description": nom["description"], "type": nom["type"]}
+    lines = fm_raw.splitlines()
+    seen: set[str] = set()
+    out: list[str] = []
+    for ln in lines:
+        stripped = ln.strip()
+        if ":" in ln and not stripped.startswith("- ") and stripped != "---":
+            key = ln.split(":", 1)[0].strip()
+            if key in managed:
+                out.append(f"{key}: {managed[key]}")
+                seen.add(key)
+                continue
+        out.append(ln)
+    missing = [k for k in ("name", "description", "type") if k not in seen]
+    if missing and out and out[-1].strip() == "---":
+        insert_at = len(out) - 1
+        for k in missing:
+            out.insert(insert_at, f"{k}: {managed[k]}")
+            insert_at += 1
+    return "\n".join(out) + "\n"
+
+
+def _compose_note(existing_text: str | None, nom: dict) -> str:
+    """Return the note's new full text, touching only the managed block.
+
+    - Absent file  → fresh frontmatter + block.
+    - Has a block  → replace the block's inner content, refresh managed
+                     frontmatter keys, leave everything else untouched.
+    - Legacy (no block) → preserve all content and insert a managed block
+                     immediately after the frontmatter (or at the top).
+    """
+    new_block = render_block(nom)
+    if existing_text is None:
+        return render_note(nom)
+
+    fm_raw, rest = _split_raw_frontmatter(existing_text)
+
+    if PROMOTED_BEGIN in rest and PROMOTED_END in rest:
+        b = rest.index(PROMOTED_BEGIN)
+        e = rest.index(PROMOTED_END) + len(PROMOTED_END)
+        if e < len(rest) and rest[e] == "\n":
+            e += 1  # consume the marker's own trailing newline
+        new_fm = _refresh_frontmatter(fm_raw, nom) if fm_raw else fm_raw
+        return new_fm + rest[:b] + new_block + rest[e:]
+
+    # Legacy note without a managed block — migrate without losing anything.
+    if fm_raw:
+        return _refresh_frontmatter(fm_raw, nom) + new_block + rest
+    return new_block + existing_text
 
 
 def existing_provenance(note_path: Path) -> tuple[str, str] | None:
-    """Read the last `[Source: <source> — <date>]` line from an existing note.
+    """Read the authoritative `[Source: <source> — <date>]` line from a note.
 
-    Returns (source, date) or None if the file is absent / has no such line.
+    When the note carries a managed block, only the provenance INSIDE the block
+    is authoritative — a migrated legacy note keeps its old body (and any stale
+    `[Source]` line it contains) below the block, so a file-wide last-match would
+    read the stale one. Falls back to the file-wide last match only for a pure
+    legacy note with no block. Returns (source, date) or None.
     """
     if not note_path.is_file():
         return None
-    matches = _SOURCE_RE.findall(note_path.read_text(encoding="utf-8"))
+    text = note_path.read_text(encoding="utf-8")
+    if PROMOTED_BEGIN in text and PROMOTED_END in text:
+        b = text.index(PROMOTED_BEGIN)
+        e = text.index(PROMOTED_END) + len(PROMOTED_END)
+        text = text[b:e]  # restrict the scan to the managed block
+    matches = _SOURCE_RE.findall(text)
     if not matches:
         return None
     source, date = matches[-1]
@@ -224,6 +327,8 @@ def promote(
     # In --dry-run nothing is appended, so parse_ledger can't see earlier
     # would-writes; track them here so the preview dedups within the manifest.
     would_write: set[str] = set()
+    # Distinct directories that had a note written/updated — reindexed once each.
+    touched_dirs: set[Path] = set()
 
     for nom in records:
         source = nom["source"]
@@ -261,12 +366,15 @@ def promote(
 
         if dry_run:
             would_write.add(h)
+            touched_dirs.add(note_path.parent)
             summary.append(f"would {verb}  {nom['target']} — {h} ({source})")
             promoted += 1
             continue
 
         note_path.parent.mkdir(parents=True, exist_ok=True)
-        note_path.write_text(render_note(nom), encoding="utf-8")
+        existing = note_path.read_text(encoding="utf-8") if note_path.is_file() else None
+        note_path.write_text(_compose_note(existing, nom), encoding="utf-8")
+        touched_dirs.add(note_path.parent)
         _record_ledger(
             ledger_path, nom["target"], h, ledger_line, overwrite=(verb == "overwrite")
         )
@@ -275,6 +383,18 @@ def promote(
 
     prefix = "[dry-run] " if dry_run else ""
     summary.append(f"{prefix}promoted {promoted}, skipped {skipped}")
+
+    # Regenerate the MEMORY.md index for each touched directory so it never drifts
+    # from the notes on disk. A single reindex failure must not fail the promote.
+    for d in sorted(touched_dirs):
+        if dry_run:
+            summary.append(f"would reindex {d}/MEMORY.md")
+            continue
+        try:
+            _, idx_summary = wiki_index.regenerate(d)
+            summary.extend(idx_summary)
+        except Exception as e:  # noqa: BLE001 — reindex is best-effort
+            summary.append(f"⚠  reindex failed for {d}/MEMORY.md: {e}")
 
     if not dry_run:
         file_lines = len(ledger_path.read_text(encoding="utf-8").splitlines())
