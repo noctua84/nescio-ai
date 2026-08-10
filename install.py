@@ -191,29 +191,48 @@ def ensure_from_template(real: Path, template: Path, dry_run: bool) -> None:
     print(f"  created {real} from template (gitignored, edit freely)")
 
 
-def resolve_settings_choice(cli_choice: str | None) -> str:
-    """Return 'full' | 'minimal' | 'skip'. Ask every time — never a silent default.
+def resolve_settings_choice(cli_value: str | None) -> frozenset[str]:
+    """Return the selected settings parts (empty set == skip). Ask every time.
 
-    A non-interactive run must pass --settings, so an unattended install can't
-    quietly pick for the user.
+    A keyword (full|minimal|skip) or a comma-list of parts
+    (agent,permissions,plugins). Non-interactive runs must pass --settings.
     """
-    if cli_choice:
-        return cli_choice
+    if cli_value is not None:
+        return parse_settings_value(cli_value)  # ValueError -> handled in main()
     if not sys.stdin.isatty():
-        print("  ! Non-interactive install: pass --settings {full,minimal,skip}.", file=sys.stderr)
-        print("    full = adopt the whole settings.json (default agent + permissions +", file=sys.stderr)
-        print("    plugins) + hooks;  minimal = set agent=orchestrator (+ hooks);", file=sys.stderr)
-        print("    skip = change ~/.claude/settings.json not at all.", file=sys.stderr)
+        print("  ! Non-interactive install: pass --settings.", file=sys.stderr)
+        print("    keyword: full (agent+permissions+plugins) | minimal (agent) | skip", file=sys.stderr)
+        print("    or a comma-list of parts: agent,permissions,plugins", file=sys.stderr)
         sys.exit(2)
     print("\nIntegrate this framework's settings into ~/.claude/settings.json?")
-    print("  full     adopt the whole settings.json (default agent + permissions + plugins) + hooks")
-    print("  minimal  set only agent=orchestrator, plus the learning-loop hooks")
-    print("  skip     change nothing (the crew won't be your default agent)")
+    print("  (deep-merged over your file — your other keys and allow-list are kept)")
+    print("  full     agent + permissions + plugins   (recommended) + hooks")
+    print("  minimal  agent entrypoint only + hooks")
+    print("  custom   choose parts individually")
+    print("  skip     change nothing")
     while True:
-        ans = input("  choose [full/minimal/skip]: ").strip().lower()
-        if ans in SETTINGS_CHOICES:
-            return ans
-        print("    please type one of: full, minimal, skip")
+        ans = input("  choose [full/minimal/custom/skip] (default full): ").strip().lower()
+        if ans == "":
+            return SETTINGS_KEYWORDS["full"]
+        if ans in SETTINGS_KEYWORDS:
+            return SETTINGS_KEYWORDS[ans]
+        if ans == "custom":
+            return _prompt_custom_parts()
+        print("    please type one of: full, minimal, custom, skip")
+
+
+def _prompt_custom_parts() -> frozenset[str]:
+    """Per-part [Y/n] prompts (each defaults to Yes). Returns the selected parts."""
+    questions = [
+        ("agent", "adopt agent entrypoint?"),
+        ("permissions", "adopt permissions allow-list?"),
+        ("plugins", "adopt plugins?"),
+    ]
+    selected = {
+        part for part, q in questions
+        if input(f"    {q} [Y/n]: ").strip().lower() in ("", "y", "yes")
+    }
+    return frozenset(selected)
 
 
 def install_settings(choice: str, dry_run: bool) -> None:

@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 import scripts._settings_merge as ss
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -344,6 +345,35 @@ class ParseSettingsValueTest(unittest.TestCase):
     def test_keyword_mixed_with_parts_raises(self):
         with self.assertRaises(ValueError):
             install.parse_settings_value("full,agent")
+
+
+class ResolveSettingsChoiceTest(unittest.TestCase):
+    def test_cli_keyword(self):
+        self.assertEqual(install.resolve_settings_choice("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.resolve_settings_choice("skip"), frozenset())
+
+    def test_cli_part_list(self):
+        self.assertEqual(install.resolve_settings_choice("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+
+    def test_cli_bad_value_raises(self):
+        with self.assertRaises(ValueError):
+            install.resolve_settings_choice("nope")
+
+    def test_interactive_default_full(self, ):
+        # blank input at the top prompt -> full (all three)
+        with mock.patch("builtins.input", side_effect=[""]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "permissions", "plugins"}))
+
+    def test_interactive_custom(self):
+        # custom -> agent yes (blank), permissions no, plugins yes
+        with mock.patch("builtins.input", side_effect=["custom", "", "n", "y"]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "plugins"}))
 
 
 if __name__ == "__main__":
