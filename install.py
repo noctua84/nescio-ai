@@ -67,6 +67,41 @@ TEMPLATES: list[tuple[str, str]] = []
 SETTINGS_CHOICES = ("full", "minimal", "skip")
 CLAUDEMD_CHOICES = ("import", "replace", "skip")
 
+# Selectable top-level parts of the framework settings.json -> the key(s) each maps to.
+PART_KEYS: dict[str, tuple[str, ...]] = {
+    "agent": ("agent",),
+    "permissions": ("permissions",),
+    "plugins": ("enabledPlugins",),
+}
+# Keyword shorthands (kept for backward compatibility).
+SETTINGS_KEYWORDS: dict[str, frozenset[str]] = {
+    "full": frozenset(PART_KEYS),
+    "minimal": frozenset({"agent"}),
+    "skip": frozenset(),
+}
+
+
+def parse_settings_value(value: str) -> frozenset[str]:
+    """Parse a --settings value into a set of parts (empty set == skip).
+
+    Accepts EITHER a keyword (full|minimal|skip) OR a comma-list of parts
+    (agent, permissions, plugins). Raises ValueError on an unknown token or a
+    keyword mixed with parts (e.g. "full,agent").
+    """
+    v = value.strip().lower()
+    if v in SETTINGS_KEYWORDS:
+        return SETTINGS_KEYWORDS[v]
+    tokens = [t.strip() for t in v.split(",") if t.strip()]
+    if not tokens:
+        return frozenset()
+    unknown = [t for t in tokens if t not in PART_KEYS]
+    if unknown:
+        raise ValueError(
+            f"unknown settings part(s): {', '.join(unknown)} — expected the "
+            f"keyword full|minimal|skip or a comma-list of {'|'.join(PART_KEYS)}"
+        )
+    return frozenset(tokens)
+
 
 def is_conflict(dst: Path) -> bool:
     """A real (non-symlink) file/dir sitting where we want a symlink."""

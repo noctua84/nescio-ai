@@ -8,6 +8,8 @@ import scripts._settings_merge as ss
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import install  # noqa: E402
+
 
 class DeepMergeTest(unittest.TestCase):
     def test_fills_missing_keys(self):
@@ -314,6 +316,34 @@ class ClaudeMdInstallTest(unittest.TestCase):
             repo, home = Path(r), Path(h)
             self._run(repo, home, "import", dry_run=True)
             self.assertFalse((home / "CLAUDE.md").exists())
+
+
+class ParseSettingsValueTest(unittest.TestCase):
+    def test_keywords(self):
+        self.assertEqual(install.parse_settings_value("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.parse_settings_value("minimal"), frozenset({"agent"}))
+        self.assertEqual(install.parse_settings_value("skip"), frozenset())
+
+    def test_part_list(self):
+        self.assertEqual(install.parse_settings_value("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value(" agent , plugins "),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value("plugins,plugins"),
+                         frozenset({"plugins"}))
+
+    def test_empty_is_skip(self):
+        self.assertEqual(install.parse_settings_value(""), frozenset())
+        self.assertEqual(install.parse_settings_value("  "), frozenset())
+
+    def test_unknown_token_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("bogus")
+
+    def test_keyword_mixed_with_parts_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("full,agent")
 
 
 if __name__ == "__main__":
