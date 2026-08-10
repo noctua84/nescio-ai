@@ -3,10 +3,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 import scripts._settings_merge as ss
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+
+import install  # noqa: E402
 
 
 class DeepMergeTest(unittest.TestCase):
@@ -134,7 +137,7 @@ class RelinkIntegrationTest(unittest.TestCase):
         i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = repo, home, can_symlink, symlink
         try:
             return i.do_relink("20260101-000000", dry_run=False, ledger={},
-                               choice=choice, claudemd_choice=claudemd_choice)
+                               parts=i.parse_settings_value(choice), claudemd_choice=claudemd_choice)
         finally:
             i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = saved
 
@@ -314,6 +317,141 @@ class ClaudeMdInstallTest(unittest.TestCase):
             repo, home = Path(r), Path(h)
             self._run(repo, home, "import", dry_run=True)
             self.assertFalse((home / "CLAUDE.md").exists())
+
+
+class ParseSettingsValueTest(unittest.TestCase):
+    def test_keywords(self):
+        self.assertEqual(install.parse_settings_value("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.parse_settings_value("minimal"), frozenset({"agent"}))
+        self.assertEqual(install.parse_settings_value("skip"), frozenset())
+
+    def test_part_list(self):
+        self.assertEqual(install.parse_settings_value("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value(" agent , plugins "),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value("plugins,plugins"),
+                         frozenset({"plugins"}))
+
+    def test_empty_is_skip(self):
+        self.assertEqual(install.parse_settings_value(""), frozenset())
+        self.assertEqual(install.parse_settings_value("  "), frozenset())
+
+    def test_unknown_token_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("bogus")
+
+    def test_keyword_mixed_with_parts_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("full,agent")
+
+
+class ResolveSettingsChoiceTest(unittest.TestCase):
+    def test_cli_keyword(self):
+        self.assertEqual(install.resolve_settings_choice("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.resolve_settings_choice("skip"), frozenset())
+
+    def test_cli_part_list(self):
+        self.assertEqual(install.resolve_settings_choice("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+
+    def test_cli_bad_value_raises(self):
+        with self.assertRaises(ValueError):
+            install.resolve_settings_choice("nope")
+
+    def test_interactive_default_full(self, ):
+        # blank input at the top prompt -> full (all three)
+        with mock.patch("builtins.input", side_effect=[""]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "permissions", "plugins"}))
+
+    def test_interactive_custom(self):
+        # custom -> agent yes (blank), permissions no, plugins yes
+        with mock.patch("builtins.input", side_effect=["custom", "", "n", "y"]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "plugins"}))
+
+
+class InstallSettingsPartsTest(unittest.TestCase):
+    def _setup(self, tmp):
+        # Fake framework settings.json with all three parts.
+        fw = {"agent": "orchestrator",
+              "permissions": {"allow": ["Bash(git status:*)"]},
+              "enabledPlugins": {"p@x": True}}
+        repo = Path(tmp) / "repo"; (repo).mkdir()
+        (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+        claude = Path(tmp) / "claude"; claude.mkdir()
+        return repo, claude
+
+    def test_only_selected_parts_merged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent", "plugins"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out.get("agent"), "orchestrator")
+            self.assertIn("enabledPlugins", out)
+            self.assertNotIn("permissions", out)  # not selected
+
+    def test_unselected_permissions_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            (claude / "settings.json").write_text(
+                json.dumps({"permissions": {"allow": ["Bash(mine:*)"]}, "mykey": 1}),
+                encoding="utf-8")
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out["permissions"]["allow"], ["Bash(mine:*)"])  # untouched
+            self.assertEqual(out["mykey"], 1)  # user key preserved
+            self.assertEqual(out["agent"], "orchestrator")
+
+    def test_empty_parts_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset(), dry_run=False)
+            self.assertFalse((claude / "settings.json").exists())
+
+    def test_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=True)
+            self.assertFalse((claude / "settings.json").exists())
+
+
+class SettingsCliIntegrationTest(unittest.TestCase):
+    def test_part_list_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fw = {"agent": "orchestrator",
+                  "permissions": {"allow": ["Bash(x:*)"]},
+                  "enabledPlugins": {"p@x": True}}
+            repo = Path(tmp) / "repo"; repo.mkdir()
+            (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+            claude = Path(tmp) / "claude"; claude.mkdir()
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                parts = install.resolve_settings_choice("agent,plugins")
+                install.install_settings(parts, dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(set(out), {"agent", "enabledPlugins"})
+
+    def test_bad_settings_value_exits_2(self):
+        # main() must convert a ValueError from --settings into exit code 2.
+        with mock.patch.object(sys, "argv", ["install.py", "--settings", "bogus",
+                                             "--claude-md", "skip", "--dry-run"]):
+            with self.assertRaises(SystemExit) as cm:
+                install.main()
+            self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == "__main__":
