@@ -137,7 +137,7 @@ class RelinkIntegrationTest(unittest.TestCase):
         i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = repo, home, can_symlink, symlink
         try:
             return i.do_relink("20260101-000000", dry_run=False, ledger={},
-                               choice=choice, claudemd_choice=claudemd_choice)
+                               parts=i.parse_settings_value(choice), claudemd_choice=claudemd_choice)
         finally:
             i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = saved
 

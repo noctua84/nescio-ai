@@ -537,7 +537,7 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
     )
 
 
-def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
+def do_relink(stamp: str, dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choice: str) -> int:
     """Back up each conflicting real target and symlink it into the repo."""
     # Refuse before touching anything if we can't create symlinks — otherwise we'd
     # back up real files and then fail to link them, leaving ~/.claude half-broken.
@@ -594,9 +594,9 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_cho
     # place; otherwise we'd reference a record_stop.py that never got linked and,
     # worse, leave a real settings.local.json blocking future installs.
     cleanup_dead_user_local(dry_run)
-    install_settings(parse_settings_value(choice), dry_run)
+    install_settings(parts, dry_run)
     install_claude_md(claudemd_choice, dry_run)
-    if choice != "skip" and (dry_run or hooks_linked):
+    if parts and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
 
@@ -620,7 +620,7 @@ def stage_conflicts(dry_run: bool) -> None:
     adopt_existing_config.main()
 
 
-def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
+def do_default(dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choice: str) -> int:
     """Link safe targets; detect conflicts and route them to staging or --relink."""
     if not dry_run:
         CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -652,14 +652,14 @@ def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -
 
     if not conflicts:
         cleanup_dead_user_local(dry_run)
-        install_settings(parse_settings_value(choice), dry_run)
+        install_settings(parts, dry_run)
         install_claude_md(claudemd_choice, dry_run)
         # Hooks live in ~/.claude/settings.json now; wire them only if the hooks/
         # symlink is in place and the user didn't skip settings integration.
-        if choice != "skip" and hooks_linked:
+        if parts and hooks_linked:
             wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
-        elif choice != "skip":
+        elif parts:
             print("  skipping hooks: hooks/ link was not created")
         print("Done. Restart Claude Code / Desktop to pick up changes.")
         return 0
@@ -705,11 +705,11 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     ledger = parse_ledger()
 
-    choice = resolve_settings_choice(args.settings)
+    parts = resolve_settings_choice(args.settings)
     claudemd_choice = resolve_claudemd_choice(args.claude_md)
     if args.relink:
-        return do_relink(stamp, args.dry_run, ledger, choice, claudemd_choice)
-    return do_default(args.dry_run, ledger, choice, claudemd_choice)
+        return do_relink(stamp, args.dry_run, ledger, parts, claudemd_choice)
+    return do_default(args.dry_run, ledger, parts, claudemd_choice)
 
 
 if __name__ == "__main__":
