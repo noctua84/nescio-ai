@@ -1,5 +1,10 @@
 # NescioAI
 
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](pyproject.toml)
+![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![tests](https://github.com/noctua84/nescio-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/noctua84/nescio-ai/actions/workflows/tests.yml)
+
 > *"I know that I do not know."*
 >
 > An agent crew for Claude Code that says **"I don't know"** — and argues with
