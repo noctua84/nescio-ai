@@ -376,5 +376,58 @@ class ResolveSettingsChoiceTest(unittest.TestCase):
                              frozenset({"agent", "plugins"}))
 
 
+class InstallSettingsPartsTest(unittest.TestCase):
+    def _setup(self, tmp):
+        # Fake framework settings.json with all three parts.
+        fw = {"agent": "orchestrator",
+              "permissions": {"allow": ["Bash(git status:*)"]},
+              "enabledPlugins": {"p@x": True}}
+        repo = Path(tmp) / "repo"; (repo).mkdir()
+        (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+        claude = Path(tmp) / "claude"; claude.mkdir()
+        return repo, claude
+
+    def test_only_selected_parts_merged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent", "plugins"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out.get("agent"), "orchestrator")
+            self.assertIn("enabledPlugins", out)
+            self.assertNotIn("permissions", out)  # not selected
+
+    def test_unselected_permissions_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            (claude / "settings.json").write_text(
+                json.dumps({"permissions": {"allow": ["Bash(mine:*)"]}, "mykey": 1}),
+                encoding="utf-8")
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out["permissions"]["allow"], ["Bash(mine:*)"])  # untouched
+            self.assertEqual(out["mykey"], 1)  # user key preserved
+            self.assertEqual(out["agent"], "orchestrator")
+
+    def test_empty_parts_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset(), dry_run=False)
+            self.assertFalse((claude / "settings.json").exists())
+
+    def test_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=True)
+            self.assertFalse((claude / "settings.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

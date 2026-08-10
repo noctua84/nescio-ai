@@ -235,37 +235,37 @@ def _prompt_custom_parts() -> frozenset[str]:
     return frozenset(selected)
 
 
-def install_settings(choice: str, dry_run: bool) -> None:
-    """Write ~/.claude/settings.json as a REAL, merged file per the consent choice.
+def install_settings(parts: frozenset[str], dry_run: bool) -> None:
+    """Write ~/.claude/settings.json as a REAL, merged file for the selected parts.
 
-    Claude Code ignores ~/.claude/settings.local.json, so user-scope settings AND
-    hooks must live in ~/.claude/settings.json. We generate it as a real file
-    (never a symlink into the repo — machine-specific hook paths must not be
-    committed/synced), deep-merging the chosen framework keys OVER any existing
-    user settings so the adopted keys win while the user's other keys and
+    `parts` is a subset of PART_KEYS (empty == skip). The overlay is the framework
+    settings.json restricted to the selected parts' keys, deep-merged OVER any
+    existing user settings so adopted keys win while the user's other keys and
     allow-list are preserved. Hooks are wired separately, after this.
     """
     target = CLAUDE_DIR / "settings.json"
-    if choice == "skip":
+    if not parts:
         print("  settings: skip — leaving ~/.claude/settings.json unchanged")
         return
 
     if target.is_symlink():
-        # An older installer symlinked this into the repo; we manage a real file now.
         if dry_run:
             print(f"  settings: would replace the repo symlink at {target} with a real merged file")
         else:
             target.unlink()
 
-    existing = load_json(target)  # {} if absent / just-unlinked symlink
-    overlay = {"agent": "orchestrator"} if choice == "minimal" else load_json(REPO_DIR / "settings.json")
+    existing = load_json(target)
+    fw = load_json(REPO_DIR / "settings.json")
+    overlay = {k: fw[k] for part in parts for k in PART_KEYS[part] if k in fw}
     merged = deep_merge(overlay, existing)  # overlay (framework) wins; user's extras kept
 
+    label = ",".join(sorted(parts))
     if dry_run:
-        print(f"  settings: would write {target} — {choice} ({', '.join(sorted(overlay)) or 'no keys'})")
+        print(f"  settings: would write {target} — parts {label} "
+              f"(keys: {', '.join(sorted(overlay)) or 'none'})")
         return
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-    print(f"  settings: wrote {target} ({choice})")
+    print(f"  settings: wrote {target} (parts: {label})")
 
 
 def cleanup_dead_user_local(dry_run: bool) -> None:
@@ -594,7 +594,7 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_cho
     # place; otherwise we'd reference a record_stop.py that never got linked and,
     # worse, leave a real settings.local.json blocking future installs.
     cleanup_dead_user_local(dry_run)
-    install_settings(choice, dry_run)
+    install_settings(parse_settings_value(choice), dry_run)
     install_claude_md(claudemd_choice, dry_run)
     if choice != "skip" and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
@@ -652,7 +652,7 @@ def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -
 
     if not conflicts:
         cleanup_dead_user_local(dry_run)
-        install_settings(choice, dry_run)
+        install_settings(parse_settings_value(choice), dry_run)
         install_claude_md(claudemd_choice, dry_run)
         # Hooks live in ~/.claude/settings.json now; wire them only if the hooks/
         # symlink is in place and the user didn't skip settings integration.
