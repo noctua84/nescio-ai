@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -106,6 +107,105 @@ class CanSymlinkTest(unittest.TestCase):
                 self.assertFalse((Path(d) / ".install-symlink-probe").exists())
         finally:
             Path.symlink_to = orig
+
+
+class SymlinkTest(unittest.TestCase):
+    """install.symlink is idempotent on a re-run and never destroys a working
+    symlink when the recreate fails (issue #31)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        import importlib
+        self.install = importlib.import_module("install")
+
+    def test_restores_old_symlink_when_recreate_fails(self):
+        # Regression (issue #31): dst is an existing symlink pointing at an OLD
+        # target. When symlink_to fails (e.g. Windows without Developer Mode),
+        # symlink() must return False AND leave dst as a symlink still pointing
+        # at the OLD target — the previously-working link is restored, not lost.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "new_target"
+            src.mkdir()
+            old = base / "old_target"
+            old.mkdir()
+            dst = base / "link"
+            dst.symlink_to(old, target_is_directory=True)
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), old.resolve())
+
+            orig = Path.symlink_to
+
+            def boom(self, *a, **k):
+                raise OSError("[WinError 1314] no privilege")
+
+            Path.symlink_to = boom
+            try:
+                rc = self.install.symlink(src, dst, dry_run=False)
+            finally:
+                Path.symlink_to = orig
+
+            self.assertFalse(rc)
+            self.assertTrue(dst.is_symlink())        # not destroyed
+            self.assertEqual(dst.resolve(), old.resolve())  # still the OLD target
+
+    def test_idempotent_noop_when_already_linked_to_src(self):
+        # dst already points at src: symlink() returns True and does NOT
+        # unlink/recreate (proving the destructive path is skipped on re-runs).
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "target"
+            src.mkdir()
+            dst = base / "link"
+            dst.symlink_to(src, target_is_directory=True)
+
+            orig_symlink_to = Path.symlink_to
+            orig_unlink = Path.unlink
+            symlink_calls = []
+            unlink_calls = []
+
+            def spy_symlink_to(self, *a, **k):
+                symlink_calls.append(self)
+                return orig_symlink_to(self, *a, **k)
+
+            def spy_unlink(self, *a, **k):
+                unlink_calls.append(self)
+                return orig_unlink(self, *a, **k)
+
+            Path.symlink_to = spy_symlink_to
+            Path.unlink = spy_unlink
+            try:
+                rc = self.install.symlink(src, dst, dry_run=False)
+            finally:
+                Path.symlink_to = orig_symlink_to
+                Path.unlink = orig_unlink
+
+            self.assertTrue(rc)
+            self.assertEqual(symlink_calls, [])   # never recreated
+            self.assertEqual(unlink_calls, [])    # never removed
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), src.resolve())
+
+    def test_happy_path_creates_link(self):
+        # No existing dst -> the link is created and True returned.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "target"
+            src.mkdir()
+            dst = base / "link"
+            self.assertFalse(dst.exists())
+
+            rc = self.install.symlink(src, dst, dry_run=False)
+
+            self.assertTrue(rc)
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), src.resolve())
 
 
 class RelinkIntegrationTest(unittest.TestCase):

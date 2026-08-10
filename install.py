@@ -132,8 +132,38 @@ def can_symlink(directory: Path) -> bool:
 
 
 def symlink(src: Path, dst: Path, dry_run: bool) -> bool:
-    """Create/replace a symlink dst -> src. Returns True on success."""
+    """Create/replace a symlink dst -> src. Returns True on success.
+
+    Idempotent: if dst is already a symlink pointing at src, it is left
+    untouched (no destructive unlink/recreate on a re-run).
+
+    Restore-on-failure: when an existing symlink must be replaced, its current
+    target is captured first; if the recreate raises OSError (e.g. Windows
+    without Developer Mode), the previous symlink is restored so a failed
+    install never destroys a previously-working link (issue #31).
+    """
+    old_target: str | None = None
     if dst.is_symlink():
+        try:
+            current = os.readlink(dst)
+        except OSError:
+            current = None
+        # Already pointing where we want -> no-op; skip the destructive path.
+        # Compare the resolved target (Path.resolve normalizes the Windows
+        # extended-length "\\?\" prefix that os.readlink can return).
+        already_linked = False
+        if current is not None:
+            try:
+                already_linked = dst.resolve() == src.resolve()
+            except OSError:
+                already_linked = False
+        if already_linked:
+            if dry_run:
+                print(f"  would leave {dst} -> {src} (already linked)")
+            else:
+                print(f"  already linked {dst} -> {src}")
+            return True
+        old_target = current
         if not dry_run:
             dst.unlink()  # replace existing symlink (mirrors `ln -sfn`)
     try:
@@ -145,6 +175,16 @@ def symlink(src: Path, dst: Path, dry_run: bool) -> bool:
         return True
     except OSError as e:
         print(f"  ! failed to symlink {dst} -> {src}: {e}")
+        # Best-effort restore of the symlink we just removed, so a failed
+        # recreate never leaves the target missing where a working link stood.
+        if not dry_run and old_target is not None:
+            try:
+                os.symlink(old_target, dst,
+                           target_is_directory=Path(old_target).is_dir())
+                print(f"  restored previous symlink {dst} -> {old_target}")
+            except OSError as restore_err:
+                print(f"    ! WARNING: could not restore previous symlink "
+                      f"{dst} -> {old_target}: {restore_err}")
         if platform.system() == "Windows":
             print("    On Windows, symlinks require Developer Mode (Settings > Privacy &")
             print("    security > For developers) or running this terminal as Administrator.")
