@@ -223,6 +223,10 @@ copies just the framework files across.
   `python scripts/apply_theme.py philosophers` — the framework ships the functional
   names, and the theme is a local render step, so syncs never fight your renames.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for where Nescio is headed — the learning loop, earned per-repo autonomy, an OpenAI Codex adapter, and the installer's config-reconciliation arc. It's directional, not dated; the [open issues](https://github.com/noctua84/nescio-ai/issues) are the source of truth.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
