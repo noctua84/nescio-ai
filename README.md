@@ -1,5 +1,10 @@
 # NescioAI
 
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](pyproject.toml)
+![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![tests](https://github.com/noctua84/nescio-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/noctua84/nescio-ai/actions/workflows/tests.yml)
+
 > *"I know that I do not know."*
 >
 > An agent crew for Claude Code that says **"I don't know"** — and argues with
@@ -58,11 +63,12 @@ python install.py               # any OS incl. Windows (prompts for settings + C
 `skills/`, `memory/`, `commands/`, `hooks/` — into `~/.claude`, then asks two
 consent questions: how to integrate **`settings.json`** and **`CLAUDE.md`**.
 
-**`settings.json`** — `full | minimal | skip`:
+**`settings.json`** — a keyword (`full | minimal | skip`) **or a comma-list of parts** (`agent,permissions,plugins`):
 
 - **full** — the whole `settings.json` (default agent + permissions + plugins) + hooks
 - **minimal** — only `agent: orchestrator` (+ the learning-loop hooks)
 - **skip** — change nothing
+- **parts** — adopt a subset, e.g. `--settings agent,plugins` keeps your own permissions while adding the entrypoint and plugins (deep-merged; your other keys and allow-list are preserved)
 
 It's written as a **real, merged file** in `~/.claude` (not a symlink): the chosen
 keys win, your existing settings are preserved, and the hooks — which Claude Code
@@ -82,7 +88,7 @@ whose first line is `@<repo>/CLAUDE.md` (resolved live) with your own lines belo
 
 (`~/.claude/settings.local.json` and `~/.claude/CLAUDE.local.md` are *not* read by
 Claude Code, so the installer doesn't create them, and removes any left by older
-versions.) Pass `--settings full|minimal|skip` and `--claude-md import|replace|skip`
+versions.) Pass `--settings full|minimal|skip|<parts>` and `--claude-md import|replace|skip`
 for an unattended install; re-runs are idempotent.
 
 `install.py` is the single installer (pure standard-library Python, no

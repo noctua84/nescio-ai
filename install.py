@@ -64,8 +64,42 @@ LINKS = [
 # cleaned up by cleanup_dead_user_local().
 TEMPLATES: list[tuple[str, str]] = []
 
-SETTINGS_CHOICES = ("full", "minimal", "skip")
 CLAUDEMD_CHOICES = ("import", "replace", "skip")
+
+# Selectable top-level parts of the framework settings.json -> the key(s) each maps to.
+PART_KEYS: dict[str, tuple[str, ...]] = {
+    "agent": ("agent",),
+    "permissions": ("permissions",),
+    "plugins": ("enabledPlugins",),
+}
+# Keyword shorthands (kept for backward compatibility).
+SETTINGS_KEYWORDS: dict[str, frozenset[str]] = {
+    "full": frozenset(PART_KEYS),
+    "minimal": frozenset({"agent"}),
+    "skip": frozenset(),
+}
+
+
+def parse_settings_value(value: str) -> frozenset[str]:
+    """Parse a --settings value into a set of parts (empty set == skip).
+
+    Accepts EITHER a keyword (full|minimal|skip) OR a comma-list of parts
+    (agent, permissions, plugins). Raises ValueError on an unknown token or a
+    keyword mixed with parts (e.g. "full,agent").
+    """
+    v = value.strip().lower()
+    if v in SETTINGS_KEYWORDS:
+        return SETTINGS_KEYWORDS[v]
+    tokens = [t.strip() for t in v.split(",") if t.strip()]
+    if not tokens:
+        return frozenset()
+    unknown = [t for t in tokens if t not in PART_KEYS]
+    if unknown:
+        raise ValueError(
+            f"unknown settings part(s): {', '.join(unknown)} — expected the "
+            f"keyword full|minimal|skip or a comma-list of {'|'.join(PART_KEYS)}"
+        )
+    return frozenset(tokens)
 
 
 def is_conflict(dst: Path) -> bool:
@@ -98,8 +132,38 @@ def can_symlink(directory: Path) -> bool:
 
 
 def symlink(src: Path, dst: Path, dry_run: bool) -> bool:
-    """Create/replace a symlink dst -> src. Returns True on success."""
+    """Create/replace a symlink dst -> src. Returns True on success.
+
+    Idempotent: if dst is already a symlink pointing at src, it is left
+    untouched (no destructive unlink/recreate on a re-run).
+
+    Restore-on-failure: when an existing symlink must be replaced, its current
+    target is captured first; if the recreate raises OSError (e.g. Windows
+    without Developer Mode), the previous symlink is restored so a failed
+    install never destroys a previously-working link (issue #31).
+    """
+    old_target: str | None = None
     if dst.is_symlink():
+        try:
+            current = os.readlink(dst)
+        except OSError:
+            current = None
+        # Already pointing where we want -> no-op; skip the destructive path.
+        # Compare the resolved target (Path.resolve normalizes the Windows
+        # extended-length "\\?\" prefix that os.readlink can return).
+        already_linked = False
+        if current is not None:
+            try:
+                already_linked = dst.resolve() == src.resolve()
+            except OSError:
+                already_linked = False
+        if already_linked:
+            if dry_run:
+                print(f"  would leave {dst} -> {src} (already linked)")
+            else:
+                print(f"  already linked {dst} -> {src}")
+            return True
+        old_target = current
         if not dry_run:
             dst.unlink()  # replace existing symlink (mirrors `ln -sfn`)
     try:
@@ -111,6 +175,16 @@ def symlink(src: Path, dst: Path, dry_run: bool) -> bool:
         return True
     except OSError as e:
         print(f"  ! failed to symlink {dst} -> {src}: {e}")
+        # Best-effort restore of the symlink we just removed, so a failed
+        # recreate never leaves the target missing where a working link stood.
+        if not dry_run and old_target is not None:
+            try:
+                os.symlink(old_target, dst,
+                           target_is_directory=Path(old_target).is_dir())
+                print(f"  restored previous symlink {dst} -> {old_target}")
+            except OSError as restore_err:
+                print(f"    ! WARNING: could not restore previous symlink "
+                      f"{dst} -> {old_target}: {restore_err}")
         if platform.system() == "Windows":
             print("    On Windows, symlinks require Developer Mode (Settings > Privacy &")
             print("    security > For developers) or running this terminal as Administrator.")
@@ -156,62 +230,81 @@ def ensure_from_template(real: Path, template: Path, dry_run: bool) -> None:
     print(f"  created {real} from template (gitignored, edit freely)")
 
 
-def resolve_settings_choice(cli_choice: str | None) -> str:
-    """Return 'full' | 'minimal' | 'skip'. Ask every time — never a silent default.
+def resolve_settings_choice(cli_value: str | None) -> frozenset[str]:
+    """Return the selected settings parts (empty set == skip). Ask every time.
 
-    A non-interactive run must pass --settings, so an unattended install can't
-    quietly pick for the user.
+    A keyword (full|minimal|skip) or a comma-list of parts
+    (agent,permissions,plugins). Non-interactive runs must pass --settings.
     """
-    if cli_choice:
-        return cli_choice
+    if cli_value is not None:
+        return parse_settings_value(cli_value)  # ValueError -> handled in main()
     if not sys.stdin.isatty():
-        print("  ! Non-interactive install: pass --settings {full,minimal,skip}.", file=sys.stderr)
-        print("    full = adopt the whole settings.json (default agent + permissions +", file=sys.stderr)
-        print("    plugins) + hooks;  minimal = set agent=orchestrator (+ hooks);", file=sys.stderr)
-        print("    skip = change ~/.claude/settings.json not at all.", file=sys.stderr)
+        print("  ! Non-interactive install: pass --settings.", file=sys.stderr)
+        print("    keyword: full (agent+permissions+plugins) | minimal (agent) | skip", file=sys.stderr)
+        print("    or a comma-list of parts: agent,permissions,plugins", file=sys.stderr)
         sys.exit(2)
     print("\nIntegrate this framework's settings into ~/.claude/settings.json?")
-    print("  full     adopt the whole settings.json (default agent + permissions + plugins) + hooks")
-    print("  minimal  set only agent=orchestrator, plus the learning-loop hooks")
-    print("  skip     change nothing (the crew won't be your default agent)")
+    print("  (deep-merged over your file — your other keys and allow-list are kept)")
+    print("  full     agent + permissions + plugins   (recommended) + hooks")
+    print("  minimal  agent entrypoint only + hooks")
+    print("  custom   choose parts individually")
+    print("  skip     change nothing")
     while True:
-        ans = input("  choose [full/minimal/skip]: ").strip().lower()
-        if ans in SETTINGS_CHOICES:
-            return ans
-        print("    please type one of: full, minimal, skip")
+        ans = input("  choose [full/minimal/custom/skip] (default full): ").strip().lower()
+        if ans == "":
+            return SETTINGS_KEYWORDS["full"]
+        if ans in SETTINGS_KEYWORDS:
+            return SETTINGS_KEYWORDS[ans]
+        if ans == "custom":
+            return _prompt_custom_parts()
+        print("    please type one of: full, minimal, custom, skip")
 
 
-def install_settings(choice: str, dry_run: bool) -> None:
-    """Write ~/.claude/settings.json as a REAL, merged file per the consent choice.
+def _prompt_custom_parts() -> frozenset[str]:
+    """Per-part [Y/n] prompts (each defaults to Yes). Returns the selected parts."""
+    questions = [
+        ("agent", "adopt agent entrypoint?"),
+        ("permissions", "adopt permissions allow-list?"),
+        ("plugins", "adopt plugins?"),
+    ]
+    selected = {
+        part for part, q in questions
+        if input(f"    {q} [Y/n]: ").strip().lower() in ("", "y", "yes")
+    }
+    return frozenset(selected)
 
-    Claude Code ignores ~/.claude/settings.local.json, so user-scope settings AND
-    hooks must live in ~/.claude/settings.json. We generate it as a real file
-    (never a symlink into the repo — machine-specific hook paths must not be
-    committed/synced), deep-merging the chosen framework keys OVER any existing
-    user settings so the adopted keys win while the user's other keys and
+
+def install_settings(parts: frozenset[str], dry_run: bool) -> None:
+    """Write ~/.claude/settings.json as a REAL, merged file for the selected parts.
+
+    `parts` is a subset of PART_KEYS (empty == skip). The overlay is the framework
+    settings.json restricted to the selected parts' keys, deep-merged OVER any
+    existing user settings so adopted keys win while the user's other keys and
     allow-list are preserved. Hooks are wired separately, after this.
     """
     target = CLAUDE_DIR / "settings.json"
-    if choice == "skip":
+    if not parts:
         print("  settings: skip — leaving ~/.claude/settings.json unchanged")
         return
 
     if target.is_symlink():
-        # An older installer symlinked this into the repo; we manage a real file now.
         if dry_run:
             print(f"  settings: would replace the repo symlink at {target} with a real merged file")
         else:
             target.unlink()
 
-    existing = load_json(target)  # {} if absent / just-unlinked symlink
-    overlay = {"agent": "orchestrator"} if choice == "minimal" else load_json(REPO_DIR / "settings.json")
+    existing = load_json(target)
+    fw = load_json(REPO_DIR / "settings.json")
+    overlay = {k: fw[k] for part in parts for k in PART_KEYS[part] if k in fw}
     merged = deep_merge(overlay, existing)  # overlay (framework) wins; user's extras kept
 
+    label = ",".join(sorted(parts))
     if dry_run:
-        print(f"  settings: would write {target} — {choice} ({', '.join(sorted(overlay)) or 'no keys'})")
+        print(f"  settings: would write {target} — parts {label} "
+              f"(keys: {', '.join(sorted(overlay)) or 'none'})")
         return
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-    print(f"  settings: wrote {target} ({choice})")
+    print(f"  settings: wrote {target} (parts: {label})")
 
 
 def cleanup_dead_user_local(dry_run: bool) -> None:
@@ -483,7 +576,7 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
     )
 
 
-def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
+def do_relink(stamp: str, dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choice: str) -> int:
     """Back up each conflicting real target and symlink it into the repo."""
     # Refuse before touching anything if we can't create symlinks — otherwise we'd
     # back up real files and then fail to link them, leaving ~/.claude half-broken.
@@ -540,9 +633,9 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, choice: str, claudemd_cho
     # place; otherwise we'd reference a record_stop.py that never got linked and,
     # worse, leave a real settings.local.json blocking future installs.
     cleanup_dead_user_local(dry_run)
-    install_settings(choice, dry_run)
+    install_settings(parts, dry_run)
     install_claude_md(claudemd_choice, dry_run)
-    if choice != "skip" and (dry_run or hooks_linked):
+    if parts and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
 
@@ -566,7 +659,7 @@ def stage_conflicts(dry_run: bool) -> None:
     adopt_existing_config.main()
 
 
-def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -> int:
+def do_default(dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choice: str) -> int:
     """Link safe targets; detect conflicts and route them to staging or --relink."""
     if not dry_run:
         CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
@@ -598,14 +691,14 @@ def do_default(dry_run: bool, ledger: dict, choice: str, claudemd_choice: str) -
 
     if not conflicts:
         cleanup_dead_user_local(dry_run)
-        install_settings(choice, dry_run)
+        install_settings(parts, dry_run)
         install_claude_md(claudemd_choice, dry_run)
         # Hooks live in ~/.claude/settings.json now; wire them only if the hooks/
         # symlink is in place and the user didn't skip settings integration.
-        if choice != "skip" and hooks_linked:
+        if parts and hooks_linked:
             wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
-        elif choice != "skip":
+        elif parts:
             print("  skipping hooks: hooks/ link was not created")
         print("Done. Restart Claude Code / Desktop to pick up changes.")
         return 0
@@ -635,8 +728,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="back up conflicting real files and symlink them")
     ap.add_argument("--dry-run", action="store_true",
                     help="preview actions without writing anything")
-    ap.add_argument("--settings", choices=SETTINGS_CHOICES, default=None,
-                    help="settings.json integration: full | minimal | skip "
+    ap.add_argument("--settings", default=None, metavar="full|minimal|skip|part,part",
+                    help="settings.json integration: keyword (full|minimal|skip) or a "
+                         "comma-list of parts (agent,permissions,plugins) "
                          "(prompted if omitted; required when non-interactive)")
     ap.add_argument("--claude-md", choices=CLAUDEMD_CHOICES, default=None,
                     help="CLAUDE.md integration: import | replace | skip "
@@ -651,11 +745,15 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     ledger = parse_ledger()
 
-    choice = resolve_settings_choice(args.settings)
+    try:
+        parts = resolve_settings_choice(args.settings)
+    except ValueError as e:
+        print(f"error: --settings: {e}", file=sys.stderr)
+        raise SystemExit(2)
     claudemd_choice = resolve_claudemd_choice(args.claude_md)
     if args.relink:
-        return do_relink(stamp, args.dry_run, ledger, choice, claudemd_choice)
-    return do_default(args.dry_run, ledger, choice, claudemd_choice)
+        return do_relink(stamp, args.dry_run, ledger, parts, claudemd_choice)
+    return do_default(args.dry_run, ledger, parts, claudemd_choice)
 
 
 if __name__ == "__main__":
