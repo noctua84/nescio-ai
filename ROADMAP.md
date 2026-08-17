@@ -29,7 +29,6 @@ Untagged items aren't milestoned yet.
 
 The memory subsystem, end to end: capture → harvest → promote → generalize → measure.
 
-- `1.1` [#55](https://github.com/noctua84/nescio-ai/issues/55) — harvest tooling: `promote_learnings.py` crashes on non-ASCII output and never stages
 - `1.1` [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
 - `1.2` [#42](https://github.com/noctua84/nescio-ai/issues/42) — compute `readiness.md` deterministically from the learning-trail (2.1a)
 - `1.3` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
