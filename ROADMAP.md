@@ -66,7 +66,7 @@ readiness signal the learning loop produces, and rolled out per-repo.
 - `1.1` [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
 - `1.1` [#59](https://github.com/noctua84/nescio-ai/issues/59) — dispatch template: branch from the fetched remote ref (fast-follow to #54)
 - `1.1` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
-- [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
+- `1.1` [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
 - [#58](https://github.com/noctua84/nescio-ai/issues/58) — a `postmortem` skill for multi-repo incident write-ups
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
