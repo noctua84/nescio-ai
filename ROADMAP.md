@@ -63,7 +63,7 @@ readiness signal the learning loop produces, and rolled out per-repo.
 ## Ergonomics & workflow
 
 - `1.1` [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
-- [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
+- `1.1` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
 - [#22](https://github.com/noctua84/nescio-ai/issues/22) — optional headless GitHub Action to auto-run `dependency-pr-ci-fix` on a red bump PR
