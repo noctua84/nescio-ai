@@ -133,8 +133,8 @@ machines through your own clone.
 **The learning loop** captures session activity (a Stop hook writes a local
 trail) and, via `/harvest-memory`, curates durable learnings into `memory/` with
 source-precedence, contradiction resolution, and a de-duplication ledger. A
-per-repo `readiness.md` tracks how sessions have gone — the input for a planned
-autonomy dial.
+per-repo `readiness.md` summarises how recent harvested sessions have gone —
+refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 
 ## Optional: the philosopher theme
 
@@ -256,7 +256,16 @@ the framework's non-destructive charter rules out.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for where Nescio is headed — the learning loop, earned per-repo autonomy, an OpenAI Codex adapter, and the installer's config-reconciliation arc. It's directional, not dated; the [open issues](https://github.com/noctua84/nescio-ai/issues) are the source of truth.
+See [ROADMAP.md](ROADMAP.md) for where Nescio is headed. Near-term work is the
+learning loop: making it trustworthy end to end, turning the trail into a real
+readiness signal, then lifting learnings across repos. **Earned per-repo autonomy
+is parked** — deliberately held until the loop has run long enough to produce
+evidence worth arguing with, not abandoned. An OpenAI Codex adapter and the
+installer's config-reconciliation arc are on the roadmap but unscheduled.
+
+It's directional, not dated; the [open issues](https://github.com/noctua84/nescio-ai/issues)
+and [milestones](https://github.com/noctua84/nescio-ai/milestones) are the source
+of truth.
 
 ## Contributing
 
