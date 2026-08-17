@@ -7,8 +7,10 @@ source of truth.
 
 Tags map an item to a [milestone](https://github.com/noctua84/nescio-ai/milestones):
 `1.1` Loop integrity, `1.2` Readiness signal, `1.3` Cross-repo knowledge. `parked`
-means *Parked — needs data* — deliberately on hold until the learning loop has run
-long enough to argue with, **not** neglected. Untagged items aren't milestoned yet.
+means the *Parked* milestone — deliberately held, for one of three distinct reasons
+(blocked on evidence, blocked on tooling that isn't built yet, or a taste call to
+revisit later), so check the issue before assuming which. Held is **not** neglected.
+Untagged items aren't milestoned yet.
 
 ## Shipped in 1.0
 
@@ -33,7 +35,7 @@ The memory subsystem, end to end: capture → harvest → promote → generalize
 - `1.3` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
 - `1.3` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
 - `1.3` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
-- `parked` [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
+- `1.2` [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
 - `parked` [#36](https://github.com/noctua84/nescio-ai/issues/36) — diversity-weighted promotion + same-condition inversion
 - `parked` [#38](https://github.com/noctua84/nescio-ai/issues/38) — consolidation cadence: scheduled "sleep" reflection over memory
 - `1.2` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
@@ -63,7 +65,10 @@ readiness signal the learning loop produces, and rolled out per-repo.
 ## Ergonomics & workflow
 
 - `1.1` [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
+- `1.1` [#59](https://github.com/noctua84/nescio-ai/issues/59) — dispatch template: branch from the fetched remote ref (fast-follow to #54)
 - `1.1` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
+- [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
+- [#58](https://github.com/noctua84/nescio-ai/issues/58) — a `postmortem` skill for multi-repo incident write-ups
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
 - [#22](https://github.com/noctua84/nescio-ai/issues/22) — optional headless GitHub Action to auto-run `dependency-pr-ci-fix` on a red bump PR
