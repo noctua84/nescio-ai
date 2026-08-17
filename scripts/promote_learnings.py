@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 import wiki_index
@@ -411,6 +412,16 @@ def main() -> int:
     ap.add_argument("manifest", help="path to a JSON nominations file")
     ap.add_argument("--dry-run", action="store_true", help="print actions, write nothing")
     args = ap.parse_args()
+
+    # The summary uses a ⚠ glyph and echoes note targets that may carry other
+    # non-ASCII; a legacy Windows console defaults to cp1252 and would raise
+    # UnicodeEncodeError on them — after every note was already written, turning
+    # a fully successful promote into a non-zero exit. Reconfigure to UTF-8 when
+    # possible (guarded — a redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
     manifest = Path(args.manifest)
     if not manifest.is_file():

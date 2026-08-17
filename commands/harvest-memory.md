@@ -129,9 +129,12 @@ durable repo memory:
 
    It writes each note under `memory/`, tags it with the provenance line,
    resolves contradictions against any existing note, appends to
-   `memory/learning-log.md`, and stages only the files it touched — it never
-   `git add -A`. Do not restate its logic here; read `scripts/promote_learnings.py`
-   and `scripts/_learning_common.py` for the details.
+   `memory/learning-log.md`, and prints one summary line per note it wrote or
+   updated. It does **no git work at all** — nothing is staged, and freshly
+   created notes are left untracked. Keep that summary: it is the list of paths
+   you stage by hand in step 10. Do not restate its logic here; read
+   `scripts/promote_learnings.py` and `scripts/_learning_common.py` for the
+   details.
 8. **Stamp the harvest watermark (GLOBAL, at the read-time).** Run, passing the
    read-time timestamp captured in step 1:
 
@@ -170,9 +173,19 @@ durable repo memory:
     # staged changes travel with the switch
     git switch -c chore/memory-harvest-<YYYY-MM-DD>
 
-    # scoped to memory/ so unrelated working-tree noise (.idea/, …) is never
-    # swept in
-    git commit memory/ -m "chore(memory): harvest <session> learnings"
+    # the exact paths this harvest wrote: every note from step 7's summary, the
+    # ledger, and the readiness file from step 9 — enumerated, never globbed
+    PATHS="memory/<scope>/<note>.md memory/learning-log.md memory/repo/<repo>/readiness.md"
+
+    # stage by path. This step is on you: promote_learnings.py stages nothing,
+    # and a newly created note is untracked until it is added.
+    git add $PATHS
+
+    # commit scoped to those same paths, so unrelated working-tree noise
+    # (.idea/, …) and any concurrent session's staged work stay out of it.
+    # Do NOT use `git commit memory/ -m ...`: that form commits tracked
+    # modifications only and silently drops every note just created.
+    git commit -m "chore(memory): harvest <session> learnings" -- $PATHS
 
     git push -u origin chore/memory-harvest-<YYYY-MM-DD>
 
@@ -200,8 +213,9 @@ durable repo memory:
   shouldn't live in a shareable repo — those belong in `CLAUDE.local.md` only.
 - Nothing is written or committed without the explicit human confirmation in
   step 6.
-- Never `git add -A` — the promote tool stages only the notes it wrote; stage
-  the readiness update by path.
+- Never `git add -A`. The promote tool stages nothing at all, so staging is the
+  operator's job: `git add` each promoted note (from the tool's summary), the
+  ledger, and the readiness update — every one of them by path.
 - Never commit the harvest on `main` — deliver through a branch + PR (step 10).
   `main` is unprotected, and an unreviewed memory note silently misleads every
   future session that reads it.

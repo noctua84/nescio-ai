@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 
 from _hygiene_common import (
@@ -444,6 +445,15 @@ def main() -> int:
     ap.add_argument("--no-gh", action="store_true",
                     help="never consult gh, even for the read-only merge probe (offline)")
     args = ap.parse_args()
+
+    # The transcript echoes branch and worktree names plus git output, which can
+    # carry non-ASCII; a legacy Windows console defaults to cp1252 and would
+    # raise UnicodeEncodeError on them. Reconfigure to UTF-8 when possible
+    # (guarded — a redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
     manifest_path = Path(args.manifest)
     if not manifest_path.is_file():
