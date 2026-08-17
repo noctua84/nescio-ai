@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import datetime
 
 from _adopt_common import ADOPT, ADOPTED, LEDGER, MAX_LEDGER_LINES, TERMINAL
@@ -35,6 +36,14 @@ def main() -> int:
                     help="integrated | no-change | dropped | pending")
     ap.add_argument("--note", default="", help="short note appended to each ledger line")
     args = ap.parse_args()
+
+    # The ledger-cap warning uses a ⚠ glyph; a legacy Windows console defaults to
+    # cp1252 and would raise UnicodeEncodeError on it. Reconfigure to UTF-8
+    # when possible (guarded — a redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
     src = ADOPT / args.timestamp
     if not src.is_dir():

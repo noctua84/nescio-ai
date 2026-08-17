@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -485,6 +486,15 @@ def main() -> int:
                     help="force the offline path (skip gh; exercise the "
                          "ancestor-only merge fallback)")
     args = ap.parse_args()
+
+    # The report echoes branch names and gh PR/issue titles, which routinely
+    # carry non-ASCII; a legacy Windows console defaults to cp1252 and would
+    # raise UnicodeEncodeError on them. Reconfigure to UTF-8 when possible
+    # (guarded — a redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
     # Read-only tool: never fail the caller. Any unexpected error is reported
     # but the exit stays 0 so it is safe in automation.

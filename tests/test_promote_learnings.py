@@ -1,7 +1,9 @@
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -515,6 +517,57 @@ class ProvenanceInBlockTest(unittest.TestCase):
             self.assertEqual(
                 pl.existing_provenance(note), ("user override", "2026-08-01")
             )
+
+
+class ConsoleEncodingTest(unittest.TestCase):
+    """Issue #55: a cp1252 console must not turn a successful promote into a crash.
+
+    ``promote()`` writes every note, then ``main()`` prints the summary — which
+    carries ``→`` (U+2192) and ``⚠`` (U+26A0). Neither maps to cp1252, the
+    default console encoding on Windows, so an unguarded ``print`` raised
+    UnicodeEncodeError *after* all the writes had already landed and the caller
+    saw a non-zero exit for a run that fully succeeded.
+    """
+
+    # A summary shaped like the real one, carrying both offending glyphs.
+    GLYPH_SUMMARY = [
+        "wrote     feedback/sample.md — abc123abc123 (empirical)",
+        "reindexed memory/feedback/MEMORY.md → 3 notes",
+        "promoted 1, skipped 0",
+        f"\n⚠  learning-log.md is 999 lines (> {lc.MAX_LEDGER_LINES}). Compact it.",
+    ]
+
+    def _run_main(self, manifest: Path):
+        """Drive main() with a stdout that really is cp1252-backed.
+
+        A TextIOWrapper over BytesIO behaves like the legacy console: it raises
+        on unencodable characters, and — unlike the StringIO used elsewhere in
+        the suite — it does have ``reconfigure``, so the guard is exercised for
+        real rather than swallowed by the try/except.
+        """
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        argv = ["promote_learnings.py", str(manifest)]
+        with mock.patch.object(sys, "stdout", stream), \
+                mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(
+                    pl, "promote",
+                    lambda records, dry_run=False: (0, self.GLYPH_SUMMARY)):
+            rc = pl.main()
+        stream.flush()
+        return rc, stream.buffer.getvalue().decode(stream.encoding)
+
+    def test_main_prints_summary_glyphs_on_a_cp1252_console(self):
+        with tempfile.TemporaryDirectory() as d:
+            manifest = Path(d) / "manifest.json"
+            manifest.write_text("[]", encoding="utf-8")
+
+            rc, out = self._run_main(manifest)
+
+            self.assertEqual(rc, 0)
+            # Both glyphs actually reached the stream — not dropped, not replaced.
+            self.assertIn("⚠", out)
+            self.assertIn("→", out)
+            self.assertIn(str(lc.MAX_LEDGER_LINES), out)
 
 
 if __name__ == "__main__":
