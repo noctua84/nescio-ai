@@ -133,8 +133,8 @@ machines through your own clone.
 **The learning loop** captures session activity (a Stop hook writes a local
 trail) and, via `/harvest-memory`, curates durable learnings into `memory/` with
 source-precedence, contradiction resolution, and a de-duplication ledger. A
-per-repo `readiness.md` tracks how sessions have gone — the input for a planned
-autonomy dial.
+per-repo `readiness.md` summarises how recent harvested sessions have gone —
+refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 
 ## Optional: the philosopher theme
 
