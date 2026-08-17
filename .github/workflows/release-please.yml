@@ -1,0 +1,28 @@
+name: release-please
+
+# On merge to main, release-please reads the conventional commits since the last
+# release and maintains a "release PR" that bumps the version (pyproject.toml) and
+# updates CHANGELOG.md. Merging that release PR tags the commit and publishes a
+# GitHub Release.
+#
+# Prerequisite (one-time, repo setting): Settings → Actions → General → Workflow
+# permissions → enable "Allow GitHub Actions to create and approve pull requests",
+# otherwise release-please cannot open its release PR.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
