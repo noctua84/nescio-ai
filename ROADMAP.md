@@ -5,6 +5,11 @@ Where Nescio is going. This is **directional, not dated** — priorities shift, 
 the [open issues](https://github.com/noctua84/nescio-ai/issues) are always the
 source of truth.
 
+Tags map an item to a [milestone](https://github.com/noctua84/nescio-ai/milestones):
+`1.1` Loop integrity, `1.2` Readiness signal, `1.3` Cross-repo knowledge. `parked`
+means *Parked — needs data* — deliberately on hold until the learning loop has run
+long enough to argue with, **not** neglected. Untagged items aren't milestoned yet.
+
 ## Shipped in 1.0
 
 - The crew + lifecycle (triage → discover → analyze → plan → execute → verify → deliver).
@@ -22,27 +27,27 @@ source of truth.
 
 The memory subsystem, end to end: capture → harvest → promote → generalize → measure.
 
-- [#55](https://github.com/noctua84/nescio-ai/issues/55) — harvest tooling: `promote_learnings.py` crashes on non-ASCII output and never stages
-- [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
-- [#42](https://github.com/noctua84/nescio-ai/issues/42) — compute `readiness.md` deterministically from the learning-trail (2.1a)
-- [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
-- [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
-- [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
-- [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
-- [#36](https://github.com/noctua84/nescio-ai/issues/36) — diversity-weighted promotion + same-condition inversion
-- [#38](https://github.com/noctua84/nescio-ai/issues/38) — consolidation cadence: scheduled "sleep" reflection over memory
-- [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
-- [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
-- [#41](https://github.com/noctua84/nescio-ai/issues/41) — evaluate Obsidian as a read-only view over `memory/`
+- `1.1` [#55](https://github.com/noctua84/nescio-ai/issues/55) — harvest tooling: `promote_learnings.py` crashes on non-ASCII output and never stages
+- `1.1` [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
+- `1.2` [#42](https://github.com/noctua84/nescio-ai/issues/42) — compute `readiness.md` deterministically from the learning-trail (2.1a)
+- `1.3` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
+- `1.3` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
+- `1.3` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
+- `parked` [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
+- `parked` [#36](https://github.com/noctua84/nescio-ai/issues/36) — diversity-weighted promotion + same-condition inversion
+- `parked` [#38](https://github.com/noctua84/nescio-ai/issues/38) — consolidation cadence: scheduled "sleep" reflection over memory
+- `1.2` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
+- `1.1` [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
+- `parked` [#41](https://github.com/noctua84/nescio-ai/issues/41) — evaluate Obsidian as a read-only view over `memory/`
 
 ## Earned autonomy — [Epic #33](https://github.com/noctua84/nescio-ai/issues/33)
 
 Unattended action is deliberately **not** on by default. It's gated behind a
 readiness signal the learning loop produces, and rolled out per-repo.
 
-- [#32](https://github.com/noctua84/nescio-ai/issues/32) — earned per-repo autonomy dial + charter evolution (phase 3)
-- [#39](https://github.com/noctua84/nescio-ai/issues/39) — mid-task checkpoint / resume (+ fork) for the orchestrator lifecycle
-- [#37](https://github.com/noctua84/nescio-ai/issues/37) — a gradual "Confidence & gaps" signal on specialist agents
+- `parked` [#32](https://github.com/noctua84/nescio-ai/issues/32) — earned per-repo autonomy dial + charter evolution (phase 3)
+- `parked` [#39](https://github.com/noctua84/nescio-ai/issues/39) — mid-task checkpoint / resume (+ fork) for the orchestrator lifecycle
+- `parked` [#37](https://github.com/noctua84/nescio-ai/issues/37) — a gradual "Confidence & gaps" signal on specialist agents
 
 ## Interoperability
 
@@ -57,7 +62,7 @@ readiness signal the learning loop produces, and rolled out per-repo.
 
 ## Ergonomics & workflow
 
-- [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
+- `1.1` [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
 - [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
