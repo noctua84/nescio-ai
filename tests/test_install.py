@@ -1,12 +1,16 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 import scripts._settings_merge as ss
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+
+import install  # noqa: E402
 
 
 class DeepMergeTest(unittest.TestCase):
@@ -105,6 +109,105 @@ class CanSymlinkTest(unittest.TestCase):
             Path.symlink_to = orig
 
 
+class SymlinkTest(unittest.TestCase):
+    """install.symlink is idempotent on a re-run and never destroys a working
+    symlink when the recreate fails (issue #31)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        import importlib
+        self.install = importlib.import_module("install")
+
+    def test_restores_old_symlink_when_recreate_fails(self):
+        # Regression (issue #31): dst is an existing symlink pointing at an OLD
+        # target. When symlink_to fails (e.g. Windows without Developer Mode),
+        # symlink() must return False AND leave dst as a symlink still pointing
+        # at the OLD target — the previously-working link is restored, not lost.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "new_target"
+            src.mkdir()
+            old = base / "old_target"
+            old.mkdir()
+            dst = base / "link"
+            dst.symlink_to(old, target_is_directory=True)
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), old.resolve())
+
+            orig = Path.symlink_to
+
+            def boom(self, *a, **k):
+                raise OSError("[WinError 1314] no privilege")
+
+            Path.symlink_to = boom
+            try:
+                rc = self.install.symlink(src, dst, dry_run=False)
+            finally:
+                Path.symlink_to = orig
+
+            self.assertFalse(rc)
+            self.assertTrue(dst.is_symlink())        # not destroyed
+            self.assertEqual(dst.resolve(), old.resolve())  # still the OLD target
+
+    def test_idempotent_noop_when_already_linked_to_src(self):
+        # dst already points at src: symlink() returns True and does NOT
+        # unlink/recreate (proving the destructive path is skipped on re-runs).
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "target"
+            src.mkdir()
+            dst = base / "link"
+            dst.symlink_to(src, target_is_directory=True)
+
+            orig_symlink_to = Path.symlink_to
+            orig_unlink = Path.unlink
+            symlink_calls = []
+            unlink_calls = []
+
+            def spy_symlink_to(self, *a, **k):
+                symlink_calls.append(self)
+                return orig_symlink_to(self, *a, **k)
+
+            def spy_unlink(self, *a, **k):
+                unlink_calls.append(self)
+                return orig_unlink(self, *a, **k)
+
+            Path.symlink_to = spy_symlink_to
+            Path.unlink = spy_unlink
+            try:
+                rc = self.install.symlink(src, dst, dry_run=False)
+            finally:
+                Path.symlink_to = orig_symlink_to
+                Path.unlink = orig_unlink
+
+            self.assertTrue(rc)
+            self.assertEqual(symlink_calls, [])   # never recreated
+            self.assertEqual(unlink_calls, [])    # never removed
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), src.resolve())
+
+    def test_happy_path_creates_link(self):
+        # No existing dst -> the link is created and True returned.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            if not self.install.can_symlink(base):
+                self.skipTest("cannot create symlinks on this runner")
+            src = base / "target"
+            src.mkdir()
+            dst = base / "link"
+            self.assertFalse(dst.exists())
+
+            rc = self.install.symlink(src, dst, dry_run=False)
+
+            self.assertTrue(rc)
+            self.assertTrue(dst.is_symlink())
+            self.assertEqual(dst.resolve(), src.resolve())
+
+
 class RelinkIntegrationTest(unittest.TestCase):
     """Exercise do_relink for real against isolated temp dirs. Symlink creation is
     stubbed so the outcome is deterministic. settings.json is no longer symlinked
@@ -134,7 +237,7 @@ class RelinkIntegrationTest(unittest.TestCase):
         i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = repo, home, can_symlink, symlink
         try:
             return i.do_relink("20260101-000000", dry_run=False, ledger={},
-                               choice=choice, claudemd_choice=claudemd_choice)
+                               parts=i.parse_settings_value(choice), claudemd_choice=claudemd_choice)
         finally:
             i.REPO_DIR, i.CLAUDE_DIR, i.can_symlink, i.symlink = saved
 
@@ -314,6 +417,141 @@ class ClaudeMdInstallTest(unittest.TestCase):
             repo, home = Path(r), Path(h)
             self._run(repo, home, "import", dry_run=True)
             self.assertFalse((home / "CLAUDE.md").exists())
+
+
+class ParseSettingsValueTest(unittest.TestCase):
+    def test_keywords(self):
+        self.assertEqual(install.parse_settings_value("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.parse_settings_value("minimal"), frozenset({"agent"}))
+        self.assertEqual(install.parse_settings_value("skip"), frozenset())
+
+    def test_part_list(self):
+        self.assertEqual(install.parse_settings_value("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value(" agent , plugins "),
+                         frozenset({"agent", "plugins"}))
+        self.assertEqual(install.parse_settings_value("plugins,plugins"),
+                         frozenset({"plugins"}))
+
+    def test_empty_is_skip(self):
+        self.assertEqual(install.parse_settings_value(""), frozenset())
+        self.assertEqual(install.parse_settings_value("  "), frozenset())
+
+    def test_unknown_token_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("bogus")
+
+    def test_keyword_mixed_with_parts_raises(self):
+        with self.assertRaises(ValueError):
+            install.parse_settings_value("full,agent")
+
+
+class ResolveSettingsChoiceTest(unittest.TestCase):
+    def test_cli_keyword(self):
+        self.assertEqual(install.resolve_settings_choice("full"),
+                         frozenset({"agent", "permissions", "plugins"}))
+        self.assertEqual(install.resolve_settings_choice("skip"), frozenset())
+
+    def test_cli_part_list(self):
+        self.assertEqual(install.resolve_settings_choice("agent,plugins"),
+                         frozenset({"agent", "plugins"}))
+
+    def test_cli_bad_value_raises(self):
+        with self.assertRaises(ValueError):
+            install.resolve_settings_choice("nope")
+
+    def test_interactive_default_full(self, ):
+        # blank input at the top prompt -> full (all three)
+        with mock.patch("builtins.input", side_effect=[""]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "permissions", "plugins"}))
+
+    def test_interactive_custom(self):
+        # custom -> agent yes (blank), permissions no, plugins yes
+        with mock.patch("builtins.input", side_effect=["custom", "", "n", "y"]), \
+             mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(install.resolve_settings_choice(None),
+                             frozenset({"agent", "plugins"}))
+
+
+class InstallSettingsPartsTest(unittest.TestCase):
+    def _setup(self, tmp):
+        # Fake framework settings.json with all three parts.
+        fw = {"agent": "orchestrator",
+              "permissions": {"allow": ["Bash(git status:*)"]},
+              "enabledPlugins": {"p@x": True}}
+        repo = Path(tmp) / "repo"; (repo).mkdir()
+        (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+        claude = Path(tmp) / "claude"; claude.mkdir()
+        return repo, claude
+
+    def test_only_selected_parts_merged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent", "plugins"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out.get("agent"), "orchestrator")
+            self.assertIn("enabledPlugins", out)
+            self.assertNotIn("permissions", out)  # not selected
+
+    def test_unselected_permissions_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            (claude / "settings.json").write_text(
+                json.dumps({"permissions": {"allow": ["Bash(mine:*)"]}, "mykey": 1}),
+                encoding="utf-8")
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(out["permissions"]["allow"], ["Bash(mine:*)"])  # untouched
+            self.assertEqual(out["mykey"], 1)  # user key preserved
+            self.assertEqual(out["agent"], "orchestrator")
+
+    def test_empty_parts_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset(), dry_run=False)
+            self.assertFalse((claude / "settings.json").exists())
+
+    def test_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, claude = self._setup(tmp)
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                install.install_settings(frozenset({"agent"}), dry_run=True)
+            self.assertFalse((claude / "settings.json").exists())
+
+
+class SettingsCliIntegrationTest(unittest.TestCase):
+    def test_part_list_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fw = {"agent": "orchestrator",
+                  "permissions": {"allow": ["Bash(x:*)"]},
+                  "enabledPlugins": {"p@x": True}}
+            repo = Path(tmp) / "repo"; repo.mkdir()
+            (repo / "settings.json").write_text(json.dumps(fw), encoding="utf-8")
+            claude = Path(tmp) / "claude"; claude.mkdir()
+            with mock.patch.object(install, "REPO_DIR", repo), \
+                 mock.patch.object(install, "CLAUDE_DIR", claude):
+                parts = install.resolve_settings_choice("agent,plugins")
+                install.install_settings(parts, dry_run=False)
+                out = json.loads((claude / "settings.json").read_text())
+            self.assertEqual(set(out), {"agent", "enabledPlugins"})
+
+    def test_bad_settings_value_exits_2(self):
+        # main() must convert a ValueError from --settings into exit code 2.
+        with mock.patch.object(sys, "argv", ["install.py", "--settings", "bogus",
+                                             "--claude-md", "skip", "--dry-run"]):
+            with self.assertRaises(SystemExit) as cm:
+                install.main()
+            self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == "__main__":
