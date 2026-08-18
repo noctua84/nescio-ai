@@ -16,6 +16,13 @@ lines even when several windows/worktrees on the same repo (and overlapping
 `async` hooks) fire at once. Pruning is decoupled from the append: it happens
 only opportunistically, when the file grows past a threshold, via an atomic
 temp-file rewrite that can never fail the hook.
+
+The record deliberately carries no outcome verdict. Deriving one honestly means
+reading the session transcript, which routinely runs to tens of megabytes — far
+outside a hook that must stay a single write. So this hook captures the
+*pointer* (`transcript_path`) and nothing more; deriving the clean-vs-flagged
+verdict from that artifact belongs to the harvest/readiness step (#42), where
+the cost is affordable and the signal is a real artifact rather than a guess.
 """
 
 from __future__ import annotations
@@ -90,9 +97,66 @@ def _git(cwd: str, *args: str) -> str:
         return ""
 
 
+def git_roots(cwd: str) -> tuple[str, str]:
+    """`(worktree_root, repo_root)` for `cwd`; both fall back to `cwd`.
+
+    One `rev-parse` yields both, so this costs no more than the plain
+    `--show-toplevel` it replaces. `--show-toplevel` is the *worktree* toplevel,
+    which is ephemeral — a linked worktree gets deleted (this framework's own
+    `repo-hygiene` skill deletes them) and the path stops resolving, stranding
+    the records that named it. The parent of `--git-common-dir` is the repository
+    that owns the worktree and outlives it. In a normal clone the two coincide.
+
+    `--path-format=absolute` matters: `--git-common-dir` is otherwise reported
+    relative to `cwd`. It needs git >= 2.31, so a single degraded-path retry of
+    the plain `--show-toplevel` keeps `git_root` (and therefore `repo_key` and
+    the trail filename) stable on older git rather than silently collapsing to
+    `cwd`. That retry only ever runs when the combined call already failed — the
+    healthy hot path stays at one subprocess.
+
+    The parent-of-common-dir rule only holds for the standard `<repo>/.git`
+    layout, so it is applied only when the common dir is actually named `.git`.
+    A submodule's common dir is `<super>/.git/modules/<name>`, whose parent is
+    `<super>/.git/modules` — not a repository, and *identical for every
+    submodule of one superproject*, which would merge their trails. A
+    `--separate-git-dir` checkout is similarly detached. In those layouts the
+    worktree toplevel is already the correct, distinct identity, so `repo_root`
+    falls back to it.
+
+    `repo_root` is emitted with `as_posix()` because git reports paths with
+    forward slashes on every platform while `pathlib` renders native separators.
+    Without it, a Windows repo yields `C:/x/y` from git but `C:\\x\\y` from the
+    derived parent — two distinct strings for one repository, so a consumer
+    grouping by `repo_root` splits it into two buckets the moment any record
+    comes from the degraded path (older git, or a transient failure of the
+    combined call). Normalising toward git's convention keeps every git-derived
+    value byte-identical and leaves `repo_key` untouched.
+    """
+    out = _git(
+        cwd,
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-toplevel",
+        "--git-common-dir",
+    )
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if len(lines) == 2:
+        worktree, common_dir = lines
+        try:
+            common = Path(common_dir)
+            repo = common.parent.as_posix() if common.name == ".git" else ""
+        except (OSError, ValueError):
+            repo = ""
+        return worktree, (repo or worktree)
+    # Degraded: old git, not a repo, or unexpected output. Never raise, never
+    # leave repo_root absent — it mirrors git_root instead.
+    fallback = _git(cwd, "rev-parse", "--show-toplevel") or cwd
+    return fallback, fallback
+
+
 def git_root(cwd: str) -> str:
-    """Toplevel of the git repo containing `cwd`; fall back to `cwd` itself."""
-    return _git(cwd, "rev-parse", "--show-toplevel") or cwd
+    """Toplevel of the git worktree containing `cwd`; fall back to `cwd` itself."""
+    return git_roots(cwd)[0]
 
 
 def git_branch(cwd: str) -> str:
@@ -140,16 +204,25 @@ def message_preview(message: str) -> str:
 
 
 def build_record(event: dict, *, now: datetime | None = None) -> dict:
-    """Turn a Stop event into the JSONL record. Absent fields degrade to empty."""
+    """Turn a Stop event into the JSONL record. Absent fields degrade to empty.
+
+    `git_root` stays the worktree the turn happened in — useful context — while
+    `repo_root` carries the durable repository identity. `transcript_path` is
+    stored verbatim and never opened here; see the module docstring. Records
+    written before these fields existed simply lack them, so every consumer must
+    treat `repo_root` and `transcript_path` as optional.
+    """
     cwd = str(event.get("cwd") or os.getcwd())
-    root = git_root(cwd)
+    root, repo = git_roots(cwd)
     ts = (now or datetime.now(timezone.utc)).isoformat()
     return {
         "ts": ts,
         "session_id": event.get("session_id", ""),
         "git_root": root,
+        "repo_root": repo,
         "git_branch": git_branch(cwd),
         "prompt_id": event.get("prompt_id"),
+        "transcript_path": event.get("transcript_path"),
         "message_preview": message_preview(event.get("last_assistant_message", "")),
     }
 

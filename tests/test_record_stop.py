@@ -53,6 +53,188 @@ class RepoKeyTest(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
+def _has_git():
+    return bool(rs._git(os.getcwd(), "--version"))
+
+
+def _init_repo(path: str) -> None:
+    """`git init` a temp repo with a commit, using repo-local identity only.
+
+    Never touches global git config: user.email/user.name/commit.gpgsign are set
+    with `git -C <repo> config`, i.e. into the repo's own .git/config.
+    """
+    rs._git(path, "init", "-q")
+    rs._git(path, "config", "user.email", "test@example.invalid")
+    rs._git(path, "config", "user.name", "Test")
+    rs._git(path, "config", "commit.gpgsign", "false")
+    Path(path, "seed.txt").write_text("seed\n", encoding="utf-8")
+    rs._git(path, "add", "seed.txt")
+    rs._git(path, "commit", "-q", "-m", "seed")
+
+
+class GitRootsTest(unittest.TestCase):
+    """`repo_root` must survive the worktree it was recorded from (issue #65)."""
+
+    def test_linked_worktree_reports_parent_repo_as_repo_root(self):
+        # The defect in one assertion: inside a linked worktree, git_root is the
+        # ephemeral worktree path while repo_root is the repository that owns it
+        # and outlives it. A real `git worktree add`, not mocked paths.
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _init_repo(str(repo))
+            wt = Path(d) / "wt"
+            rs._git(str(repo), "worktree", "add", "-q", "-b", "side", str(wt))
+            if not (wt / "seed.txt").exists():
+                self.skipTest("git worktree add unavailable")
+
+            root, repo_root = rs.git_roots(str(wt))
+            self.assertEqual(Path(root).resolve(), wt.resolve())
+            self.assertEqual(Path(repo_root).resolve(), repo.resolve())
+            self.assertNotEqual(Path(root).resolve(), Path(repo_root).resolve())
+            # git_root() keeps its old meaning: the worktree, not the repo.
+            self.assertEqual(
+                Path(rs.git_root(str(wt))).resolve(), wt.resolve()
+            )
+
+    def test_normal_clone_repo_root_equals_git_root(self):
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _init_repo(str(repo))
+            root, repo_root = rs.git_roots(str(repo))
+            self.assertEqual(Path(root).resolve(), repo.resolve())
+            self.assertEqual(Path(repo_root).resolve(), repo.resolve())
+            # Representation, not just semantics: `git_root` comes from git
+            # (forward slashes even on Windows) while `repo_root` is derived via
+            # pathlib, which renders native separators. The Path(...).resolve()
+            # assertions above are separator-blind and pass either way, so the
+            # raw strings must be pinned too — a consumer grouping by the field
+            # compares strings, not Paths.
+            self.assertEqual(root, repo_root)
+
+    def test_healthy_and_degraded_paths_agree_on_repo_root(self):
+        # The bucket-splitting scenario stated directly: the same repository
+        # resolved via the combined rev-parse and via the degraded
+        # `--show-toplevel` retry (older git, or a transient failure of the
+        # combined call) must yield the SAME repo_root string. Otherwise one
+        # repo files under two identities in any consumer that groups by it —
+        # the defect #65 exists to remove, in a subtler form.
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _init_repo(str(repo))
+            healthy_root, healthy_repo = rs.git_roots(str(repo))
+
+            real_git = rs._git
+
+            def combined_call_fails(cwd, *args):
+                # Degrade only the combined invocation; the plain retry still
+                # works, exactly as on git < 2.31. Production code untouched.
+                if "--path-format=absolute" in args:
+                    return ""
+                return real_git(cwd, *args)
+
+            rs._git = combined_call_fails
+            try:
+                degraded_root, degraded_repo = rs.git_roots(str(repo))
+            finally:
+                rs._git = real_git
+
+            self.assertEqual(healthy_repo, degraded_repo)
+            self.assertEqual(healthy_root, degraded_root)
+            # Both must use git's convention, which is what the degraded path
+            # returns verbatim from git.
+            self.assertNotIn("\\", healthy_repo)
+
+    def test_submodule_repo_root_is_its_own_worktree(self):
+        # A submodule's common dir is `<super>/.git/modules/<name>`. Blindly
+        # taking its parent yields `<super>/.git/modules` — not a repository,
+        # and the SAME value for every submodule of one superproject, which
+        # would merge their trails. The submodule's own toplevel is the correct,
+        # distinct identity.
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("subA", "subB"):
+                (Path(d) / name).mkdir()
+                _init_repo(str(Path(d) / name))
+            super_ = Path(d) / "super"
+            super_.mkdir()
+            _init_repo(str(super_))
+            for name in ("subA", "subB"):
+                rs._git(
+                    str(super_), "-c", "protocol.file.allow=always",
+                    "submodule", "add", "-q", f"../{name}", name,
+                )
+            if not (super_ / "subA" / "seed.txt").exists():
+                self.skipTest("submodule add unavailable")
+
+            roots = {}
+            for name in ("subA", "subB"):
+                root, repo_root = rs.git_roots(str(super_ / name))
+                self.assertEqual(
+                    Path(repo_root).resolve(), (super_ / name).resolve()
+                )
+                self.assertNotIn("modules", Path(repo_root).parts)
+                roots[name] = repo_root
+            # The two submodules must not collapse onto one identity.
+            self.assertNotEqual(roots["subA"], roots["subB"])
+
+    def test_separate_git_dir_repo_root_is_the_worktree(self):
+        # `--separate-git-dir` detaches the common dir from the worktree, so its
+        # parent is unrelated to the repo. Fall back to the toplevel.
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d) / "work"
+            gitdir = Path(d) / "elsewhere.git"
+            rs._git(d, "init", "-q", f"--separate-git-dir={gitdir}", str(work))
+            if not work.exists():
+                self.skipTest("--separate-git-dir unavailable")
+            root, repo_root = rs.git_roots(str(work))
+            self.assertEqual(Path(root).resolve(), work.resolve())
+            self.assertEqual(Path(repo_root).resolve(), work.resolve())
+
+    def test_not_a_repo_falls_back_to_cwd_for_both(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, repo_root = rs.git_roots(d)
+            self.assertEqual(Path(root), Path(d))
+            self.assertEqual(Path(repo_root), Path(d))
+
+    def test_git_unavailable_falls_back_without_raising(self):
+        # Simulate git missing entirely: every subprocess.run raises OSError.
+        def boom(*a, **kw):
+            raise OSError("no git")
+
+        saved = rs.subprocess.run
+        rs.subprocess.run = boom
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                root, repo_root = rs.git_roots(d)
+                self.assertEqual(Path(root), Path(d))
+                self.assertEqual(Path(repo_root), Path(d))
+        finally:
+            rs.subprocess.run = saved
+
+    def test_unexpected_rev_parse_output_falls_back(self):
+        # A one-line (or garbage) rev-parse result must degrade, never IndexError.
+        saved = rs._git
+        rs._git = lambda cwd, *args: "only-one-line"
+        try:
+            root, repo_root = rs.git_roots("/some/cwd")
+            self.assertEqual(root, "only-one-line")
+            self.assertEqual(repo_root, "only-one-line")
+        finally:
+            rs._git = saved
+
+
 class PreviewTest(unittest.TestCase):
     def test_collapses_to_single_line(self):
         self.assertEqual(rs.message_preview("a\n b\t c"), "a b c")
@@ -152,6 +334,39 @@ class BuildRecordTest(unittest.TestCase):
             root = rs.git_root(d)
             self.assertEqual(Path(root), Path(d))
             self.assertEqual(rs.git_branch(d), "")
+
+    def test_repo_root_recorded_alongside_git_root(self):
+        # In a real linked worktree the two fields must differ: git_root is the
+        # worktree, repo_root the repository that outlives it.
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _init_repo(str(repo))
+            wt = Path(d) / "wt"
+            rs._git(str(repo), "worktree", "add", "-q", "-b", "side", str(wt))
+            if not (wt / "seed.txt").exists():
+                self.skipTest("git worktree add unavailable")
+            rec = rs.build_record({"cwd": str(wt)})
+            self.assertEqual(Path(rec["git_root"]).resolve(), wt.resolve())
+            self.assertEqual(Path(rec["repo_root"]).resolve(), repo.resolve())
+
+    def test_repo_root_falls_back_to_git_root_outside_a_repo(self):
+        # Never absent, never raising: outside a repo repo_root mirrors git_root.
+        with tempfile.TemporaryDirectory() as d:
+            rec = rs.build_record({"cwd": d})
+            self.assertEqual(rec["repo_root"], rec["git_root"])
+            self.assertEqual(Path(rec["repo_root"]), Path(d))
+
+    def test_captures_transcript_path(self):
+        rec = rs.build_record({"transcript_path": "/x/y/session.jsonl"})
+        self.assertEqual(rec["transcript_path"], "/x/y/session.jsonl")
+
+    def test_transcript_path_absent_is_none(self):
+        rec = rs.build_record({})
+        self.assertIsNone(rec["transcript_path"])
+        self.assertIn("repo_root", rec)
 
 
 class GitBranchTest(unittest.TestCase):
@@ -374,6 +589,47 @@ class AppendAndPruneTest(unittest.TestCase):
                 rs.PRUNE_SIZE_THRESHOLD = saved
 
 
+class LegacyRecordTest(unittest.TestCase):
+    """All 2,101 pre-#65 records lack repo_root/transcript_path (issue #65)."""
+
+    LEGACY = {
+        "ts": "2026-07-01T00:00:00+00:00",
+        "session_id": "old-1",
+        "git_root": "/some/worktree",
+        "git_branch": "main",
+        "prompt_id": "p-old",
+        "message_preview": "legacy turn",
+    }
+
+    def test_legacy_six_field_record_survives_prune(self):
+        # The pruner is the reader on the hook's own path; it must not assume
+        # the new fields exist.
+        now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+        kept = rs.prune_lines([json.dumps(self.LEGACY)], now=now, watermark=None)
+        self.assertEqual(len(kept), 1)
+        rec = json.loads(kept[0])
+        self.assertNotIn("repo_root", rec)
+        self.assertNotIn("transcript_path", rec)
+
+    def test_legacy_and_new_records_coexist_in_one_trail(self):
+        # A trail written across the upgrade holds both shapes; appending a new
+        # record must neither rewrite nor reject the legacy line.
+        now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as work:
+            path = Path(d) / "trail.jsonl"
+            path.write_text(json.dumps(self.LEGACY) + "\n", encoding="utf-8")
+            rs.append_record(path, rs.build_record({"cwd": work}, now=now), now=now)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 2)
+            old, new = (json.loads(x) for x in lines)
+            self.assertEqual(old, self.LEGACY)
+            self.assertIn("repo_root", new)
+            self.assertIn("transcript_path", new)
+            # Optional-field access is what every consumer must do.
+            self.assertIsNone(old.get("repo_root"))
+            self.assertIsNone(old.get("transcript_path"))
+
+
 class WatermarkTest(unittest.TestCase):
     def test_watermark_path_pairs_trail(self):
         self.assertEqual(
@@ -458,6 +714,52 @@ class MainTest(unittest.TestCase):
 
     def test_non_object_json_returns_zero(self):
         self.assertEqual(self._run_main("[1, 2, 3]"), 0)
+
+    def test_records_transcript_path_end_to_end(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = os.environ.get("CLAUDE_CONFIG_DIR")
+            os.environ["CLAUDE_CONFIG_DIR"] = cfg
+            try:
+                event = {"session_id": "t1", "cwd": work,
+                         "transcript_path": "/tmp/sess/abc.jsonl",
+                         "last_assistant_message": "done"}
+                self.assertEqual(self._run_main(json.dumps(event)), 0)
+                files = list((Path(cfg) / "learning-trail").glob("*.jsonl"))
+                rec = json.loads(files[0].read_text(encoding="utf-8").splitlines()[0])
+                self.assertEqual(rec["transcript_path"], "/tmp/sess/abc.jsonl")
+                self.assertEqual(Path(rec["repo_root"]), Path(work))
+            finally:
+                if saved is None:
+                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                else:
+                    os.environ["CLAUDE_CONFIG_DIR"] = saved
+
+    def test_exits_zero_and_still_records_when_git_missing(self):
+        # Charter: a missing git must never break a session. The record is still
+        # written, with repo_root falling back rather than being absent.
+        def boom(*a, **kw):
+            raise OSError("no git")
+
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+            os.environ["CLAUDE_CONFIG_DIR"] = cfg
+            saved_run = rs.subprocess.run
+            rs.subprocess.run = boom
+            try:
+                event = {"session_id": "g0", "cwd": work,
+                         "last_assistant_message": "done"}
+                self.assertEqual(self._run_main(json.dumps(event)), 0)
+                files = list((Path(cfg) / "learning-trail").glob("*.jsonl"))
+                self.assertEqual(len(files), 1)
+                rec = json.loads(files[0].read_text(encoding="utf-8").splitlines()[0])
+                self.assertEqual(Path(rec["repo_root"]), Path(work))
+                self.assertEqual(rec["repo_root"], rec["git_root"])
+            finally:
+                rs.subprocess.run = saved_run
+                if saved_cfg is None:
+                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                else:
+                    os.environ["CLAUDE_CONFIG_DIR"] = saved_cfg
 
     def test_well_formed_stdin_records_and_returns_zero(self):
         with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
