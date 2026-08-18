@@ -198,6 +198,23 @@ class HarvestNudgeTest(unittest.TestCase):
             finally:
                 self._restore_config(saved)
 
+    def test_counts_legacy_six_field_records(self):
+        # Pre-#65 records have no repo_root/transcript_path. count_unharvested
+        # keys on ts alone and must handle them without error.
+        with tempfile.TemporaryDirectory() as d:
+            trail = Path(d) / "legacy.jsonl"
+            legacy = {
+                "ts": "2026-07-05T00:00:00+00:00",
+                "session_id": "old-1",
+                "git_root": "/gone/worktree",
+                "git_branch": "main",
+                "prompt_id": "p-old",
+                "message_preview": "legacy turn",
+            }
+            trail.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+            wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+            self.assertEqual(harvest_nudge.count_unharvested(trail, wm), 1)
+
     def test_bad_threshold_env_falls_back(self):
         import importlib
 
