@@ -216,6 +216,7 @@ Agent(
     
     ## Context
     [What this project does, what we're building, why this task matters]
+    **Branch**: [the branch this work must land on]
     
     ## What to Do
     [Specific instructions from the plan]
@@ -230,6 +231,9 @@ Agent(
     - Follow existing patterns in the codebase
     - Do not modify files outside the scope of this task
     - Run relevant tests if they exist
+    - Before committing, confirm HEAD is attached to the branch above:
+      `git symbolic-ref -q HEAD` — if detached, `git switch <branch>` first.
+      A detached-HEAD commit succeeds but lands on no branch and is lost.
   "
 )
 ```
@@ -238,7 +242,15 @@ Agent(
 
 1. Read the changed files to verify the work
 2. Run relevant tests if they exist
-3. If issues found, dispatch a follow-up agent to fix them
+3. **Verify where each reported commit actually landed.** An agent's report of
+   its own git state is a claim, not evidence — the controller verifies, it does
+   not take the agent's word:
+   ```bash
+   python scripts/verify_commit_position.py <reported-sha> <branch> --base origin/main
+   ```
+   Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
+   is detached — recover before proceeding. A stale-base line is a warning only.
+4. If issues found, dispatch a follow-up agent to fix them
 
 **Progress update to user:**
 

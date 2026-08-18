@@ -229,6 +229,31 @@ copies just the framework files across.
   `python scripts/apply_theme.py philosophers` — the framework ships the functional
   names, and the theme is a local render step, so syncs never fight your renames.
 
+## Guarding against orphaned commits
+
+Implementer subagents occasionally commit while `HEAD` is detached: the commit
+succeeds and prints a sha, but lands on *no branch* — so the controller's next
+`git log <branch>` reports green for work that isn't there. The orchestrator
+therefore verifies every reported commit itself rather than trusting the agent's
+self-report:
+
+```bash
+python scripts/verify_commit_position.py <sha> <branch> --base origin/main
+```
+
+Exit 1 means the commit orphaned or `HEAD` is detached (with recovery
+instructions); exit 2 means the check couldn't run; a stale base is a warning
+only, never a failure.
+
+A repo-local `pre-commit` hook that rejects detached-HEAD commits is a good
+*complementary* guard, and you may want to adopt one **in your own project
+repos** — [noctua84/holo-mind#5](https://github.com/noctua84/holo-mind/issues/5)
+is a worked example. Nescio deliberately does **not** ship or enable it: the
+installer only ever writes to `~/.claude`, never into your project repos, so
+there is no delivery vehicle — and setting `core.hooksPath` globally would hijack
+every repo on the machine and silently disable any repo's own `.git/hooks`, which
+the framework's non-destructive charter rules out.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for where Nescio is headed. Near-term work is the
