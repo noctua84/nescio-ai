@@ -162,6 +162,22 @@ durable repo memory:
    outcome summary, and add or clear recurring flags. This is the tracked
    summary Phase 3's autonomy dial reads; see `memory/repo/myrepo/readiness.md`
    for the format. Stage only that file.
+
+   The **counted** part — turns, sessions, span, recency, un-harvested turns,
+   promotion density — is computed for you. Preview it, then write it:
+
+   ```bash
+   python scripts/compute_readiness.py            # dry run, all repos
+   python scripts/compute_readiness.py --apply    # write the generated block
+   ```
+
+   It rewrites only the bytes between the `<!-- readiness:generated start -->`
+   / `end` markers (adding them if absent) and bumps `last_updated` when the
+   block changed. Everything outside stays exactly as you wrote it, and a repo
+   with no `memory/repo/<name>/` dir is skipped rather than created. The
+   judgement stays yours: the outcome summary and the recurring flags are not
+   derivable from the trail, so the script emits an explicit *insufficient
+   data* note there instead of a number, and you write the real thing by hand.
 10. **Deliver via branch + PR — never commit the harvest on `main`.** The
     harvest itself has to run in the **main checkout**, not a worktree:
     `~/.claude/memory` symlinks to `<repo>/memory` and
