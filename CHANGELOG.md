@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/noctua84/nescio-ai/compare/v1.1.0...v1.1.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **record_stop:** record repo_root and transcript_path in trail records ([#66](https://github.com/noctua84/nescio-ai/issues/66)) ([5340c3c](https://github.com/noctua84/nescio-ai/commit/5340c3c527988f58b742ab2f72118c387341692c))
+
 ## [1.1.0](https://github.com/noctua84/nescio-ai/compare/v1.0.0...v1.1.0) (2026-08-18)
 
 

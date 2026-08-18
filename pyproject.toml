@@ -1,5 +1,5 @@
 [project]
 name = "nescio"
-version = "1.1.0"
+version = "1.1.1"
 requires-python = ">=3.13"
 dependencies = []
