@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/noctua84/nescio-ai/compare/v1.1.1...v1.2.0) (2026-08-19)
+
+
+### Features
+
+* **docs:** add documentation site pipeline and design system ([e30ceae](https://github.com/noctua84/nescio-ai/commit/e30ceae065e23d460acb7806a667507019479d60))
+* **docs:** documentation site pipeline and design system ([146ba09](https://github.com/noctua84/nescio-ai/commit/146ba0967d3b970806ccb689c00de1b337b16323))
+* **learning-loop:** compute the generated half of readiness.md from the learning trail ([04d39cf](https://github.com/noctua84/nescio-ai/commit/04d39cf0eba91345c0af47e33af4295b97ad0d83))
+
 ## [1.1.1](https://github.com/noctua84/nescio-ai/compare/v1.1.0...v1.1.1) (2026-08-18)
 
 
