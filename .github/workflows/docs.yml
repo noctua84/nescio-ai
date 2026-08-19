@@ -1,0 +1,58 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; never cancel one in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Brand-isolation guard: only the canonical repo may publish. A fork's
+    # Actions must never be able to stand up something that looks official.
+    if: github.repository == 'noctua84/nescio-ai'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Material is pinned hard, on purpose. The custom scheme added in wave 3
+      # is coupled to Material's CSS variable names (--md-primary-fg-color,
+      # --md-accent-fg-color, --md-default-bg-color, --md-default-fg-color,
+      # --md-typeset-a-color, --md-code-bg-color), which have changed across
+      # releases. Re-verify against the Material changelog and re-check the site
+      # visually before bumping — this is never a routine dependency bump.
+      # `mkdocs build --strict` catches broken links, not an accent colour that
+      # has quietly reverted to the stock palette.
+      - run: pip install mkdocs-material==9.7.7
+
+      - run: mkdocs build -f docs_site/mkdocs.yml --strict
+
+      # Scrub the generated output, not just the source tree: a docs build is a
+      # new path for internal content to reach the public web. Non-zero exit on
+      # any FAIL fails the deploy.
+      - run: python scripts/scrub_check.py _site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,665 @@
+<title>Nescio Docs Mockup</title>
+<style>
+:root{
+  --ground:#f3f6f9;
+  --surface:#ffffff;
+  --surface-2:#fbfcfd;
+  --ink:#16191f;
+  --body:#5a616b;
+  --muted:#6b727c;
+  --line:#d7dee7;
+  --line-soft:#e6ebf1;
+  --accent:#2f4d7a;
+  --accent-soft:#eef2f8;
+  --warn:#8a4b2a;
+  --warn-soft:#fbf0e9;
+  --ok:#2c5f4a;
+  --ok-soft:#eaf4ef;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0b0f14;--surface:#141b24;--surface-2:#101720;
+    --ink:#e9edf2;--body:#a8b0ba;--muted:#8d97a4;
+    --line:#243040;--line-soft:#1b2431;
+    --accent:#8fb0d9;--accent-soft:#182333;
+    --warn:#d9a276;--warn-soft:#241a12;--ok:#8dc4aa;--ok-soft:#132019;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0b0f14;--surface:#141b24;--surface-2:#101720;
+  --ink:#e9edf2;--body:#a8b0ba;--muted:#8d97a4;
+  --line:#243040;--line-soft:#1b2431;
+  --accent:#8fb0d9;--accent-soft:#182333;
+  --warn:#d9a276;--warn-soft:#241a12;--ok:#8dc4aa;--ok-soft:#132019;
+}
+:root{
+  --mono:'IBM Plex Mono','Liberation Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'IBM Plex Sans',Carlito,'Liberation Sans',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--body);font-family:var(--sans);font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:56px 24px 96px;display:flex;flex-direction:column;gap:60px}
+h1,h2,h3{color:var(--ink);text-wrap:balance;margin:0;line-height:1.25}
+h1{font-size:2.1rem;font-weight:700;letter-spacing:-.015em}
+h2{font-size:1.35rem;font-weight:700}
+p{margin:0}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);padding:.12em .38em;border-radius:3px;color:var(--ink)}
+.eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.05rem;max-width:68ch}
+.note{font-size:.9rem;max-width:74ch}
+.stack{display:flex;flex-direction:column;gap:14px}
+section{display:flex;flex-direction:column;gap:20px}
+.sec-head{display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:14px}
+.scroller{overflow-x:auto}
+
+.status{display:flex;flex-wrap:wrap;gap:8px}
+.pill{font-size:.74rem;font-weight:700;letter-spacing:.05em;padding:4px 11px;border-radius:20px;border:1px solid}
+.pill.set{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.open{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+
+/* decisions */
+.dec{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:11px}
+.dc{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:13px 15px;display:flex;flex-direction:column;gap:5px}
+.dc-n{font-family:var(--mono);font-size:.7rem;font-weight:700;color:var(--accent)}
+.dc-t{font-size:.87rem;font-weight:700;color:var(--ink);line-height:1.4}
+.dc-w{font-size:.78rem;line-height:1.45;color:var(--muted)}
+
+/* swatches */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:11px}
+.sw{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.sw-chip{height:52px}
+.sw-meta{padding:8px 11px 10px;display:flex;flex-direction:column;gap:1px}
+.sw-name{font-size:.78rem;font-weight:700;color:var(--ink)}
+.sw-hex{font-family:var(--mono);font-size:.71rem;color:var(--muted)}
+.sw-use{font-size:.71rem;color:var(--body);line-height:1.4}
+.sw.dead{opacity:.55}
+.sw.dead .sw-name{text-decoration:line-through}
+
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:14px 18px;border-radius:0 7px 7px 0;display:flex;flex-direction:column;gap:7px;font-size:.93rem}
+.callout.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.callout.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+.callout b{color:var(--ink)}
+
+/* AA demo */
+.aa{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:13px}
+.aa-c{background:#fff;border:1px solid #c9cfd8;border-radius:9px;padding:19px 21px;display:flex;flex-direction:column;gap:7px}
+.aa-lab{font-size:.66rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#5a616b}
+.aa-samp{font-size:.78rem;line-height:1.5}
+.aa-meta{font-family:var(--mono);font-size:.71rem;color:#6b727c}
+.aa-v{font-size:.72rem;font-weight:700;letter-spacing:.06em}
+
+/* type specimen */
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.sp{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:19px 21px;display:flex;flex-direction:column;gap:11px}
+.sp-nm{font-size:.7rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--muted)}
+.sp-big{font-size:2.1rem;font-weight:700;color:var(--ink);line-height:1.1}
+.sp-row{font-size:.85rem;line-height:1.6}
+.sp-key{font-family:var(--mono);font-size:.76rem;color:var(--accent);font-weight:700}
+
+/* hero */
+.frame{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);box-shadow:0 1px 2px rgba(10,20,35,.05),0 8px 24px -12px rgba(10,20,35,.18)}
+.frame-bar{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.frame-url{font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frame-tag{margin-left:auto;font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);flex:none}
+
+.hero{position:relative;overflow:hidden;padding:62px 54px 58px;background:#0e1319}
+.hero::after{content:"";position:absolute;top:-300px;right:-200px;width:760px;height:760px;border-radius:50%;background:#141b24;z-index:0}
+.hero-inner{position:relative;z-index:1;display:flex;flex-direction:column;gap:24px;max-width:640px}
+.hero-lock{display:flex;align-items:center;gap:22px}
+.wordmark{font-family:var(--mono);font-weight:700;color:#fff;font-size:3.5rem;line-height:1;letter-spacing:-.01em}
+.hero-sub{color:#8d97a4;font-size:1.05rem}
+.hero-rule{width:86px;height:3px;background:#8fb0d9}
+.hero-claim{color:#8fb0d9;font-size:1.3rem;line-height:1.4;text-wrap:balance}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:2px}
+.btn{font-size:.9rem;font-weight:700;padding:11px 20px;border-radius:6px;text-decoration:none;display:inline-block}
+.btn-p{background:#2f4d7a;color:#fff;border:1px solid #3d5f92}
+.btn-g{background:transparent;color:#8fb0d9;border:1px solid #2b3a4d}
+.hero-inst{font-family:var(--mono);font-size:.82rem;color:#8d97a4;background:#0a0e13;border:1px solid #1d2733;border-radius:6px;padding:11px 15px;overflow-x:auto;white-space:nowrap}
+.hero-inst .pr{color:#4d5a68}
+
+/* tagline placements */
+.places{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:15px}
+.pl{background:#0e1319;border:1px solid #1d2733;border-radius:9px;padding:26px 22px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.pl-where{font-size:.65rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#6f7b8a}
+.pl-word{font-family:var(--mono);font-weight:700;color:#fff;font-size:1.5rem;line-height:1}
+.pl-line{font-size:.92rem;line-height:1.45;color:#8fb0d9}
+.pl-foot{border-top:1px solid #1d2733;width:100%;padding-top:12px;font-size:.78rem;color:#8d97a4;margin-top:auto}
+
+/* material */
+.md{display:flex;flex-direction:column;min-width:860px}
+.md-header{display:flex;align-items:center;gap:14px;padding:11px 20px}
+.md-title{font-family:var(--mono);font-weight:700;font-size:1rem}
+.md-search{margin-left:14px;flex:1;max-width:300px;border-radius:5px;padding:6px 11px;font-size:.8rem}
+.md-links{margin-left:auto;display:flex;gap:16px;font-size:.8rem}
+.md-tabs{display:flex;gap:24px;padding:0 20px;font-size:.82rem;font-weight:700}
+.md-tabs span{padding:9px 0;display:block}
+.md-body{display:grid;grid-template-columns:206px 1fr 186px;gap:28px;padding:25px 20px 32px}
+.md-nav{display:flex;flex-direction:column;gap:9px;font-size:.82rem}
+.md-nav .grp{font-weight:700;font-size:.71rem;letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
+.md-nav .it{padding-left:11px;border-left:1px solid transparent;font-family:var(--mono);font-size:.78rem}
+.md-toc{display:flex;flex-direction:column;gap:8px;font-size:.76rem}
+.md-toc .grp{font-weight:700;font-size:.67rem;letter-spacing:.1em;text-transform:uppercase}
+.md-art{display:flex;flex-direction:column;gap:14px;min-width:0}
+.md-h1{font-size:1.65rem;font-weight:700;line-height:1.2}
+.md-p{font-size:.9rem;line-height:1.65}
+.md-code{font-family:var(--mono);font-size:.78rem;border-radius:6px;padding:13px 15px;overflow-x:auto;white-space:pre;line-height:1.6}
+.md-card{border-radius:7px;padding:13px 16px;display:flex;flex-direction:column;gap:4px}
+.md-card .nm{font-family:var(--mono);font-weight:700;font-size:.87rem}
+.md-card .ds{font-size:.79rem;line-height:1.5}
+.md-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.md-admon{border-left:3px solid;border-radius:0 6px 6px 0;padding:11px 15px;font-size:.83rem;line-height:1.55}
+.md.dk{background:#0e1319;color:#a8b0ba}
+.md.dk .md-header{background:#141b24;border-bottom:1px solid #1d2733}
+.md.dk .md-title{color:#fff}
+.md.dk .md-search{background:#0e1319;border:1px solid #26313f;color:#8d97a4}
+.md.dk .md-links{color:#8d97a4}
+.md.dk .md-tabs{background:#141b24;border-bottom:1px solid #1d2733;color:#8d97a4}
+.md.dk .md-tabs .on{color:#8fb0d9;box-shadow:inset 0 -2px 0 #8fb0d9}
+.md.dk .md-nav .grp{color:#8d97a4}
+.md.dk .md-nav .it{color:#a8b0ba;border-left-color:#1d2733}
+.md.dk .md-nav .it.on{color:#8fb0d9;border-left-color:#8fb0d9}
+.md.dk .md-toc{color:#8d97a4}
+.md.dk .md-toc .on{color:#8fb0d9}
+.md.dk .md-h1{color:#fff}
+.md.dk .md-code{background:#080c10;border:1px solid #1d2733;color:#a8b0ba}
+.md.dk .md-card{background:#141b24;border:1px solid #1d2733}
+.md.dk .md-card .nm{color:#8fb0d9}
+.md.dk .md-card .ds{color:#8d97a4}
+.md.dk .md-admon{background:#182333;border-left-color:#8fb0d9;color:#a8b0ba}
+.md.dk .md-admon b{color:#c6d4e6}
+.md.lt{background:#fff;color:#5a616b}
+.md.lt .md-header{background:#2f4d7a}
+.md.lt .md-title{color:#fff}
+.md.lt .md-search{background:#41608d;border:1px solid #4d6c99;color:#c6d4e6}
+.md.lt .md-links{color:#dbe4f0}
+.md.lt .md-tabs{background:#2f4d7a;color:#c6d4e6}
+.md.lt .md-tabs .on{color:#fff;box-shadow:inset 0 -2px 0 #fff}
+.md.lt .md-nav .grp{color:#6b727c}
+.md.lt .md-nav .it{color:#5a616b;border-left-color:#e6ebf1}
+.md.lt .md-nav .it.on{color:#2f4d7a;border-left-color:#2f4d7a;font-weight:700}
+.md.lt .md-toc{color:#6b727c}
+.md.lt .md-toc .on{color:#2f4d7a}
+.md.lt .md-h1{color:#16191f}
+.md.lt .md-code{background:#fbfcfd;border:1px solid #e6ebf1;color:#5a616b}
+.md.lt .md-card{background:#fff;border:1px solid #c9cfd8}
+.md.lt .md-card .nm{color:#2f4d7a}
+.md.lt .md-admon{background:#eef2f8;border-left-color:#2f4d7a;color:#5a616b}
+.md.lt .md-admon b{color:#16191f}
+
+/* diagram demo */
+.dia-live{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.dia-ctl{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.dia-ctl-lab{font-size:.78rem;color:var(--muted)}
+.toggle{
+  font-family:var(--sans);font-size:.78rem;font-weight:700;cursor:pointer;
+  padding:6px 15px;border-radius:5px;border:1px solid var(--accent);
+  background:var(--accent-soft);color:var(--accent);
+}
+.toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dia-stage{padding:26px 22px;transition:background .18s ease}
+@media (prefers-reduced-motion:reduce){.dia-stage{transition:none}}
+/* one source, two token sets */
+.dia-stage{
+  background:#ffffff;
+  --d-emph-fill:#eef2f8;--d-emph-line:#2f4d7a;--d-node-fill:#ffffff;
+  --d-node-line:#c9cfd8;--d-node-text:#16191f;--d-conn:#c9cfd8;--d-cap:#6b727c;
+}
+.dia-stage.dark{
+  background:#0e1319;
+  --d-emph-fill:#182333;--d-emph-line:#8fb0d9;--d-node-fill:#141b24;
+  --d-node-line:#26313f;--d-node-text:#e9edf2;--d-conn:#26313f;--d-cap:#8d97a4;
+}
+.dia-cap-txt{font-size:.79rem;line-height:1.5;padding:0 22px 18px;color:var(--muted)}
+
+/* toolchain */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:.87rem}
+th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;background:var(--surface-2)}
+tr:last-child td{border-bottom:none}
+td b{color:var(--ink)}
+.st{font-size:.72rem;font-weight:700;letter-spacing:.05em;white-space:nowrap}
+.st.y{color:var(--ok)}.st.n{color:var(--warn)}
+
+/* 404 */
+.four04{background:#0e1319;border-radius:9px;padding:50px 30px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+.four04-code{font-family:var(--mono);font-size:.8rem;color:#4d5a68;letter-spacing:.2em}
+.four04-line{font-family:var(--mono);font-size:1.5rem;font-weight:700;color:#fff}
+.four04-sub{color:#8fb0d9;font-size:.98rem;max-width:38ch;line-height:1.5}
+.four04-back{color:#8d97a4;font-size:.83rem;font-family:var(--mono)}
+
+/* checklist */
+.chk{display:flex;flex-direction:column;gap:9px}
+.ck{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 16px;display:flex;gap:13px;align-items:flex-start;font-size:.89rem}
+.ck-b{font-family:var(--mono);font-size:.8rem;font-weight:700;flex:none;margin-top:1px}
+.ck.done{opacity:.6}
+.ck.done .ck-b{color:var(--ok)}
+.ck.done .ck-t{text-decoration:line-through}
+.ck.wait .ck-b{color:var(--accent)}
+.ck-t b{color:var(--ink)}
+
+
+/* waves */
+.wave{background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.wave-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:13px 17px;border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
+.wave-n{font-family:var(--mono);font-size:.72rem;font-weight:700;color:var(--accent);letter-spacing:.06em}
+.wave-t{font-size:.95rem;font-weight:700;color:var(--ink)}
+.wave-why{font-size:.78rem;color:var(--muted);margin-left:auto}
+.wave-b{padding:13px 17px;display:flex;flex-direction:column;gap:7px;font-size:.86rem;line-height:1.5}
+.wave-b span::before{content:"· ";color:var(--muted)}
+.waves{display:flex;flex-direction:column;gap:12px}
+
+@media (max-width:720px){
+  .wrap{padding:38px 16px 64px;gap:46px}
+  .hero{padding:40px 24px 38px}
+  .wordmark{font-size:2.4rem}
+  h1{font-size:1.7rem}
+}
+</style>
+
+<div class="wrap">
+
+  <header class="stack">
+    <div class="eyebrow">Design system · nescio-ai.org</div>
+    <h1>Nescio docs — approved design</h1>
+    <p class="lede">The visual companion to <code>docs/design/design-system.md</code>. Every decision below is settled; what remains open is build work, not design work. Colours and owl geometry come verbatim from the brand kit's generators.</p>
+    <div class="status">
+      <span class="pill set">Tagline · set</span>
+      <span class="pill set">Diagram pipeline · set</span>
+      <span class="pill set">Type · Plex</span>
+      <span class="pill set">Dark by default</span>
+      <span class="pill set">Favicons · shipped</span>
+      <span class="pill set">Generators · complete</span>
+      <span class="pill set">docs.nescio-ai.org</span>
+    </div>
+  </header>
+
+  <!-- DECISIONS -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">01</div><h2>What was decided</h2></div>
+    <div class="dec">
+      <div class="dc"><span class="dc-n">01</span><span class="dc-t">Name gloss under the mark</span><span class="dc-w">Minerva line moves to footer and 404.</span></div>
+      <div class="dc"><span class="dc-n">02</span><span class="dc-t">One tokenised diagram source</span><span class="dc-w">Inlined on site; twins generated for GitHub.</span></div>
+      <div class="dc"><span class="dc-n">03</span><span class="dc-t">IBM Plex Sans + Mono</span><span class="dc-w">Self-hosted. SVG generators updated to match.</span></div>
+      <div class="dc"><span class="dc-n">04</span><span class="dc-t">Dark by default</span><span class="dc-w">Light via toggle. Owls are nocturnal.</span></div>
+      <div class="dc"><span class="dc-n">05</span><span class="dc-t">Wordmark outlined to paths</span><span class="dc-w">Kills the Liberation Mono dependency.</span></div>
+      <div class="dc"><span class="dc-n">06</span><span class="dc-t">Dashed + <code>#a8b0ba</code> = unbuilt</span><span class="dc-w">Formalises a convention already in use.</span></div>
+      <div class="dc"><span class="dc-n">07</span><span class="dc-t">One canonical palette</span><span class="dc-w"><code>#8a919b</code> retired — it failed AA.</span></div>
+      <div class="dc"><span class="dc-n">08</span><span class="dc-t">Brand kit becomes a package</span><span class="dc-w">Files drift. Generators don't.</span></div>
+    </div>
+  </section>
+
+  <!-- PALETTE -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">02 · Colour</div><h2>The canonical palette</h2></div>
+    <p class="note">Two independent palettes had drifted — three greys and two near-blacks doing identical jobs. This is the single set that replaces both.</p>
+
+    <div class="swatches">
+      <div class="sw"><div class="sw-chip" style="background:#0e1319"></div><div class="sw-meta"><span class="sw-name">ink-deep</span><span class="sw-hex">#0e1319</span><span class="sw-use">Dark page ground</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#141b24"></div><div class="sw-meta"><span class="sw-name">ink-raised</span><span class="sw-hex">#141b24</span><span class="sw-use">Header, cards on dark</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#2f4d7a"></div><div class="sw-meta"><span class="sw-name">brand-blue</span><span class="sw-hex">#2f4d7a</span><span class="sw-use">Light-mode accent</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#8fb0d9"></div><div class="sw-meta"><span class="sw-name">periwinkle</span><span class="sw-hex">#8fb0d9</span><span class="sw-use">Dark-mode accent</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#eef2f8"></div><div class="sw-meta"><span class="sw-name">tint</span><span class="sw-hex">#eef2f8</span><span class="sw-use">Emphasised fills, light</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#182333"></div><div class="sw-meta"><span class="sw-name">tint-dark</span><span class="sw-hex">#182333</span><span class="sw-use">Emphasised fills, dark</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#16191f"></div><div class="sw-meta"><span class="sw-name">text</span><span class="sw-hex">#16191f</span><span class="sw-use">Headings on light</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#5a616b"></div><div class="sw-meta"><span class="sw-name">body</span><span class="sw-hex">#5a616b</span><span class="sw-use">Running text, light</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#6b727c"></div><div class="sw-meta"><span class="sw-name">muted</span><span class="sw-hex">#6b727c</span><span class="sw-use">Captions, light — 4.9:1</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#8d97a4"></div><div class="sw-meta"><span class="sw-name">muted-dark</span><span class="sw-hex">#8d97a4</span><span class="sw-use">Captions, dark — 6.3:1</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#c9cfd8"></div><div class="sw-meta"><span class="sw-name">border</span><span class="sw-hex">#c9cfd8</span><span class="sw-use">Outlines, light</span></div></div>
+      <div class="sw"><div class="sw-chip" style="background:#a8b0ba"></div><div class="sw-meta"><span class="sw-name">deferred</span><span class="sw-hex">#a8b0ba</span><span class="sw-use">Planned, not shipped</span></div></div>
+      <div class="sw dead"><div class="sw-chip" style="background:#8a919b"></div><div class="sw-meta"><span class="sw-name">retired</span><span class="sw-hex">#8a919b</span><span class="sw-use">Failed AA at 3.2:1</span></div></div>
+      <div class="sw dead"><div class="sw-chip" style="background:#111418"></div><div class="sw-meta"><span class="sw-name">retired</span><span class="sw-hex">#111418</span><span class="sw-use">Duplicate near-black</span></div></div>
+    </div>
+
+    <h3 style="font-size:1rem;margin-top:6px">The bug this fixes</h3>
+    <div class="aa">
+      <div class="aa-c">
+        <span class="aa-lab">Before — shipping today</span>
+        <span class="aa-samp" style="color:#8a919b">TRIAGE &amp; DISCOVERY<br>delegate · session ends · you curate, deliberately</span>
+        <span class="aa-meta">#8a919b on #ffffff — 3.2:1</span>
+        <span class="aa-v" style="color:#a33c1e">FAILS AA</span>
+      </div>
+      <div class="aa-c">
+        <span class="aa-lab">After — canonical</span>
+        <span class="aa-samp" style="color:#6b727c">TRIAGE &amp; DISCOVERY<br>delegate · session ends · you curate, deliberately</span>
+        <span class="aa-meta">#6b727c on #ffffff — 4.9:1</span>
+        <span class="aa-v" style="color:#2c5f4a">PASSES AA</span>
+      </div>
+    </div>
+    <p class="note" style="color:var(--muted);font-size:.82rem">Both diagrams currently set every section label, connector label and deferred annotation in the failing grey. All of it is small text.</p>
+
+    <div class="callout warn">
+      <p><b>The rule that must not bend.</b> Periwinkle carries dark mode, brand blue carries light. <code>#8fb0d9</code> on white is 2.2:1 — it may be a fill or a border, never text or a link.</p>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">03 · Type</div><h2>IBM Plex, one superfamily</h2></div>
+    <p class="note">Plex Sans and Plex Mono share skeletons and metrics, so mono identifiers sit beside sans prose as siblings. Liberation Mono + Carlito came from unrelated families and read that way.</p>
+
+    <div class="spec">
+      <div class="sp">
+        <span class="sp-nm">Plex Mono · identifiers</span>
+        <span class="sp-big" style="font-family:var(--mono)">nescio</span>
+        <span class="sp-row"><span class="sp-key">orchestrator</span> · <span class="sp-key">critic</span> · <span class="sp-key">memory/</span></span>
+        <span class="sp-row" style="color:var(--muted);font-size:.79rem">Agent names, commands, filenames, tokens. Anything that is a literal in the system.</span>
+      </div>
+      <div class="sp">
+        <span class="sp-nm">Plex Sans · prose</span>
+        <span class="sp-big">Aa</span>
+        <span class="sp-row">One orchestrator, nine specialists. Delegation goes down; every result comes back through the gate.</span>
+        <span class="sp-row" style="color:var(--muted);font-size:.79rem">Headings, running text, captions, UI labels.</span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p><b>The split is semantic, not decorative.</b> Mono means "this is a thing you can type." Readers absorb the rule in one page and never have to be told it.</p>
+    </div>
+    <p class="note" style="color:var(--muted);font-size:.8rem">This page names Plex first in its font stacks but cannot ship the font files — so it renders in Plex only if you have it installed locally, and falls back otherwise. The real build self-hosts subset <code>woff2</code>.</p>
+  </section>
+
+  <!-- HERO -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">04 · Homepage</div><h2>The hero</h2></div>
+    <div class="frame">
+      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-url">docs.nescio-ai.org</span><span class="frame-tag">Dark · default</span></div>
+      <div class="hero">
+        <div class="hero-inner">
+          <div class="hero-lock">
+            <svg width="86" height="86" viewBox="0 0 512 512" role="img" aria-label="Nescio owl" style="--f:#8fb0d9;--b:#0e1319;flex:none">
+              <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
+              <circle cx="202" cy="248" r="49" fill="var(--b)"/><circle cx="202" cy="248" r="21" fill="var(--f)"/>
+              <circle cx="310" cy="248" r="49" fill="var(--b)"/><circle cx="310" cy="248" r="21" fill="var(--f)"/>
+              <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="var(--b)"/>
+            </svg>
+            <div><div class="wordmark">nescio</div><div class="hero-sub">an agent crew for Claude&nbsp;Code</div></div>
+          </div>
+          <div class="hero-rule"></div>
+          <p class="hero-claim">&ldquo;I don't know&rdquo; is a first-class answer &mdash; and a built-in devil's advocate argues with the plan before you do.</p>
+          <div class="hero-inst"><span class="pr">$</span> git clone https://github.com/noctua84/nescio-ai ~/dev/nescio
+<span class="pr">$</span> cd ~/dev/nescio &amp;&amp; python install.py</div>
+          <div class="hero-cta"><a class="btn btn-p" href="#">Get started</a><a class="btn btn-g" href="#">Meet the crew</a></div>
+        </div>
+      </div>
+    </div>
+    <div class="callout"><p><b>Install commands sit above the buttons.</b> The pitch is "no fabrication, no ceremony" &mdash; a hero that hides two shell commands behind a click contradicts it.</p></div>
+    <div class="callout warn"><p><b>This page has two lives.</b> The docs live on a subdomain and the apex is reserved for a product page that does not exist yet &mdash; so until it does, <code>docs.nescio-ai.org</code> is the de-facto front door and keeps this hero. When the apex lands, this design is promoted there and the docs index slims to a "start here" orientation page. Nothing gets thrown away.</p></div>
+  </section>
+
+  <!-- TAGLINE PLACEMENT -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">05 · Voice</div><h2>Where each line lives</h2></div>
+    <p class="note">The Minerva line was the best sentence and the worst tagline — it needs a Hegel reference to land. Demoted to places where a reader is already convinced, it becomes a reward instead of a toll.</p>
+    <div class="places">
+      <div class="pl">
+        <span class="pl-where">Under the mark</span>
+        <svg width="42" height="42" viewBox="0 0 512 512" role="img" aria-label="owl" style="--f:#8fb0d9;--b:#0e1319">
+          <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
+          <circle cx="202" cy="248" r="49" fill="var(--b)"/><circle cx="202" cy="248" r="21" fill="var(--f)"/>
+          <circle cx="310" cy="248" r="49" fill="var(--b)"/><circle cx="310" cy="248" r="21" fill="var(--f)"/>
+          <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="var(--b)"/>
+        </svg>
+        <span class="pl-word">nescio</span>
+        <span class="pl-line">&ldquo;I do not know.&rdquo;</span>
+        <span class="pl-foot">Three words, no prior reading required.</span>
+      </div>
+      <div class="pl">
+        <span class="pl-where">Site footer</span>
+        <span class="pl-line" style="margin-top:26px">The owl of Minerva flies at dusk.</span>
+        <span class="pl-foot" style="margin-top:34px">Hegel: understanding arrives after the fact — which is also literally what the learning loop does.</span>
+      </div>
+      <div class="pl">
+        <span class="pl-where">404</span>
+        <span class="pl-word" style="margin-top:20px">nescio.</span>
+        <span class="pl-line">I do not know where this page is.</span>
+        <span class="pl-foot">The full joke renders below.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOCS -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">06 · Interior</div><h2>A docs page, both schemes</h2></div>
+    <div class="frame">
+      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-url">docs.nescio-ai.org/crew/</span><span class="frame-tag">Dark · default</span></div>
+      <div class="scroller">
+        <div class="md dk">
+          <div class="md-header">
+            <svg width="25" height="25" viewBox="0 0 512 512" role="img" aria-label="owl" style="--f:#8fb0d9;--b:#141b24;flex:none">
+              <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
+              <circle cx="202" cy="248" r="49" fill="var(--b)"/><circle cx="202" cy="248" r="21" fill="var(--f)"/>
+              <circle cx="310" cy="248" r="49" fill="var(--b)"/><circle cx="310" cy="248" r="21" fill="var(--f)"/>
+              <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="var(--b)"/>
+            </svg>
+            <span class="md-title">nescio</span>
+            <div class="md-search">Search the crew, skills, memory…</div>
+            <div class="md-links"><span>GitHub</span><span>1.0</span></div>
+          </div>
+          <div class="md-tabs"><span>Home</span><span>Get started</span><span class="on">The crew</span><span>Skills</span><span>Memory</span><span>Reference</span></div>
+          <div class="md-body">
+            <nav class="md-nav"><div class="grp">The crew</div><span class="it on">orchestrator</span><span class="it">scout</span><span class="it">planner</span><span class="it">validator</span><span class="it">advisor</span><span class="it">reviewer</span><span class="it">critic</span><span class="it">librarian</span><span class="it">explore</span><span class="it">vision</span></nav>
+            <article class="md-art">
+              <div class="md-h1">The crew</div>
+              <p class="md-p">One orchestrator, nine specialists. Delegation goes down; every result comes back through the gate.</p>
+              <div class="md-admon"><b>Routing quality gate.</b> The orchestrator judges a result before relaying it — it never launders a low-trust answer into a confident summary.</div>
+              <div class="md-grid">
+                <div class="md-card"><span class="nm">scout</span><span class="ds">Risk and intent triage; surfaces hidden assumptions.</span></div>
+                <div class="md-card"><span class="nm">critic</span><span class="ds">Devil's advocate, one bounded pass, pre-execution.</span></div>
+                <div class="md-card"><span class="nm">validator</span><span class="ds">Is the plan executable? Biased toward approval.</span></div>
+                <div class="md-card"><span class="nm">librarian</span><span class="ds">External research, returned with citations.</span></div>
+              </div>
+              <p class="md-p">Switch the four thinker agents to their philosopher names at any time:</p>
+              <div class="md-code">python scripts/apply_theme.py philosophers
+<span style="color:#5a6470"># planner→plato · advisor→aristotle
+# reviewer→pyrrho · critic→socrates</span></div>
+            </article>
+            <aside class="md-toc"><div class="grp">On this page</div><span class="on">The crew</span><span>Routing quality gate</span><span>Who does what</span><span>The philosopher theme</span></aside>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-url">docs.nescio-ai.org/crew/</span><span class="frame-tag">Light · toggle</span></div>
+      <div class="scroller">
+        <div class="md lt">
+          <div class="md-header">
+            <svg width="25" height="25" viewBox="0 0 512 512" role="img" aria-label="owl" style="--f:#ffffff;--b:#2f4d7a;flex:none">
+              <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
+              <circle cx="202" cy="248" r="49" fill="var(--b)"/><circle cx="202" cy="248" r="21" fill="var(--f)"/>
+              <circle cx="310" cy="248" r="49" fill="var(--b)"/><circle cx="310" cy="248" r="21" fill="var(--f)"/>
+              <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="var(--b)"/>
+            </svg>
+            <span class="md-title">nescio</span>
+            <div class="md-search">Search the crew, skills, memory…</div>
+            <div class="md-links"><span>GitHub</span><span>1.0</span></div>
+          </div>
+          <div class="md-tabs"><span>Home</span><span>Get started</span><span class="on">The crew</span><span>Skills</span><span>Memory</span><span>Reference</span></div>
+          <div class="md-body">
+            <nav class="md-nav"><div class="grp">The crew</div><span class="it on">orchestrator</span><span class="it">scout</span><span class="it">planner</span><span class="it">validator</span><span class="it">advisor</span><span class="it">reviewer</span><span class="it">critic</span><span class="it">librarian</span><span class="it">explore</span><span class="it">vision</span></nav>
+            <article class="md-art">
+              <div class="md-h1">The crew</div>
+              <p class="md-p">One orchestrator, nine specialists. Delegation goes down; every result comes back through the gate.</p>
+              <div class="md-admon"><b>Routing quality gate.</b> The orchestrator judges a result before relaying it — it never launders a low-trust answer into a confident summary.</div>
+              <div class="md-grid">
+                <div class="md-card"><span class="nm">scout</span><span class="ds">Risk and intent triage; surfaces hidden assumptions.</span></div>
+                <div class="md-card"><span class="nm">critic</span><span class="ds">Devil's advocate, one bounded pass, pre-execution.</span></div>
+                <div class="md-card"><span class="nm">validator</span><span class="ds">Is the plan executable? Biased toward approval.</span></div>
+                <div class="md-card"><span class="nm">librarian</span><span class="ds">External research, returned with citations.</span></div>
+              </div>
+              <p class="md-p">Switch the four thinker agents to their philosopher names at any time:</p>
+              <div class="md-code">python scripts/apply_theme.py philosophers
+<span style="color:#9aa2ad"># planner→plato · advisor→aristotle
+# reviewer→pyrrho · critic→socrates</span></div>
+            </article>
+            <aside class="md-toc"><div class="grp">On this page</div><span class="on">The crew</span><span>Routing quality gate</span><span>Who does what</span><span>The philosopher theme</span></aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DIAGRAM PIPELINE -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">07 · Diagrams</div><h2>One source, both schemes</h2></div>
+    <p class="note">The confirmed pipeline: a single tokenised SVG with no background rect and no hardcoded fills, inlined into the page so the site's variables reach it. Press the button — the SVG below is <em>one element</em>, recoloured by CSS custom properties alone.</p>
+
+    <div class="dia-live">
+      <div class="dia-ctl">
+        <button class="toggle" id="dtog" type="button" aria-pressed="false">Switch to dark</button>
+        <span class="dia-ctl-lab">Same DOM node. Only the token values change.</span>
+      </div>
+      <div class="dia-stage" id="dstage">
+        <svg viewBox="0 0 620 200" style="width:100%;height:auto;display:block" role="img" aria-label="Tokenised crew diagram that recolours with the page scheme">
+          <rect x="200" y="14" width="220" height="46" rx="6" fill="var(--d-emph-fill)" stroke="var(--d-emph-line)" stroke-width="1.8"/>
+          <text x="310" y="36" font-family="var(--mono)" font-size="14" font-weight="700" fill="var(--d-emph-line)" text-anchor="middle">orchestrator</text>
+          <text x="310" y="52" font-family="var(--sans)" font-size="10.5" fill="var(--d-cap)" text-anchor="middle">never writes production code</text>
+          <path d="M 310 62 L 310 88" stroke="var(--d-conn)" stroke-width="1.4"/>
+          <text x="322" y="79" font-family="var(--sans)" font-size="10" fill="var(--d-cap)">delegate</text>
+          <rect x="30" y="96" width="170" height="58" rx="6" fill="var(--d-emph-fill)" stroke="var(--d-emph-line)" stroke-width="1.3"/>
+          <text x="115" y="120" font-family="var(--mono)" font-size="12.5" font-weight="700" fill="var(--d-emph-line)" text-anchor="middle">scout</text>
+          <text x="115" y="138" font-family="var(--sans)" font-size="10.5" fill="var(--d-cap)" text-anchor="middle">risk and intent triage</text>
+          <rect x="225" y="96" width="170" height="58" rx="6" fill="var(--d-node-fill)" stroke="var(--d-node-line)" stroke-width="1.3"/>
+          <text x="310" y="120" font-family="var(--mono)" font-size="12.5" font-weight="700" fill="var(--d-node-text)" text-anchor="middle">planner</text>
+          <text x="310" y="138" font-family="var(--sans)" font-size="10.5" fill="var(--d-cap)" text-anchor="middle">requirement interview</text>
+          <rect x="420" y="96" width="170" height="58" rx="6" fill="var(--d-emph-fill)" stroke="var(--d-emph-line)" stroke-width="1.3"/>
+          <text x="505" y="120" font-family="var(--mono)" font-size="12.5" font-weight="700" fill="var(--d-emph-line)" text-anchor="middle">critic</text>
+          <text x="505" y="138" font-family="var(--sans)" font-size="10.5" fill="var(--d-cap)" text-anchor="middle">devil's advocate</text>
+          <rect x="225" y="168" width="170" height="24" rx="5" fill="none" stroke="#a8b0ba" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <text x="310" y="184" font-family="var(--mono)" font-size="10.5" font-weight="700" fill="#a8b0ba" text-anchor="middle">autonomy dial</text>
+        </svg>
+      </div>
+      <p class="dia-cap-txt">Schematic stand-in for <code>diagram-crew.svg</code>. The dashed <code>#a8b0ba</code> node holds its colour in both schemes — that is the <em>planned, not shipped</em> convention doing its job.</p>
+    </div>
+
+    <div class="callout ok">
+      <p><b>What the site gets for free.</b> Inlining means the scheme toggle recolours diagrams instantly, with no second file to keep in sync. The <code>*-light.svg</code> / <code>*-dark.svg</code> pair is <em>generated</em> from this same source for GitHub's README and link previews, which can't supply CSS variables — so the twins can never drift from the original.</p>
+    </div>
+  </section>
+
+  <!-- TOOLCHAIN -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">08 · Build</div><h2>Generator status</h2></div>
+    <p class="note">The brand is code, not files — every asset is reproducible, nothing is hand-edited. That is why the palette normalisation will hold instead of drifting again in six months.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Generator</th><th>Produces</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><b>make_brand.py</b></td><td>Mark, badge, social card, Medium cover, size sheet</td><td class="st y">PRESENT</td></tr>
+          <tr><td><b>make_diagrams.py</b></td><td>Both diagram SVGs</td><td class="st y">PRESENT</td></tr>
+          <tr><td><b>make_favicons.py</b></td><td>Full favicon set</td><td class="st y">PRESENT</td></tr>
+          <tr><td><b>render_diagrams.py</b></td><td>2× PNGs from the diagram SVGs</td><td class="st y">PRESENT</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout ok">
+      <p><b>The palette drift is a three-line problem.</b> Each script declares its own constants at the top — <code>make_brand.py</code> has <code>INK&nbsp;#111418</code>, <code>make_diagrams.py</code> has <code>INK&nbsp;#16191f</code> and <code>MUTED&nbsp;#8a919b</code>. One shared <code>palette.py</code> replaces all three. And the WCAG failure is a <b>single line</b>: <code>MUTED = "#8a919b"</code> becomes <code>"#6b727c"</code>, and both diagrams pass on the next run.</p>
+    </div>
+    <div class="callout warn">
+      <p><b>All scripts are sandbox artefacts.</b> They write to <code>/home/claude/</code>, and both <code>render_diagrams.py</code> and <code>make_favicons.py</code> hardcode a Chromium path under <code>/opt/pw-browsers/</code> and need Pillow. Making them run locally and in CI is a build task, not a blocker.</p>
+    </div>
+    <h3 style="font-size:1rem;margin-top:6px">Deploy</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><b>Host</b></td><td>GitHub Pages, deployed by Actions</td></tr>
+          <tr><td><b>Domain</b></td><td><code>docs.nescio-ai.org</code></td></tr>
+          <tr><td><b>DNS</b></td><td><code>docs.nescio-ai.org. CNAME noctua84.github.io.</code> — a subdomain, so no apex A records and no GitHub IPs to go stale</td></tr>
+          <tr><td><b>Apex</b></td><td>Reserved. No user site exists yet, so the repo <code>noctua84.github.io</code> is unclaimed and is the natural home for it</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 404 -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">09</div><h2>The 404</h2></div>
+    <div class="four04">
+      <svg width="56" height="56" viewBox="0 0 512 512" role="img" aria-label="Nescio owl" style="--f:#8fb0d9;--b:#0e1319">
+        <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
+        <circle cx="202" cy="248" r="49" fill="var(--b)"/><circle cx="202" cy="248" r="21" fill="var(--f)"/>
+        <circle cx="310" cy="248" r="49" fill="var(--b)"/><circle cx="310" cy="248" r="21" fill="var(--f)"/>
+        <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="var(--b)"/>
+      </svg>
+      <div class="four04-code">404</div>
+      <div class="four04-line">nescio.</div>
+      <p class="four04-sub">I do not know where this page is. The owl of Minerva flies at dusk; this one appears to have flown off entirely.</p>
+      <div class="four04-back">← docs.nescio-ai.org</div>
+    </div>
+  </section>
+
+  <!-- BUILD PLAN -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">10 · Build</div><h2>The plan</h2></div>
+    <p class="note">Sixteen tasks, re-ordered after a devil's-advocate pass. The original sequencing put the one irreversible step &mdash; the first public deploy &mdash; last, behind ten reversible ones. This retires that risk first instead.</p>
+
+    <div class="waves">
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 0</span><span class="wave-t">Thin vertical slice</span><span class="wave-why">retires the only irreversible step</span></div>
+        <div class="wave-b">
+          <span><b>T1</b> &mdash; stock Material, one placeholder page, and the <em>full</em> deploy workflow wired from the start</span>
+          <span>Fork guard <code>if: github.repository ==</code> and <code>scrub_check.py _site</code> live before any brand work</span>
+          <span>Proves DNS, cert provisioning, Pages-from-Actions and HTTPS while everything is still cheap to change</span>
+        </div>
+      </div>
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 1</span><span class="wave-t">Brand foundation</span><span class="wave-why">one palette, no drift</span></div>
+        <div class="wave-b">
+          <span><b>T2</b> &mdash; one <code>palette.py</code> every generator imports; collapses the three-way grey drift</span>
+          <span><b>T3</b> &mdash; copy the kit in from Drive; originals become a dated read-only archive <span style="color:var(--accent)">[human]</span></span>
+        </div>
+      </div>
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 2</span><span class="wave-t">Generators</span><span class="wave-why">on the current faces</span></div>
+        <div class="wave-b">
+          <span><b>T4</b> &mdash; tokenise the diagrams, generate the twins, fix the WCAG failure in one line</span>
+          <span><b>T6</b> &mdash; self-host the <em>current</em> faces, satisfying the only hard type rule: no CDN</span>
+          <span><b>T7</b> &mdash; outline the wordmark from the current mono; the fallback bug dies here, not in wave 5</span>
+        </div>
+      </div>
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 3</span><span class="wave-t">The real site</span><span class="wave-why">the reason for all of it</span></div>
+        <div class="wave-b">
+          <span><b>T8&ndash;T11</b> &mdash; custom scheme with dark default, inline-SVG so diagrams follow the toggle</span>
+          <span>Generated catalog, counted against the live directory listing rather than a magic number</span>
+          <span>Favicon wiring, 404 page, hero</span>
+        </div>
+      </div>
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 4</span><span class="wave-t">Finalise &amp; guard</span><span class="wave-why">close the isolation boundary</span></div>
+        <div class="wave-b">
+          <span><b>T12</b> &mdash; enrich the workflow; pin Material hard with the coupling comment</span>
+          <span><b>T13&ndash;T15</b> &mdash; isolation-guard test, exclude <code>brand/</code> from instance derivation, fix the README fork/derive contradiction</span>
+        </div>
+      </div>
+      <div class="wave">
+        <div class="wave-h"><span class="wave-n">WAVE 5</span><span class="wave-t">IBM Plex</span><span class="wave-why">off the critical path</span></div>
+        <div class="wave-b">
+          <span><b>T16</b> &mdash; subset and self-host Plex Sans + Mono, retune <code>wrap()</code>, re-outline the wordmark</span>
+          <span>The site is launch-complete without it. An improvement, not a blocker</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <p><b>The thing to watch over 12 months.</b> Not the fonts and not the SVGs &mdash; the custom Material scheme. Its CSS-variable names have changed across Material releases, and no test catches a periwinkle that quietly reverts to the stock accent. Pin Material hard, comment the pin, and treat any upgrade as a deliberate task with a visual re-check rather than a routine bump.</p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  var b=document.getElementById('dtog'),s=document.getElementById('dstage');
+  if(!b||!s)return;
+  b.addEventListener('click',function(){
+    var dark=s.classList.toggle('dark');
+    b.textContent=dark?'Switch to light':'Switch to dark';
+    b.setAttribute('aria-pressed',dark?'true':'false');
+  });
+})();
+</script>

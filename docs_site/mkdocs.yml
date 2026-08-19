@@ -1,0 +1,24 @@
+# MkDocs config for docs.nescio-ai.org.
+#
+# WAVE 0 (thin vertical slice): stock Material only — no custom scheme, no
+# palette or font overrides. The custom dark/light schemes and the self-hosted
+# faces land in wave 3, which edits this same file.
+#
+# The owl on index.md is an inline <svg> on purpose: the brand/ package does not
+# arrive until wave 1, so the placeholder page stays self-contained with no
+# asset plumbing. Wave 3 replaces it with the generated mark.
+
+site_name: nescio
+site_description: An agent crew for Claude Code that says "I don't know."
+site_url: https://docs.nescio-ai.org
+repo_url: https://github.com/noctua84/nescio-ai
+
+docs_dir: docs
+# Relative to this file, so the build lands in the repo root as _site/ (gitignored).
+site_dir: ../_site
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md

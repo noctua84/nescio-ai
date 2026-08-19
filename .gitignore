@@ -8,6 +8,9 @@ scrub-terms.local
 eval/
 learning-trail/
 
+# Docs site build output (mkdocs site_dir)
+_site/
+
 # Python
 .venv/
 __pycache__/
