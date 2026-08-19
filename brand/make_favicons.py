@@ -5,9 +5,23 @@ Uses the badge form (white owl on an accent tile) rather than the bare mark:
 a browser tab bar may be light or dark, and a dark-blue silhouette on
 transparency disappears on dark chrome. A filled tile reads on both.
 
-LOCAL-ONLY — deliberately **not** run in CI. Requires a local Chromium binary
-and Pillow, neither of which is a dependency of this repo. Point ``$CHROME`` at
-your Chromium/Chrome executable if it is not on the default path below.
+**This is the generator for the committed ``brand/favicons/`` set.** Running it
+regenerates every file in that directory — ``favicon.svg``, the multi-resolution
+``favicon.ico``, ``favicon-16/32/48/192/512.png`` and the 180px
+``apple-touch-icon.png``. The committed binaries are those outputs; the geometry
+below (owl path, tile radius, padding, render sizes) is what makes them
+reproducible, so treat it as fixed.
+
+**LOCAL-ONLY — deliberately not run in CI.** It requires a local Chromium binary
+and Pillow, and **neither is a dependency of this repo** — the repo is
+stdlib-only and stays that way. Install Pillow into your own environment and
+point ``$CHROME`` at your Chromium/Chrome executable if it is not on the default
+path below. Every other brand generator (``palette.py``, ``make_brand.py``,
+``make_diagrams.py``) is pure stdlib string work and does run in CI; only this
+script and ``render_diagrams.py`` rasterise, and only they are human-run.
+
+Colour comes from ``palette.py`` — the tile is the brand blue, the owl is paper
+white. No hex is declared here.
 
 Writes the favicon set into ``<out>/favicons/``. Directory, highest precedence
 first:
@@ -15,17 +29,26 @@ first:
   2. ``$BRAND_OUT``
   3. ``<this file's directory>/dist`` — i.e. ``brand/dist/``, resolved relative
      to this file, not the current working directory.
-Copy the result over ``brand/favicons/`` once you have eyeballed it.
+
+The default is the gitignored ``brand/dist/``, never ``brand/favicons/``: render
+there, eyeball the result, then copy it over ``brand/favicons/`` deliberately.
+
+    python brand/make_favicons.py            # or: python -m brand.make_favicons
 """
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image
 
-ACCENT = "#2f4d7a"
-PAPER = "#ffffff"
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from brand import palette  # noqa: E402
+
 CHROME = os.environ.get("CHROME", "chromium")
 
 HEAD = ("M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 "
@@ -36,17 +59,18 @@ HEAD = ("M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 "
 
 def badge(radius=64, pad=0.80, size=512):
     """Owl on a tile. Geometry stays on a 512 grid; `size` sets the render box."""
+    tile, owl = palette.brand_blue, palette.paper
     off = (512 - 512 * pad) / 2
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" \
 viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="{radius}" fill="{ACCENT}"/>
+  <rect width="512" height="512" rx="{radius}" fill="{tile}"/>
   <g transform="translate({off:.1f},{off:.1f}) scale({pad})">
-    <path d="{HEAD}" fill="{PAPER}"/>
-    <circle cx="202" cy="248" r="49" fill="{ACCENT}"/>
-    <circle cx="202" cy="248" r="21" fill="{PAPER}"/>
-    <circle cx="310" cy="248" r="49" fill="{ACCENT}"/>
-    <circle cx="310" cy="248" r="21" fill="{PAPER}"/>
-    <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="{ACCENT}"/>
+    <path d="{HEAD}" fill="{owl}"/>
+    <circle cx="202" cy="248" r="49" fill="{tile}"/>
+    <circle cx="202" cy="248" r="21" fill="{owl}"/>
+    <circle cx="310" cy="248" r="49" fill="{tile}"/>
+    <circle cx="310" cy="248" r="21" fill="{owl}"/>
+    <path d="M 256 296 L 274 318 L 256 340 L 238 318 Z" fill="{tile}"/>
   </g>
 </svg>
 """

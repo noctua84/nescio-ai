@@ -40,9 +40,27 @@ Sans + IBM Plex Mono as the target pairing. That migration is deliberately a
 **one-line edit to each constant** — plus a `wrap()` width retune in
 `make_diagrams.py`, because Plex Sans is wider than Carlito at the same size.
 
+## `fonts/` — the self-hosted web faces
+
+`palette.py` names the faces; [`fonts/`](fonts/README.md) *contains* them. Four
+subset `woff2` files (Liberation Mono and Carlito, 400 and 700) plus the source
+`.ttf`s and each face's OFL text, so the documentation site makes **no CDN or
+third-party font request at runtime** — spec §3's only hard typography rule.
+
+[`subset_fonts.py`](subset_fonts.py) rebuilds the directory from pinned,
+SHA-256-verified upstream sources, byte-for-byte. It needs `fonttools` and
+`brotli`; those are **local-only tooling in a throwaway venv, never repo
+dependencies** — the committed output is what ships. `fonts/README.md` has the
+recipe, the exact `pyftsubset` invocation, and the reason the subsets are named
+`Nescio Mono` / `Nescio Sans` rather than after their upstream faces (both carry
+a Reserved Font Name).
+
+The source `.ttf`s are committed because `make_brand.py` outlines the wordmark
+from `fonts/LiberationMono-Regular.ttf`. They are not redundant with the woff2.
+
 ## Tests live here, not in `tests/`
 
-`brand/test_palette.py` is co-located on purpose.
+`brand/test_palette.py` and `brand/test_fonts.py` are co-located on purpose.
 
 `tests/` is on `FRAMEWORK_PATHS` in
 [`scripts/sync_from_upstream.py`](../scripts/sync_from_upstream.py) and is
@@ -54,7 +72,7 @@ every downstream user.
 Run them from the repo root:
 
 ```
-python -m unittest brand.test_palette
+python -m unittest brand.test_palette brand.test_fonts
 ```
 
 ## Why `brand/` is off `FRAMEWORK_PATHS` — deliberately

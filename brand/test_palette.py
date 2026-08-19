@@ -54,8 +54,8 @@ class TestTokens(unittest.TestCase):
     def test_expected_tokens_present(self):
         expected = {
             "ink_deep", "ink_raised", "brand_blue", "periwinkle", "tint",
-            "tint_dark", "text", "body", "muted", "muted_dark", "border",
-            "border_dark", "deferred", "paper",
+            "tint_dark", "text", "text_dark", "body", "muted", "muted_dark",
+            "border", "border_dark", "deferred", "paper",
         }
         self.assertEqual(set(palette.TOKENS), expected)
 
@@ -66,12 +66,27 @@ class TestTokens(unittest.TestCase):
 
 class TestFonts(unittest.TestCase):
     def test_self_hosted_faces_are_named_first(self):
-        self.assertTrue(palette.FONT_SANS.startswith("Carlito"))
-        self.assertTrue(palette.FONT_MONO.startswith("'Liberation Mono'"))
+        """The shipped subsets carry these internal names, so the stacks must
+        ask for them first or every SVG falls through to a system face.
+        `brand/test_fonts.py` ties them back to the build recipe."""
+        self.assertTrue(palette.FONT_SANS.startswith("'Nescio Sans'"))
+        self.assertTrue(palette.FONT_MONO.startswith("'Nescio Mono'"))
+
+    def test_upstream_faces_follow_as_fallbacks(self):
+        """A standalone SVG on a machine with the originals installed still
+        renders in the right face."""
+        self.assertIn("Carlito", palette.FONT_SANS)
+        self.assertIn("'Liberation Mono'", palette.FONT_MONO)
 
     def test_generic_fallbacks_are_present(self):
         self.assertTrue(palette.FONT_SANS.rstrip().endswith("sans-serif"))
         self.assertTrue(palette.FONT_MONO.rstrip().endswith("monospace"))
+
+    def test_stacks_are_safe_inside_an_svg_attribute(self):
+        """These land in `font-family="..."`; a double quote would end it."""
+        for name in ("FONT_SANS", "FONT_MONO"):
+            with self.subTest(constant=name):
+                self.assertNotIn('"', getattr(palette, name))
 
 
 class TestContrastRatio(unittest.TestCase):
@@ -145,7 +160,7 @@ class TestAccentRule(unittest.TestCase):
                 self.assertTrue(palette.passes_aa(palette.TOKENS[name], palette.paper))
 
     def test_dark_text_tokens_pass_aa_on_ink_deep(self):
-        for name in ("periwinkle", "muted_dark", "deferred"):
+        for name in ("periwinkle", "text_dark", "muted_dark", "deferred"):
             with self.subTest(token=name):
                 self.assertTrue(
                     palette.passes_aa(palette.TOKENS[name], palette.ink_deep)

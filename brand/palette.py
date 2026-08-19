@@ -36,6 +36,7 @@ tint_dark = "#182333"  # Same role on dark
 
 # Type colours
 text = "#16191f"  # Headings on light
+text_dark = "#e9edf2"  # Headings and labels on dark — the counterpart to `text`
 body = "#5a616b"  # Running text on light — 6.3:1 on white
 muted = "#6b727c"  # Captions and labels on light — 4.9:1 on white, passes AA
 muted_dark = "#8d97a4"  # Captions and labels on dark — 6.3:1 on ink_deep
@@ -58,6 +59,7 @@ TOKENS: dict[str, str] = {
     "tint": tint,
     "tint_dark": tint_dark,
     "text": text,
+    "text_dark": text_dark,
     "body": body,
     "muted": muted,
     "muted_dark": muted_dark,
@@ -70,12 +72,35 @@ TOKENS: dict[str, str] = {
 # --- Typography (spec §3) ------------------------------------------------
 
 # The currently self-hosted faces, named first with generic fallbacks.
+#
+# `Nescio Mono` / `Nescio Sans` are the *internal* family names carried by the
+# four `woff2` subsets in `brand/fonts/`, and therefore the names the site's
+# `@font-face` rules declare. They are renamed rather than called `Liberation
+# Mono` / `Carlito` because SIL OFL clause 3 forbids a Reserved Font Name on a
+# Modified Version, and a Latin-only subset is a modification (OFL-FAQ 2.6-2.8).
+# See `brand/fonts/README.md` § "Naming". Do not "fix" these back.
+#
+# They must come first: whatever the generated SVGs ask for is what the browser
+# looks up, so if these did not match the shipped `@font-face` family names,
+# every diagram would silently fall through to a system face. The upstream
+# names follow as fallbacks so a standalone SVG still renders correctly on a
+# machine that has Liberation Mono / Carlito installed.
+#
+# These strings land inside SVG `font-family="..."` attributes, so every quoted
+# family name here uses **single** quotes — a double quote would close the
+# attribute and produce malformed XML.
+#
 # Spec §3 settles on IBM Plex Sans + IBM Plex Mono as the target pairing; the
 # migration (task T16) is deliberately a one-line edit to each of these two
 # constants plus a `wrap()` width retune in `make_diagrams.py`, because Plex
 # Sans is wider than Carlito at the same size.
-FONT_SANS = "Carlito, Calibri, Helvetica, Arial, sans-serif"
-FONT_MONO = "'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace"
+FONT_SANS = "'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif"
+FONT_MONO = "'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace"
+
+#: The internal family names of the shipped subsets, mono/sans. Kept beside the
+#: stacks above so `test_palette.py` can assert the stacks name them first.
+SUBSET_FAMILY_MONO = "Nescio Mono"
+SUBSET_FAMILY_SANS = "Nescio Sans"
 
 # --- Contrast (WCAG 2.1) -------------------------------------------------
 
