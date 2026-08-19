@@ -487,15 +487,83 @@ Apex records, if the landing page needs them — `A`: `185.199.108.153`,
 `185.199.109.153`, `185.199.110.153`, `185.199.111.153`; `AAAA`:
 `2606:50c0:8000::153` through `8003::153`. Re-check at the time; these move.
 
-- Define a custom scheme rather than fighting the stock palette. Material reads
-  `[data-md-color-scheme="..."]`; set tokens there and let the toggle swap
-  between a Nescio dark and a Nescio light scheme, dark listed first.
-- Key variables: `--md-primary-fg-color`, `--md-accent-fg-color`,
-  `--md-default-bg-color`, `--md-default-fg-color`, `--md-typeset-a-color`,
-  `--md-code-bg-color`. *Verify these names against the Material version pinned
-  at build time — they have changed across releases.*
-- Self-hosted fonts mean disabling Material's Google Fonts loading and declaring
-  `@font-face` in `extra_css`.
+### Theming Material — verified against the pinned 9.7.7
+
+The custom-scheme approach stands: define `[data-md-color-scheme="nescio-dark"]`
+and `[data-md-color-scheme="nescio-light"]` rather than fight the stock palette,
+dark listed first, both carrying a toggle.
+
+Everything this section used to say *about* those schemes was written from
+memory and asked the implementer to "verify the variable names". They have now
+been verified — by reading what `mkdocs-material==9.7.7` actually ships
+(`material/templates/assets/stylesheets/{main,palette}.*.min.css` and
+`material/templates/base.html`), the version pinned in
+`.github/workflows/docs.yml`. The six names all exist. The advice around them was
+wrong in four ways, each of which fails **silently**: the build stays green and
+the page just looks wrong.
+
+**1. Six variables is necessary and nowhere near sufficient.** In 9.7.7 the full
+light token set is declared on `:root,[data-md-color-scheme=default]` in
+*main*.css — 49 custom properties. The dark set is declared on
+`[data-md-color-scheme=slate]` in *palette*.css, and on nothing else: palette.css
+contains **no** `[data-md-color-scheme=default]` rule at all. Slate restates 41
+of those 49 tokens and introduces none of its own.
+
+A custom scheme name matches neither selector. It therefore inherits the `:root`
+**light** defaults and does **not** inherit slate. A dark custom scheme that sets
+only an accent and a background gets light code blocks, light kbd chrome, light
+admonition fills and light-mode shadows on a dark page. It has to restate the
+whole ramp slate restates — surface (`--md-default-bg-color` ×4), foreground
+(`--md-default-fg-color` ×4), the sixteen `--md-code-*` values including every
+`--md-code-hl-*` hue, `--md-typeset-{color,a-color,kbd-*,mark,table-*}`,
+`--md-admonition-*`, `--md-footer-bg-color{,--dark}` and `--md-shadow-z1..z3` —
+plus the eight tokens that live only on `:root` and are therefore *not* in slate
+either: `--md-footer-fg-color{,--light,--lighter}`, `--md-hue`,
+`--md-typeset-{del,ins}-color` and `--md-warning-{fg,bg}-color`.
+
+**2. `--md-typeset-a-color` has no colour of its own.** main.css declares it as
+`var(--md-primary-fg-color)`. Nescio's dark primary is the raised chrome
+`#141b24` (§2 `ink-raised`), because that is what the header and nav rail are —
+so every link on the site would render ink-on-ink and be effectively invisible.
+It must be set explicitly to periwinkle in the dark scheme and to brand blue in
+the light one. This is the single most easily missed line in the stylesheet.
+
+**3. `palette.primary` and `palette.accent` must both be `custom`.** Any stock
+value makes base.html stamp `data-md-color-primary="…"` /
+`data-md-color-accent="…"` on `<body>` — the *same element* that carries
+`data-md-color-scheme`. palette.css then matches it with, e.g.,
+`[data-md-color-primary=indigo]{--md-primary-fg-color:#4051b5;…}`, and a second
+rule redefining `--md-typeset-a-color`. Those are single attribute selectors,
+specificity 0-1-0, identical to `[data-md-color-scheme=nescio-dark]`, on the same
+element. Nothing decides the winner but stylesheet source order, which today
+happens to favour us only because `extra_css` is emitted after `{% block styles %}`
+in base.html. That is load order, not intent, and it is not something to stake the
+identity on. `custom` matches no stock rule, so the contest never happens.
+
+**4. `theme.font: false` also drops `--md-text-font` and `--md-code-font`.** The
+`{% block fonts %}` it disables emits three things, not one: the
+`fonts.gstatic.com` preconnect, the `fonts.googleapis.com` stylesheet **and** an
+inline `<style>:root{--md-text-font:"…";--md-code-font:"…"}`. Material composes
+those two into `--md-text-font-family` / `--md-code-font-family` with its own
+generic fallbacks, so with `font: false` and nothing else the whole site silently
+renders in the generic fallback. The stylesheet must set both — which is separate
+from, and additional to, declaring the `@font-face` rules for the self-hosted
+faces in `extra_css`.
+
+> The general lesson, and the reason the pin is hard: none of these four produce
+> an error. `mkdocs build --strict` catches broken links, not a periwinkle that
+> has quietly reverted to the stock accent. A Material upgrade is a deliberate
+> task with a visual re-check.
+
+### Build & publish
+
+- **The 404 page is a theme override, not a page.** GitHub Pages serves
+  `/404.html` for any unmatched path, and that file comes from MkDocs' *static
+  template* pass — `mkdocs.commands.build` iterates `config.theme.static_templates`,
+  and Material 9.7.7 declares exactly one, `404.html`, in its `mkdocs_theme.yml`.
+  A `docs/404.md` builds to `404/index.html`, which GitHub Pages never looks at,
+  while `_site/404.html` keeps Material's stock *"404 - Not found"*. Put the §7
+  copy in `overrides/404.html`.
 - The `social` plugin is **not needed** — `nescio-github-social.svg` is already
   a 1280×640 OG card. Drops the Cairo/Pillow dependency from CI.
 - Favicon wiring is already specified in `favicons/README.md`. Use it verbatim,
@@ -575,7 +643,10 @@ since it is the exact ambiguity that raised the question.
 - [ ] **Tighten the README's fork/derive wording.**
 - [x] **Re-verify contrast ratios** — `palette.contrast_ratio()` reproduces
       every §2 value independently; asserted in `brand/test_palette.py`.
-- [ ] **Confirm Material CSS variable names** against the pinned version.
+- [x] **Confirm Material CSS variable names** against the pinned version — done
+      against `mkdocs-material==9.7.7`. All six exist; the surrounding advice did
+      not survive contact and §9 has been rewritten around what the shipped
+      `main`/`palette` stylesheets and `base.html` actually do.
 
 ### Closed
 
