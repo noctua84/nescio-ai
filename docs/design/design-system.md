@@ -4,9 +4,11 @@ The visual identity for `nescio-ai.org` and everything that carries the Nescio
 mark. This is the source of truth: the site config, the logo files, and the
 diagrams all derive from what is written here.
 
-**Status:** approved direction, not yet implemented.
-**Brand kit:** complete but living outside this repo (Drive:
-`NescioAI and Profile/NescioAI`). Moving it in is a build task — see §8.
+**Status:** in build. Waves 0-2 shipped — the deploy pipeline is live at
+`docs.nescio-ai.org` and the `brand/` package is in-tree and reproducible.
+Wave 3 (the site itself) is next; wave 5 (IBM Plex) is off the critical path.
+**Brand kit:** in this repo under `brand/`, off `FRAMEWORK_PATHS` by design
+(§8). The Drive originals are a dated read-only archive.
 
 ---
 
@@ -45,6 +47,7 @@ decoration.
 | `tint` | `#eef2f8` | Highlighted cards, admonition fills (light) |
 | `tint-dark` | `#182333` | Same role on dark |
 | `text` | `#16191f` | Headings on light |
+| `text-dark` | `#e9edf2` | Headings and labels on dark |
 | `body` | `#5a616b` | Running text on light |
 | `muted` | `#6b727c` | Captions and labels on light — **see the AA note** |
 | `muted-dark` | `#8d97a4` | Captions and labels on dark |
@@ -126,6 +129,44 @@ Alternate if Plex is rejected: **Source Sans 3 + Source Code Pro**.
 
 Self-host and subset both faces. Do not link a font CDN.
 
+### What ships today
+
+The Plex migration has not run. The site launches on the interim pairing —
+**Carlito** (sans) + **Liberation Mono** (mono) — self-hosted and subset to a
+Latin range, four `woff2` files in `brand/fonts/`. The one hard rule is already
+kept: no CDN, no third-party font request at runtime.
+
+**The shipped faces are called `Nescio Sans` and `Nescio Mono`.** That is not a
+branding flourish and it must not be "corrected" back to the upstream names.
+Both upstream families carry a Reserved Font Name (`Carlito`, `Liberation`), and
+SIL OFL clause 3 forbids an RFN on a Modified Version. A Latin-only subset *is*
+a modification — OFL-FAQ 2.6 says so, and 2.7-2.8 let a modified webfont keep
+the RFN only while it stays *Functionally Equivalent*, which requires the same
+full character inventory. A subset does not have it. So the subsets are renamed
+and the upstream copyright, licence and provenance records are left intact in
+the `name` table. The full reasoning and the exact `name` IDs touched are in
+[`brand/fonts/README.md`](../../brand/fonts/README.md).
+
+Three things have to agree on those names, and there is a test for it:
+
+| Where | What it says |
+|---|---|
+| the `woff2` `name` tables | `Nescio Sans`, `Nescio Mono` |
+| the site's `@font-face` rules | the same two families |
+| `brand/palette.py` — `FONT_SANS` / `FONT_MONO` | the same two, named **first**, upstream names as fallbacks |
+
+The third is the one that bites. Every generated SVG takes its `font-family`
+from those two constants; if they name something the `@font-face` rules do not
+declare, nothing errors — the diagrams just render in a system fallback with the
+suite green. `brand/test_fonts.py` ties the palette to the build recipe so the
+two cannot drift apart. (The stacks quote family names with **single** quotes:
+they land inside SVG `font-family="..."` attributes, where a double quote would
+close the attribute.)
+
+When the Plex migration lands it reruns the same subset recipe against the Plex
+sources, under the same OFL logic, and retunes the `wrap()` widths in
+`make_diagrams.py` — Plex Sans is wider than Carlito at the same size.
+
 ### Roles
 
 | Role | Face | Weight | Notes |
@@ -142,17 +183,23 @@ Self-host and subset both faces. Do not link a font CDN.
 command, a filename, a token — is set in mono. Prose is sans. Semantic, not
 decorative; readers learn it in one page.
 
-### The wordmark must be outlined
+The roles are face-agnostic. Until the Plex migration runs, `Nescio Sans` fills
+every Plex Sans row and `Nescio Mono` every Plex Mono row; nothing else about
+the table changes.
 
-`make_brand.py` sets the wordmark as **live text in `'Liberation Mono'`**.
-Almost nothing on the open web has that font installed, including the servers
-that render link previews. The wordmark is therefore already at risk of
-rendering in an arbitrary fallback anywhere outside a Linux desktop — the
-social card may be doing so today.
+### The wordmark is outlined — done
 
-**Fix: convert the wordmark to outlined paths.** It then renders identically
-everywhere and is immune to the font decision above. Standard practice for a
-wordmark, and worth doing regardless of which pairing wins.
+`make_brand.py` originally set the wordmark as **live text in
+`'Liberation Mono'`**. Almost nothing on the open web has that font installed,
+including the servers that render link previews, so the wordmark was at risk of
+rendering in an arbitrary fallback anywhere outside a Linux desktop.
+
+It is now emitted as **outlined `<path>` data**, generated from
+`brand/fonts/LiberationMono-Bold.ttf` — Bold, because both wordmark call sites
+set `weight="700"` and outlining from Regular would have silently thinned it.
+The outlines render identically everywhere and are immune to the pairing
+decision above; the Plex migration re-runs the outliner against Plex Mono by
+changing one constant, `WORDMARK_SOURCE`.
 
 ---
 
@@ -334,27 +381,56 @@ existing kit and it shapes every task below.
 
 **Every asset is reproducible.** Nothing in the kit is a hand-edited file.
 
-The drift in §2 is therefore a three-line problem, not an audit: each generator
-declares its own palette constants at the top of the file.
+### The drift, and how it was resolved
 
-| Script | Declares |
+*Retrospective — this describes the kit as it stood before it moved into the
+repo. All of it is fixed.* The drift in §2 was a three-line problem, not an
+audit: each generator declared its own palette constants at the top of the file.
+
+| Script | Declared |
 |---|---|
 | `make_brand.py` | `INK #111418`, `ACCENT`, `ACCENT_LIGHT`, `PAPER`, `DARK`, `MUTED_D` |
 | `make_diagrams.py` | `INK #16191f`, `INK2`, `MUTED #8a919b`, `ACCENT`, `ACCENT_FILL`, `LINE`, `FUTURE`, `SURFACE` |
 | `make_favicons.py` | `ACCENT`, `PAPER` |
 
-Collapsing those into one imported module fixes the drift permanently — and the
-WCAG failure in §2 is a **single line**: `MUTED = "#8a919b"` becomes `"#6b727c"`,
-and both diagrams pass on the next run.
+Collapsing those into one imported module fixed the drift permanently, and the
+WCAG failure in §2 was a **single line**: `MUTED = "#8a919b"` became `"#6b727c"`.
+Both retired hexes — `#8a919b` and `#111418` — are now barred outright by
+`brand/test_palette.py`, so neither can return.
 
-The scripts are **sandbox artefacts**: they write to `/home/claude/`, and both
-`render_diagrams.py` and `make_favicons.py` hardcode a Chromium path under
-`/opt/pw-browsers/` and depend on Pillow. Adapting them to run locally and in CI
-is a build task.
+The scripts were also **sandbox artefacts**: they wrote to `/home/claude/`, and
+`render_diagrams.py` and `make_favicons.py` hardcoded a Chromium path under
+`/opt/pw-browsers/`. Both were fixed when the kit came into the repo.
 
-**Direction:** one `brand/` package in this repo — a single `palette.py` every
-generator imports, portable paths, and `make_diagrams.py` extended to emit
-tokenised SVGs plus the generated light/dark twins (§6).
+### Current state
+
+Every generator imports `brand/palette.py`; no script declares a colour of its
+own, and none names a font stack of its own — `FONT_SANS` / `FONT_MONO` come
+from the same module (§3).
+
+**Paths are portable.** Output resolves in this order, highest precedence first:
+
+1. `--out DIR`
+2. `$BRAND_OUT`
+3. `brand/dist/` — resolved relative to the *script file*, not the current
+   working directory
+
+Where a headless Chromium is needed it is located via `$CHROME`. No absolute
+path is hardcoded anywhere in the package.
+
+**What runs in CI and what does not.** `make_brand.py` and `make_diagrams.py`
+are pure string generation, stdlib only — they run anywhere, and the suite runs
+them. `make_favicons.py` and `render_diagrams.py` are rasterisers: they need
+Pillow and a local Chromium, so they are deliberately **not** run in CI, and
+`brand/test_rasterisers.py` reads their *source* rather than importing them —
+enough to prove they still take every colour from `palette.py` and declare none
+of their own. The favicon set is generated locally and committed to
+`brand/favicons/`, which is checked as an artefact; the 2× diagram PNGs are
+rendered on demand into the gitignored `brand/dist/` and are not committed.
+
+**Direction — delivered:** one `brand/` package in this repo, a single
+`palette.py` every generator imports, portable paths, and `make_diagrams.py`
+extended to emit tokenised SVGs plus the generated light/dark twins (§6).
 
 ---
 
@@ -487,17 +563,18 @@ since it is the exact ambiguity that raised the question.
 
 ## 10. Open items
 
-- [ ] **Move the brand kit into the repo** as a `brand/` package; portable paths.
-- [ ] **Normalise the palette** into one shared `palette.py` (§2, §8).
-- [ ] **Fix the AA failure** — one line in `make_diagrams.py`.
-- [ ] **Extend `make_diagrams.py`** to emit tokenised SVGs + generated twins (§6).
-- [ ] **Outline the wordmark** in `make_brand.py`.
+- [x] **Move the brand kit into the repo** as a `brand/` package; portable paths.
+- [x] **Normalise the palette** into one shared `palette.py` (§2, §8).
+- [x] **Fix the AA failure** — one line in `make_diagrams.py`.
+- [x] **Extend `make_diagrams.py`** to emit tokenised SVGs + generated twins (§6).
+- [x] **Outline the wordmark** in `make_brand.py`.
 - [ ] **Retune wrap widths** after the Plex swap.
 - [ ] **Decide where the apex landing page lives** (§9).
-- [ ] **Guard the deploy workflow** against forks (`github.repository ==`).
+- [x] **Guard the deploy workflow** against forks (`github.repository ==`).
 - [ ] **Exclude `brand/` from initial instance derivation** — currently unscripted.
 - [ ] **Tighten the README's fork/derive wording.**
-- [ ] **Re-verify contrast ratios** with a checker.
+- [x] **Re-verify contrast ratios** — `palette.contrast_ratio()` reproduces
+      every §2 value independently; asserted in `brand/test_palette.py`.
 - [ ] **Confirm Material CSS variable names** against the pinned version.
 
 ### Closed

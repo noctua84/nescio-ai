@@ -1,0 +1,81 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nescio faces specimen</title>
+<style>
+@font-face{font-family:"Nescio Sans";src:url("nescio-sans-400.woff2") format("woff2");font-weight:400;font-style:normal}
+@font-face{font-family:"Nescio Sans";src:url("nescio-sans-700.woff2") format("woff2");font-weight:700;font-style:normal}
+@font-face{font-family:"Nescio Mono";src:url("nescio-mono-400.woff2") format("woff2");font-weight:400;font-style:normal}
+@font-face{font-family:"Nescio Mono";src:url("nescio-mono-700.woff2") format("woff2");font-weight:700;font-style:normal}
+body{background:#0f1216;color:#e7eaee;font-family:"Nescio Sans",system-ui;margin:0;padding:28px 34px;max-width:920px}
+h1{font-size:30px;font-weight:700;margin:0 0 4px}
+.mono{font-family:"Nescio Mono",monospace}
+.b{font-weight:700}
+.body{font-size:16px;line-height:1.6;max-width:64ch}
+.cap{font-size:12.5px;color:#8f99a6;line-height:1.5}
+.code{font-family:"Nescio Mono",monospace;font-size:13px;background:#171c22;padding:12px 14px;border-radius:6px;line-height:1.55;white-space:pre;overflow-x:auto}
+.row{border-top:1px solid #262c34;padding:14px 0}
+.lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6f7a87;font-weight:700;margin-bottom:6px}
+#report{font-family:"Nescio Mono",monospace;font-size:12px;color:#9fe8b0;white-space:pre}
+</style>
+
+<h1>Nescio Sans / Nescio Mono <span class="mono b" style="font-size:22px">— specimen</span></h1>
+
+<div class="row">
+  <div class="lbl">Sans 400 · body 16px</div>
+  <p class="body">The orchestrator hands each phase to a named agent — plato plans, the
+    implementer builds, pyrrho audits. Nothing crosses a phase boundary without a
+    human gate. Résumé, naïve, Łukasz, Ångström, cœur; §7 · 12 × 4 ≤ 48 ≥ 12 — “curly
+    quotes” and ‘apostrophes’, an ellipsis…, a bullet • and a €12 price.</p>
+</div>
+
+<div class="row">
+  <div class="lbl">Sans 700 · heading 22px</div>
+  <div style="font-size:22px;font-weight:700">Agents, skills, and the trail they leave behind</div>
+</div>
+
+<div class="row">
+  <div class="lbl">Sans 400 · caption 12.5px</div>
+  <div class="cap">Figure 3 — the derivation model. A derived instance starts from its own
+    initial commit, not a fork; framework updates arrive through the FRAMEWORK_PATHS
+    allowlist. Contrast checked at 4.9:1 against the page ground.</div>
+</div>
+
+<div class="row">
+  <div class="lbl">Mono 700 · identifiers 16px</div>
+  <div class="mono b" style="font-size:16px">plato · pyrrho · socrates · aristotle · validator · scout</div>
+</div>
+
+<div class="row">
+  <div class="lbl">Mono 400 · code 13px (the size that matters)</div>
+<div class="code">$ python brand/subset_fonts.py --verify
+  nescio-mono-400.woff2   319,508 -> 30,464  (91%)  503 glyphs
+  0O1lI|! {}[]()&lt;&gt;#@$%^&amp;*_-+=~`'"/\ 8B 5S 2Z rn m cl d
+  if x &lt;= 10 and y &gt;= 2: return f"{x!r} -&gt; {y:04d}"   # → ← ↔ ⇒
+  ├── agents/          ─┐
+  │   └── plato.md      │  □ ▪ ● ✓ ✔ ∈ ∅ ≤ ≥ × ·
+  └── skills/          ─┘</div>
+</div>
+
+<div class="row">
+  <div class="lbl">Runtime check</div>
+  <div id="report">measuring…</div>
+</div>
+
+<script>
+(async () => {
+  await document.fonts.ready;
+  const lines = [];
+  for (const f of document.fonts) lines.push(`loaded  ${f.family} ${f.weight} ${f.status}`);
+  const ext = performance.getEntriesByType('resource')
+    .filter(r => !r.name.startsWith(location.origin));
+  lines.push(`external requests: ${ext.length}` + (ext.length ? ' -> ' + ext.map(e=>e.name).join(', ') : ' (none)'));
+  // does the mono actually render as mono, i.e. did the file really load?
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = '40px "Nescio Mono"';
+  const wi = c.measureText('i').width, wm = c.measureText('m').width;
+  lines.push(`mono advance i=${wi} m=${wm} -> ${wi===wm ? 'monospaced OK' : 'NOT MONO (fallback?)'}`);
+  c.font = '40px "Nescio Sans"';
+  lines.push(`sans advance i=${c.measureText('i').width} m=${c.measureText('m').width} -> proportional`);
+  document.getElementById('report').textContent = lines.join('\n');
+})();
+</script>
