@@ -1,12 +1,14 @@
 # MkDocs config for docs.nescio-ai.org.
 #
-# WAVE 0 (thin vertical slice): stock Material only — no custom scheme, no
-# palette or font overrides. The custom dark/light schemes and the self-hosted
-# faces land in wave 3, which edits this same file.
+# Wave 0 stood this up on stock Material to prove the deploy pipeline. Wave 3
+# (this file) adds the Nescio theme layer: two custom colour schemes, the
+# self-hosted faces, the favicon set, and the inline-SVG mechanism the diagrams
+# need.
 #
-# The owl on index.md is an inline <svg> on purpose: the brand/ package does not
-# arrive until wave 1, so the placeholder page stays self-contained with no
-# asset plumbing. Wave 3 replaces it with the generated mark.
+# COUPLING: the custom schemes live in docs/assets/css/nescio.css and are tied
+# to Material's own CSS-variable names, which have changed across releases.
+# mkdocs-material is pinned hard in .github/workflows/docs.yml. A Material
+# upgrade is a deliberate task with a visual re-check, never a routine bump.
 
 site_name: nescio
 site_description: An agent crew for Claude Code that says "I don't know."
@@ -19,6 +21,75 @@ site_dir: ../_site
 
 theme:
   name: material
+  # Carries the favicon <head> snippet from brand/favicons/README.md.
+  custom_dir: overrides
+  # Material emits one unconditional <link rel="icon"> of its own; point it at
+  # our mark so the stock Material PNG never ships. The full, verbatim snippet
+  # (ICO with sizes="32x32", SVG, apple-touch-icon, manifest) is in
+  # overrides/main.html. The file itself is copied out of brand/favicons/ by
+  # hooks/assets.py.
+  favicon: favicon.svg
+  # No Google Fonts. Spec §3's one hard typography rule is "no CDN, no
+  # third-party request at runtime"; `false` makes base.html skip the
+  # fonts.googleapis.com <link> and the fonts.gstatic.com preconnect entirely,
+  # leaving the @font-face rules in nescio.css to win.
+  font: false
+  palette:
+    # Dark is listed first, so it is the default (spec §2: "dark by default —
+    # the brand is dark-first and owls are nocturnal"). Both entries carry a
+    # toggle; Material persists the reader's choice in local storage.
+    #
+    # `primary`/`accent` are set to `custom` on purpose: any stock value would
+    # make Material emit data-md-color-primary="…" whose palette.css rules
+    # redefine --md-primary-fg-color and friends on the same element as the
+    # scheme. `custom` matches no stock rule, so nescio.css is uncontested.
+    - scheme: nescio-dark
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+    - scheme: nescio-light
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+  features:
+    - content.code.copy
+    - navigation.top
+    - toc.follow
+
+extra_css:
+  - assets/css/nescio.css
+
+hooks:
+  # Ships brand/fonts/*.woff2 and brand/favicons/* into the build output without
+  # committing a second copy of them under docs/. See hooks/assets.py.
+  - hooks/assets.py
+  # INLINE-SVG MECHANISM (spec §6). Write `<!-- diagram: crew -->` on its own
+  # line in any page and the tokenised SVG is spliced in verbatim, wrapped in
+  # <div class="nescio-diagram">. Inlined, never <img> — that is what lets the
+  # page's --diagram-* tokens reach the artwork so the scheme toggle repaints it.
+  #
+  # pymdownx.snippets was tried first and REJECTED: it is a Markdown
+  # preprocessor, `svg` is not a Python-Markdown block-level element, and the
+  # parser wraps the artwork in <p>, injects a <br /> inside it and splits the
+  # element tree at the <style> block. The full evidence is in the hook's
+  # docstring. Do not re-add snippets for diagrams.
+  - hooks/inline_svg.py
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
 
 nav:
   - Home: index.md
+  - Agents: agents.md
+  - Skills: skills.md

@@ -1,0 +1,513 @@
+/* ===========================================================================
+   nescio.css — the Nescio theme layer for MkDocs Material.
+
+   Implements docs/design/design-system.md §2 (colour), §3 (typography) and
+   §6 (diagram tokens). Every colour below is a canonical §2 token or an alpha
+   derivation of one; no hex is invented here. If a value is missing, add it to
+   brand/palette.py first — that module is the source of truth and every
+   generated SVG reads from it.
+
+   The four self-hosted woff2 files are NOT copied into docs_dir. They are
+   shipped straight out of brand/fonts/ by docs_site/hooks/assets.py, which
+   drops them at assets/fonts/ in the build output — the path the @font-face
+   rules below reference. One source of truth, no duplicated binaries.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. Self-hosted faces (spec §3)
+
+   The one hard typography rule: no CDN, no third-party request at runtime.
+   theme.font is false in mkdocs.yml so Material emits no Google Fonts <link>.
+
+   The family names are `Nescio Sans` / `Nescio Mono` and must not be
+   "corrected" back to Carlito / Liberation Mono — SIL OFL clause 3 forbids the
+   upstream Reserved Font Names on a subset. See brand/fonts/README.md.
+   brand/palette.py names the same two families first in FONT_SANS / FONT_MONO,
+   so the inlined SVGs and the page resolve to the same faces; brand/test_fonts.py
+   holds the two together.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Nescio Sans";
+  src: url("../fonts/nescio-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nescio Sans";
+  src: url("../fonts/nescio-sans-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nescio Mono";
+  src: url("../fonts/nescio-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nescio Mono";
+  src: url("../fonts/nescio-mono-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ===========================================================================
+   2. The two custom schemes
+
+   >>> COUPLING WARNING <<<
+   The blocks below are coupled to Material's own CSS-variable names
+   (--md-primary-fg-color, --md-accent-fg-color, --md-default-bg-color,
+   --md-default-fg-color, --md-typeset-a-color, --md-code-bg-color, and the
+   --light / --lighter / --lightest ramps beside them). Those names have changed
+   across Material releases. **A Material upgrade is a deliberate task with a
+   visual re-check, never a routine dependency bump** — see the pin and its
+   comment in .github/workflows/docs.yml. `mkdocs build --strict` catches broken
+   links, not a periwinkle that has quietly reverted to the stock accent.
+
+   Verified against mkdocs-material 9.7.7 by reading the shipped
+   material/templates/assets/stylesheets/{main,palette}.*.min.css: in that
+   version main.css defines the full light token set on
+   `:root,[data-md-color-scheme=default]` and palette.css defines the dark set
+   on `[data-md-color-scheme=slate]` only. A *custom* scheme name therefore
+   inherits the `:root` light defaults and nothing else — which is why the dark
+   block below restates the whole surface, code and footer ramp rather than a
+   handful of accents.
+
+   mkdocs.yml sets `primary: custom` / `accent: custom` so Material's
+   [data-md-color-primary=…] / [data-md-color-accent=…] rules never fight these.
+
+   THE ACCENT RULE IS NON-NEGOTIABLE (spec §2):
+     dark  → periwinkle  #8fb0d9  accent + links   (8.3:1 on #0e1319, AAA)
+     light → brand blue  #2f4d7a  accent + links   (8.5:1 on #ffffff, AAA)
+   Periwinkle on a light ground measures 2.2:1. It is permitted as a fill or a
+   border only, never as text or a link — so it does not appear anywhere in the
+   nescio-light block below. Do not add it there.
+   =========================================================================== */
+
+/* --- Nescio dark — the default scheme (spec §2 "dark by default") ---------- */
+[data-md-color-scheme="nescio-dark"] {
+  color-scheme: dark;
+
+  /* Surface */
+  --md-default-bg-color:              #0e1319;              /* ink-deep */
+  --md-default-bg-color--light:       rgba(14, 19, 25, .54);
+  --md-default-bg-color--lighter:     rgba(14, 19, 25, .26);
+  --md-default-bg-color--lightest:    rgba(14, 19, 25, .07);
+
+  /* Foreground ramp. --light still carries text (ToC titles, h1, h5/h6), so it
+     is muted-dark #8d97a4 — 6.3:1 on ink-deep, passes AA. --lighter and
+     --lightest are decorative only (scrollbars, rules, nav borders). */
+  --md-default-fg-color:              #e9edf2;              /* text-dark */
+  --md-default-fg-color--light:       #8d97a4;              /* muted-dark */
+  --md-default-fg-color--lighter:     #6b727c;              /* muted */
+  --md-default-fg-color--lightest:    #26313f;              /* border-dark */
+
+  /* Primary = the raised chrome (header, nav rail), per §2 ink-raised. */
+  --md-primary-fg-color:              #141b24;              /* ink-raised */
+  --md-primary-fg-color--light:       #182333;              /* tint-dark */
+  --md-primary-fg-color--dark:        #0e1319;              /* ink-deep */
+  --md-primary-bg-color:              #e9edf2;
+  --md-primary-bg-color--light:       #8d97a4;
+
+  /* Accent = periwinkle. */
+  --md-accent-fg-color:               #8fb0d9;              /* periwinkle */
+  --md-accent-fg-color--transparent:  rgba(143, 176, 217, .1);
+  --md-accent-bg-color:               #0e1319;
+  --md-accent-bg-color--light:        #141b24;
+
+  /* Typeset. --md-typeset-a-color must be set explicitly: Material's default
+     is var(--md-primary-fg-color), which here is the ink-raised chrome. */
+  --md-typeset-color:                 #a8b0ba;              /* body text, dark (§6) */
+  --md-typeset-a-color:               #8fb0d9;              /* periwinkle */
+
+  --md-typeset-kbd-color:             #182333;
+  --md-typeset-kbd-accent-color:      #26313f;
+  --md-typeset-kbd-border-color:      #0e1319;
+  --md-typeset-mark-color:            rgba(143, 176, 217, .28);
+  --md-typeset-table-color:           rgba(233, 237, 242, .12);
+  --md-typeset-table-color--light:    rgba(233, 237, 242, .035);
+  --md-typeset-del-color:             rgba(245, 80, 61, .15);
+  --md-typeset-ins-color:             rgba(11, 213, 112, .15);
+
+  /* Code */
+  --md-code-fg-color:                 #e9edf2;
+  --md-code-bg-color:                 #141b24;              /* ink-raised */
+  --md-code-bg-color--light:          rgba(20, 27, 36, .9);
+  --md-code-bg-color--lighter:        rgba(20, 27, 36, .54);
+  /* Syntax hues are Material's own dark set — they are code semantics, not
+     brand tokens, and re-inventing them from a 15-token palette would make
+     highlighting unreadable. The remaining --md-code-hl-* values are var()
+     references to the ramps above and therefore already follow this scheme. */
+  --md-code-hl-color:                 #2977ff;
+  --md-code-hl-color--light:          rgba(41, 119, 255, .1);
+  --md-code-hl-number-color:          #e6695b;
+  --md-code-hl-special-color:         #f06090;
+  --md-code-hl-function-color:        #c973d9;
+  --md-code-hl-constant-color:        #9383e2;
+  --md-code-hl-keyword-color:         #6791e0;
+  --md-code-hl-string-color:          #2fb170;
+
+  /* Admonitions — tint-dark is §2's "highlighted cards, admonition fills". */
+  --md-admonition-fg-color:           var(--md-default-fg-color);
+  --md-admonition-bg-color:           #182333;              /* tint-dark */
+
+  /* Footer */
+  --md-footer-fg-color:               #e9edf2;
+  --md-footer-fg-color--light:        #8d97a4;
+  --md-footer-fg-color--lighter:      #6b727c;
+  --md-footer-bg-color:               #141b24;              /* ink-raised */
+  --md-footer-bg-color--dark:         #0e1319;              /* ink-deep */
+
+  --md-warning-fg-color:              #16191f;
+  --md-warning-bg-color:              #8fb0d9;
+
+  --md-shadow-z1: 0 .2rem .5rem rgba(0, 0, 0, .2), 0 0 .05rem rgba(0, 0, 0, .1);
+  --md-shadow-z2: 0 .2rem .5rem rgba(0, 0, 0, .25), 0 0 .05rem rgba(0, 0, 0, .25);
+  --md-shadow-z3: 0 .2rem .5rem rgba(0, 0, 0, .4),  0 0 .05rem rgba(0, 0, 0, .35);
+
+  /* Diagram tokens — spec §6, dark column. The tokenised SVGs are inlined
+     (never <img>), so these reach the artwork and the scheme toggle repaints it
+     live. The SVG sources carry the same defaults scoped to `svg:root`, which
+     matches only when the file is opened standalone. */
+  --diagram-accent-fill:              #182333;              /* emphasised node fill */
+  --diagram-accent:                   #8fb0d9;              /* emphasised stroke + label */
+  --diagram-node-fill:                #141b24;
+  --diagram-node-stroke:              #26313f;
+  --diagram-node-label:               #e9edf2;
+  --diagram-body:                     #a8b0ba;
+  --diagram-muted:                    #8d97a4;
+  --diagram-connector:                #26313f;
+  --diagram-accent-connector:         #8fb0d9;
+  --diagram-deferred:                 #a8b0ba;              /* §7 planned-not-shipped */
+}
+
+/* --- Nescio light --------------------------------------------------------- */
+/* Inherits Material's :root light defaults; only the tokens below are changed.
+   NOTE: #8fb0d9 must never appear in this block. */
+[data-md-color-scheme="nescio-light"] {
+  color-scheme: light;
+
+  /* Surface */
+  --md-default-bg-color:              #ffffff;
+  --md-default-bg-color--light:       rgba(255, 255, 255, .7);
+  --md-default-bg-color--lighter:     rgba(255, 255, 255, .3);
+  --md-default-bg-color--lightest:    rgba(255, 255, 255, .12);
+
+  --md-default-fg-color:              #16191f;              /* text */
+  --md-default-fg-color--light:       #5a616b;              /* body      6.3:1 */
+  --md-default-fg-color--lighter:     #6b727c;              /* muted     4.9:1 */
+  --md-default-fg-color--lightest:    #c9cfd8;              /* border, decorative */
+
+  /* Primary */
+  --md-primary-fg-color:              #2f4d7a;              /* brand-blue */
+  --md-primary-fg-color--light:       #3c608f;
+  --md-primary-fg-color--dark:        #223a5e;
+  --md-primary-bg-color:              #ffffff;
+  --md-primary-bg-color--light:       rgba(255, 255, 255, .7);
+
+  /* Accent = brand blue. Periwinkle is 2.2:1 here — never used. */
+  --md-accent-fg-color:               #2f4d7a;              /* brand-blue */
+  --md-accent-fg-color--transparent:  rgba(47, 77, 122, .1);
+  --md-accent-bg-color:               #ffffff;
+  --md-accent-bg-color--light:        rgba(255, 255, 255, .7);
+
+  /* Typeset */
+  --md-typeset-color:                 #5a616b;              /* running text (§2) */
+  --md-typeset-a-color:               #2f4d7a;              /* brand-blue */
+
+  --md-typeset-kbd-color:             #eef2f8;
+  --md-typeset-kbd-accent-color:      #ffffff;
+  --md-typeset-kbd-border-color:      #c9cfd8;
+  --md-typeset-mark-color:            rgba(47, 77, 122, .18);
+  --md-typeset-table-color:           rgba(22, 25, 31, .12);
+  --md-typeset-table-color--light:    rgba(22, 25, 31, .035);
+
+  /* Code */
+  --md-code-fg-color:                 #16191f;
+  --md-code-bg-color:                 #eef2f8;              /* tint */
+  --md-code-bg-color--light:          rgba(238, 242, 248, .7);
+  --md-code-bg-color--lighter:        rgba(238, 242, 248, .3);
+
+  --md-admonition-fg-color:           var(--md-default-fg-color);
+  --md-admonition-bg-color:           #eef2f8;              /* tint */
+
+  /* Footer */
+  --md-footer-fg-color:               #ffffff;
+  --md-footer-fg-color--light:        rgba(255, 255, 255, .7);
+  --md-footer-fg-color--lighter:      rgba(255, 255, 255, .45);
+  --md-footer-bg-color:               #16191f;              /* text */
+  --md-footer-bg-color--dark:         #0e1319;              /* ink-deep */
+
+  /* Diagram tokens — spec §6, light column. */
+  --diagram-accent-fill:              #eef2f8;
+  --diagram-accent:                   #2f4d7a;
+  --diagram-node-fill:                #ffffff;
+  --diagram-node-stroke:              #c9cfd8;
+  --diagram-node-label:               #16191f;
+  --diagram-body:                     #5a616b;
+  --diagram-muted:                    #6b727c;
+  --diagram-connector:                #c9cfd8;
+  --diagram-accent-connector:         #2f4d7a;
+  --diagram-deferred:                 #a8b0ba;
+}
+
+/* ===========================================================================
+   3. Type roles (spec §3)
+   =========================================================================== */
+
+:root {
+  /* Material composes these into --md-text-font-family / --md-code-font-family
+     with its own generic fallbacks. theme.font: false means nothing else sets
+     them. */
+  --md-text-font: "Nescio Sans";
+  --md-code-font: "Nescio Mono";
+}
+
+/* Headings are 700 in text / text-dark; Material's stock rules set h1 to the
+   --light ramp and h1/h2 to weight 300, which is not this system. */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4 {
+  color: var(--md-default-fg-color);
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  text-wrap: balance;
+}
+
+/* Eyebrows and small labels: mono-adjacent uppercase, per §3. */
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--md-default-fg-color--light);
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+/* Anything that is a literal identifier in the system — an agent name, a
+   command, a filename, a token — is mono (§3). */
+code,
+kbd,
+pre,
+samp,
+.md-typeset code,
+.md-typeset kbd,
+.md-typeset pre,
+.md-typeset pre > code {
+  font-family: var(--md-code-font-family);
+  font-feature-settings: "kern";
+}
+
+.md-typeset code {
+  color: var(--md-code-fg-color);
+}
+
+/* Running text measure, per §5. */
+.md-typeset {
+  max-width: 68ch;
+}
+
+.md-typeset table:not([class]),
+.md-typeset pre,
+.md-typeset .nescio-diagram {
+  max-width: none;
+}
+
+/* Wide content scrolls inside its own container so the page body never scrolls
+   sideways (§5). Inlined diagrams get this class from hooks/inline_svg.py. */
+.md-typeset .nescio-diagram {
+  overflow-x: auto;
+  /* Room for the scrollbar so it never sits on top of the artwork. */
+  padding-bottom: .4rem;
+}
+
+/* The diagrams are authored at 1400px and their labels are ~11px at that size.
+   Material's content column is ~37rem wide, so `max-width: 100%` would scale
+   them to roughly 6px type — legible to nobody. They therefore render at their
+   natural width and the wrapper above scrolls, which is precisely the case §5
+   describes: "wide content gets its own overflow-x: auto container so the page
+   body never scrolls sideways". Do not put `max-width: 100%` back. */
+.md-typeset .nescio-diagram svg {
+  display: block;
+  height: auto;
+  max-width: none;
+}
+
+/* ===========================================================================
+   4. The homepage hero (spec §5)
+
+   Order is fixed by the spec and enforced by the markup in docs/index.md:
+   lockup, name-gloss, descriptor, the 86x3px periwinkle rule, the claim, the
+   install commands, the buttons.
+
+   The hero is dark in BOTH schemes ("Homepage hero. Dark.", §5), so it carries
+   literal §2 hexes rather than Material tokens — a token would flip it white
+   under nescio-light. Everything Material renders *inside* it (the code block,
+   its copy button, the buttons) still reads tokens, so the block below
+   re-declares the dark values of exactly those tokens on .nescio-hero. Scoping
+   the overrides to custom properties rather than to Material's own selectors is
+   what keeps this from breaking on a Material bump: the variable names are
+   already the coupling recorded above, and no new ones are added.
+   =========================================================================== */
+
+.md-typeset .nescio-hero {
+  /* Dark-scheme values for the tokens Material uses inside the hero. */
+  --md-code-fg-color:                 #e9edf2;
+  --md-code-bg-color:                 #141b24;              /* ink-raised */
+  --md-code-bg-color--light:          rgba(20, 27, 36, .9);
+  --md-code-bg-color--lighter:        rgba(20, 27, 36, .54);
+  /* Material 9.7.7 paints the code block's copy button
+     --md-default-fg-color--lightest at rest and --md-default-fg-color--light on
+     hover (`:hover>*>.md-code__button`) — a deliberate reveal-on-hover
+     affordance. Carrying the dark ramp here keeps that affordance working
+     inside the always-dark hero when the reader is in the light scheme. */
+  --md-default-fg-color--light:       #8d97a4;              /* muted-dark */
+  --md-default-fg-color--lighter:     #6b727c;              /* muted */
+  --md-default-fg-color--lightest:    #26313f;              /* border-dark */
+  --md-code-hl-color:                 #2977ff;
+  --md-code-hl-color--light:          rgba(41, 119, 255, .1);
+  --md-code-hl-number-color:          #e6695b;
+  --md-code-hl-special-color:         #f06090;
+  --md-code-hl-function-color:        #c973d9;
+  --md-code-hl-constant-color:        #9383e2;
+  --md-code-hl-keyword-color:         #6791e0;
+  --md-code-hl-string-color:          #2fb170;
+  /* .md-button--primary paints itself --md-primary-fg-color on
+     --md-primary-bg-color; periwinkle on ink-deep is 8.3:1 (§2). */
+  --md-primary-fg-color:              #8fb0d9;              /* periwinkle */
+  --md-primary-bg-color:              #0e1319;              /* ink-deep */
+  --md-accent-fg-color:               #8fb0d9;
+  --md-accent-bg-color:               #0e1319;
+  --md-typeset-a-color:               #8fb0d9;
+
+  display: flex;
+  flex-direction: column;
+  /* Sibling groups are laid out with gap, never per-element margins (§5). */
+  gap: 1.1rem;
+  margin: 0 0 2rem;
+  padding: 2.2rem 1.8rem 2.4rem;
+  border: 1px solid #26313f;                                /* border-dark */
+  border-radius: .3rem;
+  background: #0e1319;                                      /* ink-deep */
+  color: #e9edf2;                                           /* text-dark */
+}
+
+.md-typeset .nescio-hero > * {
+  margin: 0;
+}
+
+.nescio-hero__lockup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* Clear space is one eye-diameter (§4); the eye ring is 49/512 of the mark. */
+  gap: .75rem;
+}
+
+.nescio-hero__owl {
+  flex: none;
+  width: 3.4rem;
+  height: 3.4rem;
+}
+
+/* Live text, not the outlined paths — see the note at the top of index.md. */
+.nescio-hero__wordmark {
+  font-family: var(--md-code-font-family);
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1;
+  color: #e9edf2;
+}
+
+.md-typeset .nescio-hero__gloss {
+  font-size: .7rem;
+  color: #8d97a4;                                           /* muted-dark */
+}
+
+.md-typeset .nescio-hero__gloss code {
+  background: transparent;
+  padding: 0;
+  color: #8fb0d9;                                           /* periwinkle */
+}
+
+.md-typeset .nescio-hero__descriptor {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e9edf2;
+}
+
+/* The rule is 86x3px, spec §5. Fixed px, not rem: it is a measured mark. */
+.md-typeset hr.nescio-hero__rule {
+  width: 86px;
+  height: 3px;
+  border: 0;
+  background: #8fb0d9;                                      /* periwinkle */
+}
+
+.md-typeset .nescio-hero__claim {
+  max-width: 48ch;
+  color: #a8b0ba;
+}
+
+/* Install commands sit ABOVE the buttons on purpose (§5). */
+.md-typeset .nescio-hero .highlight {
+  border: 1px solid #26313f;                                /* border-dark */
+  border-radius: .2rem;
+}
+
+/* md_in_html wraps the button list in a <p>; make that the flex row so the
+   buttons keep gap-based spacing rather than Material's stock margins. */
+.md-typeset .nescio-hero__buttons > p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+  margin: 0;
+}
+
+.md-typeset .nescio-hero__buttons .md-button {
+  margin: 0;
+}
+
+/* ===========================================================================
+   5. The 404 page (spec §7)
+
+   Rendered by overrides/404.html, which replaces Material's stock static
+   template. The copy is fixed by the spec; only the setting lives here.
+   =========================================================================== */
+
+.md-typeset .nescio-404 {
+  padding: 2rem 0 3rem;
+}
+
+.md-typeset h1.nescio-404__mark {
+  font-family: var(--md-code-font-family);
+  font-size: 2.2rem;
+  letter-spacing: -.02em;
+}
+
+.md-typeset .nescio-404__copy {
+  max-width: 48ch;
+}
+
+/* ===========================================================================
+   6. Footer tagline (spec §7)
+
+   Emitted by overrides/partials/copyright.html. Italic, because §7 sets the
+   Minerva line in italic wherever it appears.
+   =========================================================================== */
+
+.md-footer-meta .nescio-tagline {
+  font-style: italic;
+}

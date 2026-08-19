@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{#-
+  Favicon + manifest wiring.
+
+  The four <link> tags below are the <head> snippet from
+  brand/favicons/README.md, VERBATIM — including sizes="32x32" on the .ico,
+  which stops Chrome downloading the ICO once it has already chosen the SVG.
+  The order is deliberate: browsers that understand SVG take the SVG, everything
+  else falls back to the .ico. Do not reorder or "tidy" these.
+
+  The files themselves are not in docs_dir. docs_site/hooks/assets.py copies
+  brand/favicons/* and brand/site.webmanifest into the site root at build time,
+  so brand/ stays the single source of truth (design-system.md §8).
+
+  Absolute paths are correct here: the site is served from the root of
+  docs.nescio-ai.org, and site.webmanifest itself references /favicon-192.png
+  and /favicon-512.png absolutely.
+
+  theme.favicon in mkdocs.yml is set to favicon.svg so Material's own
+  unconditional <link rel="icon"> in base.html's site_meta block points at our
+  mark rather than the stock Material PNG. That line cannot be suppressed
+  without re-implementing the whole site_meta block, which would couple this
+  override far harder to Material's internals than one duplicate href does.
+-#}
+{% block extrahead %}
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "main.html" %}
+
+{#-
+  The 404 page — design-system.md §7, verbatim.
+
+  WHY A TEMPLATE OVERRIDE AND NOT A `404.md`
+  ------------------------------------------
+  GitHub Pages serves `/404.html` at the site root for any unmatched path. That
+  file is produced by MkDocs' *static template* pass, not by the Markdown pass:
+  `mkdocs.commands.build` iterates `config.theme.static_templates`, and
+  mkdocs-material 9.7.7 declares exactly one — `404.html` — in its
+  `mkdocs_theme.yml`. A `docs/404.md` would instead build to `404/index.html`
+  (use_directory_urls is on), which GitHub Pages never looks at, and `_site/404.html`
+  would still carry Material's stock "404 - Not found".
+
+  Because the custom_dir is searched before the theme, this file replaces
+  material/templates/404.html. That stock template is three lines: it extends
+  "main.html" and puts an <h1> in the content block. Extending "main.html" here
+  resolves to docs_site/overrides/main.html — so the favicon <head> snippet is
+  inherited, not duplicated.
+
+  The copy is fixed by the spec and is a single sentence in two parts. Do not
+  soften it into a "Page not found" and do not add an exclamation mark (§1:
+  no exclamation marks). The Minerva line is Hegel — understanding arrives only
+  after the fact — and §7 places it here and in the footer deliberately: it is a
+  reward for readers already paying attention, never the tagline.
+-#}
+
+{% block content %}
+  <div class="nescio-404">
+    <h1 class="nescio-404__mark">nescio.</h1>
+    <p class="nescio-404__copy">
+      I do not know where this page is. The owl of Minerva flies at dusk; this
+      one appears to have flown off entirely.
+    </p>
+    <p>
+      {#- Absolute, not relative, and hardcoded rather than piped through the
+          `url` filter (which renders "/." here). GitHub Pages serves this one
+          file for an unmatched path at ANY depth, so a relative href would
+          resolve against whatever the reader mistyped. The site is served from
+          the root of docs.nescio-ai.org — the same assumption main.html already
+          makes for /favicon.ico and /site.webmanifest. -#}
+      <a href="/" class="md-button md-button--primary">Back to the start</a>
+    </p>
+  </div>
+{% endblock %}
