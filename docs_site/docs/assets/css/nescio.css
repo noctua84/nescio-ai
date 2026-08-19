@@ -313,35 +313,145 @@ samp,
   color: var(--md-code-fg-color);
 }
 
-/* Running text measure, per §5. */
+/* Running text measure, per §5.
+
+   `68ch` is resolved once, on the article, and handed down as a computed
+   length. Registering the property is what makes that happen: an *unregistered*
+   custom property is substituted as a raw token stream and re-resolved against
+   each user's own font, and `68ch` on an h1 is nearly twice `68ch` on a
+   paragraph — the headings would quietly outrun the measure. `none` is the
+   initial value so that a browser without @property support degrades to an
+   uncapped block rather than a zero-width one. */
+@property --nescio-measure {
+  syntax: "<length> | none";
+  inherits: true;
+  initial-value: none;
+}
+
+/* .md-typeset is also on .md-footer-meta and .md-dialog__inner; they keep the
+   cap on the box itself. */
 .md-typeset {
   max-width: 68ch;
 }
 
-.md-typeset table:not([class]),
-.md-typeset pre,
-.md-typeset .nescio-diagram {
+/* The ARTICLE is the exception: the cap moves off the box and onto its blocks.
+   A capped article would make the break-out below impossible — `width: auto` on
+   a child can never exceed its containing block, so the diagram would be
+   pinned to 68ch no matter what its margins said. Uncapping the article and
+   capping its blocks leaves prose at exactly the same measure while giving the
+   diagram a containing block as wide as the content column. */
+.md-content__inner.md-typeset {
+  --nescio-measure: 68ch;
   max-width: none;
 }
 
-/* Wide content scrolls inside its own container so the page body never scrolls
-   sideways (§5). Inlined diagrams get this class from hooks/inline_svg.py. */
-.md-typeset .nescio-diagram {
-  overflow-x: auto;
-  /* Room for the scrollbar so it never sits on top of the artwork. */
-  padding-bottom: .4rem;
+.md-content__inner.md-typeset > * {
+  max-width: var(--nescio-measure);
 }
 
-/* The diagrams are authored at 1400px and their labels are ~11px at that size.
-   Material's content column is ~37rem wide, so `max-width: 100%` would scale
-   them to roughly 6px type — legible to nobody. They therefore render at their
-   natural width and the wrapper above scrolls, which is precisely the case §5
-   describes: "wide content gets its own overflow-x: auto container so the page
-   body never scrolls sideways". Do not put `max-width: 100%` back. */
-.md-typeset .nescio-diagram svg {
+/* Material's JS wraps every table in this and hangs it .8rem into the gutter on
+   each side. Add that bleed back on top of the measure so the wrapper keeps the
+   width it had when the article itself was the capped box. */
+.md-content__inner.md-typeset > .md-typeset__scrollwrap {
+  max-width: calc(var(--nescio-measure) + 1.6rem);
+}
+
+.md-typeset table:not([class]),
+.md-typeset pre {
+  max-width: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Diagram break-out (§5 "wide content", §6)
+
+   The diagrams are authored 1400px wide and their smallest labels are 11.5px at
+   that size. Inside the 68ch article column the wrapper measured 551px, so 61%
+   of every diagram sat outside the visible box; scaling to fit would have put
+   those labels at ~4.5px. Neither is acceptable, so the wrapper leaves the
+   article column and spans the site grid instead — prose keeps its measure, the
+   artwork gets the window.
+
+   >>> COUPLING <<< 12.1rem is Material's .md-sidebar width and 61rem is
+   .md-grid's max-width, both read out of 9.7.7's main.css. The two media
+   queries are Material's own sidebar breakpoints: the table of contents joins
+   the flex row at 60em, the navigation rail at 76.25em. A Material bump that
+   moves either changes how far the diagram may bleed — same standing rule as
+   the colour coupling in §2: re-check visually, never bump blind.
+
+   NOTE THE ABSENCE OF 100vw. `100vw` includes the classic scrollbar — measured
+   at 15px in Chrome on Windows — so a 100vw-wide element overflows the page by
+   exactly that much and the body scrolls sideways, which §5 forbids. Sizing
+   with `width: auto` and negative margins takes the width from the containing
+   block instead, which is already scrollbar-correct. The one place a viewport
+   unit appears (--nescio-bleed) subtracts a 2rem allowance for it.
+   --------------------------------------------------------------------------- */
+
+/* Inlined diagrams get this class from hooks/inline_svg.py. */
+.md-typeset .nescio-diagram {
+  max-width: none;
+  /* The artwork still renders at its natural width — DO NOT put `max-width:
+     100%` back on the svg. A legible diagram you scroll beats a shrunken one
+     you cannot read. */
+  overflow-x: auto;
+  /* Keep a rubber-band scroll inside the diagram rather than walking the page. */
+  overscroll-behavior-x: contain;
+  /* Room for the scrollbar so it never sits on top of the artwork. */
+  padding-bottom: .4rem;
+
+  /* Scroll affordance: a soft edge shadow that is masked by a cover in the page
+     ground whenever the diagram is scrolled all the way to that edge. The
+     covers are attached `local` so they travel with the content; the shadows
+     are attached `scroll` so they stay pinned to the box. Fully scrolled ⇒
+     cover over shadow ⇒ nothing shown, which is also what a diagram narrower
+     than its box gets. Both colours are §2 tokens, so the affordance follows
+     the scheme toggle with the artwork. */
+  background-color: var(--md-default-bg-color);
+  background-image:
+    linear-gradient(to right, var(--md-default-bg-color) 45%, rgba(0, 0, 0, 0)),
+    linear-gradient(to left,  var(--md-default-bg-color) 45%, rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 0    50%, var(--md-default-fg-color--lightest), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 100% 50%, var(--md-default-fg-color--lightest), rgba(0, 0, 0, 0));
+  background-position: left center, right center, left center, right center;
+  background-size: 2rem 100%, 2rem 100%, .7rem 100%, .7rem 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* 60em: the table of contents takes 12.1rem out of the flex row on the right. */
+@media screen and (min-width: 60em) {
+  .md-typeset .nescio-diagram {
+    margin-right: -12.1rem;
+  }
+}
+
+/* 76.25em: the navigation rail takes another 12.1rem on the left, and .md-grid
+   stops growing at 61rem so everything past that is page margin. Spend it,
+   less a 2rem allowance for the scrollbar 100vw counts and the client box does
+   not. The gutter that leaves is (2rem - scrollbar)/2 + the article's own
+   1.2rem, i.e. 44px - scrollbar/2 — non-negative for any scrollbar up to 88px,
+   and identical on both sides because .md-grid is centred. */
+@media screen and (min-width: 76.25em) {
+  .md-typeset .nescio-diagram {
+    --nescio-bleed: max(0px, (100vw - 61rem - 2rem) / 2);
+    margin-left: calc(-12.1rem - var(--nescio-bleed));
+    margin-right: calc(-12.1rem - var(--nescio-bleed));
+  }
+}
+
+.md-typeset .nescio-diagram > svg {
   display: block;
   height: auto;
   max-width: none;
+  /* Centred when it fits; flush left, and scrolling, when it does not. */
+  margin-inline: auto;
+}
+
+/* The sidebars are sticky and therefore paint above the article. Where a
+   diagram passes behind one, an opaque ground reads as "the rail is on top" —
+   without it the nav links sit directly on the artwork. The colour is the page
+   ground, so this is invisible everywhere else. */
+.md-sidebar__scrollwrap {
+  background-color: var(--md-default-bg-color);
 }
 
 /* ===========================================================================

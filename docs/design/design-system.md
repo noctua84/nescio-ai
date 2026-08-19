@@ -318,6 +318,55 @@ Generating the pair rather than hand-maintaining it is what stops them drifting.
 **Confirmed.** One tokenised source, inlined on the site, twins generated for
 GitHub.
 
+### Presentation: diagrams break out of the column
+
+Diagrams carry the architecture explanation, so legibility outranks column
+alignment. A diagram **breaks out of the article column and spans the
+viewport**, centred at natural size; prose keeps its 551px measure either way.
+
+Two traps, both measured on the built site:
+
+- **The root cause is the measure cap, not the diagram.** `width: auto` on a
+  child can never exceed its containing block, so while `.md-content__inner`
+  carried the 68ch cap the diagram stayed pinned at 551px whatever its margins
+  said. The cap belongs on the article's *blocks*, not the article.
+- **`margin-inline: calc(50% - 50vw)` is wrong here.** It centres on the
+  containing block, and Material's article column is not viewport-centred —
+  measured −68px off centre at 1440, −213px at 1024. That hangs the box past
+  the left edge, where the artwork is unreachable at `scrollLeft: 0`. Left
+  overflow produces no scrollbar, so nothing catches it automatically. Use
+  negative margins derived from Material's own sidebar constants instead, and
+  assert those constants against the shipped CSS so a version bump fails loudly.
+
+### Known limitation: narrow viewports — accepted
+
+| Viewport | Diagram visible |
+|---|---|
+| 1440 | 97% |
+| 1280 | 85% |
+| 1024 | 70% |
+| 768 | 51% |
+| 375 | 25% |
+
+Below roughly 800px the break-out buys nothing: there is no viewport left to
+break into. `1400×826` is a landscape composition and phones are portrait, so
+this is an aspect-ratio mismatch, not a sizing bug — **no amount of CSS fixes
+it.** On a phone the reader scrolls a 1400px canvas through a 343px window.
+
+**Decision: accepted.** These docs skew desktop, and a legible diagram you
+scroll beats a shrunken one you cannot read.
+
+Two fixes were considered and deliberately not taken. Record them so they are
+not re-litigated as bugs:
+
+1. **Reflow the SVG responsively** — stack the crew diagram's three columns
+   under a media query *inside* the SVG. Cheap in principle, since
+   `make_diagrams.py` builds it programmatically. This is the real fix if the
+   mobile case ever matters.
+2. **Raise the diagram type floor** from 11.5px to about 14px. The 11.5px
+   labels are precisely what forces "never scale"; 14px would tolerate a ~20%
+   downscale and lift 768px on its own.
+
 ### Authoring rules
 
 - No background `<rect>`. The page supplies the ground.
@@ -626,6 +675,7 @@ since it is the exact ambiguity that raised the question.
 | 8 | Brand kit moves into the repo as a `brand/` package | Files drift; generators don't |
 | 9 | Docs live at `docs.nescio-ai.org` | Subdomain CNAME beats apex A records; apex kept free |
 | 10 | Brand and site stay in `nescio-ai` | `FRAMEWORK_PATHS` already isolates them; a split buys nothing |
+| 11 | Diagrams break out of the column; narrow viewports accepted as-is | Legibility beats alignment; the mobile case is an aspect-ratio mismatch CSS cannot fix |
 
 ---
 
