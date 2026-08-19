@@ -255,6 +255,24 @@ td b{color:var(--ink)}
 .wave-st.ok{color:var(--ok);border-color:var(--ok)}
 .wave-st.now{color:var(--accent);border-color:var(--accent)}
 
+/* measured layout table */
+.meas{width:100%;border-collapse:collapse;font-size:.85rem;min-width:420px}
+.meas th,.meas td{padding:9px 13px;border-bottom:1px solid var(--line-soft);text-align:left}
+.meas th{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);background:var(--surface-2)}
+.meas td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.meas tr:last-child td{border-bottom:none}
+.bad{color:var(--warn);font-weight:700}
+.good{color:var(--ok);font-weight:700}
+/* column-width demo */
+.coldemo{display:flex;flex-direction:column;gap:6px}
+.colbar{display:flex;height:34px;border-radius:5px;overflow:hidden;border:1px solid var(--line)}
+.colbar span{display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+  font-size:.66rem;font-weight:700;white-space:nowrap;overflow:hidden}
+.colbar .side{background:var(--accent-soft);color:var(--accent)}
+.colbar .art{background:var(--surface);color:var(--ink)}
+.colbar .bleed{background:var(--ok-soft);color:var(--ok)}
+.collab{font-size:.75rem;color:var(--muted)}
+
 /* waves */
 .wave{background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .wave-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:13px 17px;border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
@@ -555,9 +573,58 @@ td b{color:var(--ink)}
     </div>
   </section>
 
+  <!-- DIAGRAM WIDTH -->
+  <section>
+    <div class="sec-head"><div class="eyebrow">08 · Layout</div><h2>Diagrams do not fit the column</h2></div>
+    <p class="note">Measured on the built site at a 1440px viewport, not estimated. Material&rsquo;s three-column layout leaves the article a fraction of the width the artwork needs.</p>
+
+    <div class="tbl-wrap">
+      <table class="meas">
+        <thead><tr><th>Element</th><th>Width</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Viewport</td><td class="n">1440px</td><td>&mdash;</td></tr>
+          <tr><td><code>.md-main__inner</code></td><td class="n">1220px</td><td>Material&rsquo;s content grid</td></tr>
+          <tr><td>Nav sidebar</td><td class="n">242px</td><td>left</td></tr>
+          <tr><td>Table of contents</td><td class="n">242px</td><td>right</td></tr>
+          <tr><td>Article column</td><td class="n">736px</td><td>&mdash;</td></tr>
+          <tr><td><code>.nescio-diagram</code> box</td><td class="n">551px</td><td>after padding</td></tr>
+          <tr><td><b>Diagram natural width</b></td><td class="n"><b>1400px</b></td><td class="bad">849px hidden &mdash; 39% visible</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:1rem;margin-top:4px">After &mdash; measured across five viewports</h3>
+    <div class="tbl-wrap">
+      <table class="meas">
+        <thead><tr><th>Viewport</th><th>Box before</th><th>Box after</th><th>Diagram visible</th><th>Page h-scroll</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1440</td><td class="n">551</td><td class="n">1352</td><td class="n good">97%</td><td class="good">none</td></tr>
+          <tr><td class="n">1280</td><td class="n">551</td><td class="n">1192</td><td class="n good">85%</td><td class="good">none</td></tr>
+          <tr><td class="n">1024</td><td class="n">551</td><td class="n">977</td><td class="n">70%</td><td class="good">none</td></tr>
+          <tr><td class="n">768</td><td class="n">551</td><td class="n">721</td><td class="n bad">51%</td><td class="good">none</td></tr>
+          <tr><td class="n">375</td><td class="n">343</td><td class="n">343</td><td class="n bad">25%</td><td class="good">none</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="font-size:.82rem;color:var(--muted)">Prose measure is unchanged at 551px throughout &mdash; only the diagrams break out. Gutters stay symmetric and no width in the stylesheet references <code>100vw</code>, so the scrollbar cannot induce a page-level scroll.</p>
+
+    <div class="callout warn">
+      <p><b>The obvious implementation would have been broken, invisibly.</b> The usual full-bleed trick &mdash; <code>margin-inline: calc(50% - 50vw)</code> &mdash; centres a box on its <em>containing block</em>, and Material&rsquo;s article column is not viewport-centred. Measured offsets from the viewport centre: <b>&minus;68px</b> at 1440, <b>&minus;213px</b> at 1024. The box would have hung past the left edge, where the artwork is unreachable at <code>scrollLeft: 0</code>. Left overflow never shows up as a page scrollbar, so no automated check would have caught it.</p>
+    </div>
+
+    <div class="callout">
+      <p><b>The root cause was not the diagram.</b> <code>width: auto</code> on a child can never exceed its containing block, so while <code>.md-content__inner</code> itself carried the 68ch measure cap, the diagram was pinned to 551px whatever its margins said. The fix moves the cap off the article and onto its blocks &mdash; prose stays at 551px, the diagram is free.</p>
+    </div>
+
+    <div class="callout ok">
+      <p><b>Narrow viewports: accepted, not overlooked.</b> Below roughly 800px the break-out buys nothing &mdash; there is no viewport left to break into. <code>1400&times;826</code> is a landscape composition and phones are portrait, so this is an aspect-ratio mismatch, not a sizing bug, and no amount of CSS resolves it. These docs skew desktop, and a legible diagram you scroll beats a shrunken one you cannot read.</p>
+      <p style="color:var(--muted);font-size:.86rem">Two fixes were considered and deliberately declined, recorded so they are not re-filed as bugs: reflowing the SVG responsively under a media query <em>inside</em> the artwork (the real fix, cheap in principle since the generator is programmatic), and raising the diagram type floor from 11.5px to ~14px to tolerate a ~20% downscale.</p>
+    </div>
+  </section>
+
   <!-- TOOLCHAIN -->
   <section>
-    <div class="sec-head"><div class="eyebrow">08 · Build</div><h2>Generator status</h2></div>
+    <div class="sec-head"><div class="eyebrow">09 · Build</div><h2>Generator status</h2></div>
     <p class="note">The brand is code, not files — every asset is reproducible, nothing is hand-edited. That is why the palette normalisation will hold instead of drifting again in six months.</p>
     <div class="tbl-wrap">
       <table>
@@ -592,7 +659,7 @@ td b{color:var(--ink)}
 
   <!-- 404 -->
   <section>
-    <div class="sec-head"><div class="eyebrow">09</div><h2>The 404</h2></div>
+    <div class="sec-head"><div class="eyebrow">10</div><h2>The 404</h2></div>
     <div class="four04">
       <svg width="56" height="56" viewBox="0 0 512 512" role="img" aria-label="Nescio owl" style="--f:#8fb0d9;--b:#0e1319">
         <path d="M 140 112 C 160 168 176 176 186 186 Q 256 152 326 186 C 336 176 352 168 372 112 C 394 172 402 262 380 314 C 350 384 306 408 256 408 C 206 408 162 384 132 314 C 110 262 118 172 140 112 Z" fill="var(--f)"/>
@@ -609,7 +676,7 @@ td b{color:var(--ink)}
 
   <!-- BUILD PLAN -->
   <section>
-    <div class="sec-head"><div class="eyebrow">10 · Build</div><h2>The plan</h2></div>
+    <div class="sec-head"><div class="eyebrow">11 · Build</div><h2>The plan</h2></div>
     <p class="note">Sixteen tasks, re-ordered after a devil's-advocate pass. The original sequencing put the one irreversible step &mdash; the first public deploy &mdash; last, behind ten reversible ones. This retires that risk first instead.</p>
 
     <div class="waves">
