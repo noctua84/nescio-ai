@@ -100,3 +100,17 @@ def test_builder_is_the_only_editor() -> None:
             assert "Edit" in disallowed or read_only_allowlist, (
                 f"{path.stem}: must not be able to Edit production code"
             )
+
+
+def _orchestrator_text() -> str:
+    return (AGENTS_DIR / "orchestrator.md").read_text(encoding="utf-8")
+
+
+def test_orchestrator_dispatches_builder_not_general_purpose() -> None:
+    text = _orchestrator_text()
+    assert 'subagent_type: "builder"' in text
+    assert 'subagent_type: "general-purpose"' not in text
+
+
+def test_orchestrator_names_builder_as_the_code_writer() -> None:
+    assert "delegate to `builder`" in _orchestrator_text()
