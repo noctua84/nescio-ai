@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.0](https://github.com/noctua84/nescio-ai/compare/v1.2.0...v1.3.0) (2026-08-22)
+
+
+### Features
+
+* **brand:** add brand generator package with shared palette ([a02cc37](https://github.com/noctua84/nescio-ai/commit/a02cc3781e5d3784cade94511581265b5d45a014))
+* **brand:** brand package — shared palette, tokenised diagrams, self-hosted fonts ([4365423](https://github.com/noctua84/nescio-ai/commit/43654236ccd575a69985fd43abe67fc875937dfd))
+* **brand:** tokenise diagrams, self-host fonts, outline the wordmark ([b865d7e](https://github.com/noctua84/nescio-ai/commit/b865d7e95d0115a514e2e0de3a2016ab31decea1))
+* **docs:** build the real site — schemes, catalog, hero, diagrams ([b7bd1ae](https://github.com/noctua84/nescio-ai/commit/b7bd1aefd0198356e39ebbc3e01b190959486a57))
+* **docs:** the real site — schemes, catalog, hero, inlined diagrams ([82450dd](https://github.com/noctua84/nescio-ai/commit/82450dd26ad4f9d6b86dbd413c6e398ae1645381))
+
+
+### Bug Fixes
+
+* **docs:** let diagrams break out of the article column ([124d556](https://github.com/noctua84/nescio-ai/commit/124d55643c7a61c8b0b38bcacdfc3e5d0c56497a))
+* **docs:** let diagrams break out of the article column ([f19f996](https://github.com/noctua84/nescio-ai/commit/f19f996a4c825f40247c95d16e4a4656b9188294))
+
 ## [1.2.0](https://github.com/noctua84/nescio-ai/compare/v1.1.1...v1.2.0) (2026-08-19)
 
 
