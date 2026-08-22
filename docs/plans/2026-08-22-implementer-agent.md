@@ -6,20 +6,20 @@
 
 **Architecture:** Agent definitions are Markdown files with YAML frontmatter in `agents/`, copied wholesale by `install.py` into `~/.claude/agents`. Behaviour lives in prose, so it cannot be unit-tested — but the *frontmatter contract* and the *orchestrator's dispatch wiring* can be, and those are exactly what drift silently under hand edits. This plan introduces `tests/test_agent_definitions.py` as that guard, then makes each change test-first against it.
 
-**Tech Stack:** Python 3.14, pytest, Markdown + YAML frontmatter.
+**Tech Stack:** Python 3.13+, stdlib `unittest`, Markdown + YAML frontmatter.
 
 **Design spec:** [`docs/specs/2026-08-22-implementer-agent-and-delivery-boundaries-design.md`](../specs/2026-08-22-implementer-agent-and-delivery-boundaries-design.md)
 
 ## Global Constraints
 
 - **This plan covers `nescio-ai` only.** The `ai-os` counterpart is a separate delivery boundary and is spawned as its own task in Task 4 — this is the design's own Delivery Boundary Check applied to itself.
-- **Public vocabulary throughout.** This repo uses `builder`, `advisor`, `planner`, `critic`, `reviewer`. Never write `archimedes`, `aristotle`, `plato`, `socrates`, or `pyrrho` into a file in this repo.
+- **Public vocabulary by default.** This repo ships the functional names — `builder`, `advisor`, `planner`, `critic`, `reviewer` — and files authored here should use them. The philosopher names (`aristotle`, `plato`, `socrates`, `pyrrho`) are a documented feature of *this* repo, applied on demand by `scripts/apply_theme.py` (README: "Optional: the philosopher theme"), so anything asserting on agent names must be theme-aware rather than hardcoding either set. `archimedes` is the `ai-os` name for `builder` and has no counterpart here.
 - **Do not touch the `model:` frontmatter line of `agents/orchestrator.md`.** A separate in-flight task (`chore/bump-crew-opus-5`) owns that line. Editing it here causes a merge conflict.
 - **New agent model is exactly `claude-opus-5`.** Verified same price as `claude-opus-4-8` ($5.00/1M in, $25.00/1M out).
 - **Branch:** `feat/implementer-agent` (already created; the spec is committed at `9b28db3`).
 - **Conventional commits**, one per task.
 - **Do not commit `.sisyphus/`** — `data.json` contains private project slugs and this repo is public.
-- **Run tests with `uv run pytest`**, not `python -m pytest` — the system Python has no pytest; `uv` provisions the venv from `pyproject.toml`.
+- **Run tests with `PYTHONPATH=scripts python -m unittest discover -s tests`** — the exact command CI runs (`.github/workflows/tests.yml`). This repo has **no pytest dependency** (`pyproject.toml` declares `dependencies = []`), and `tests/` is on `FRAMEWORK_PATHS` in `scripts/sync_from_upstream.py` so it syncs into downstream instances. A test that imports pytest breaks CI here and everywhere downstream.
 - **`docs_site/docs/agents.md` is generated** by `docs_site/gen_catalog.py` and validated against the real repo by `docs_site/test_gen_catalog.py`. Adding or renaming an agent makes it stale. Regenerate with the generator; never hand-edit.
 
 ## File Structure
@@ -44,120 +44,88 @@
 
 **Interfaces:**
 - Consumes: nothing (first task)
-- Produces: `tests/test_agent_definitions.py` exposing module-level constants `AGENTS_DIR: Path`, `ALLOWED_MODELS: set[str]`, `EXPECTED_ROSTER: set[str]`, and helper `_frontmatter(path: Path) -> dict[str, str]`. Tasks 2 and 3 append tests to this same file and reuse `AGENTS_DIR` and `_frontmatter`.
+- Produces: `tests/test_agent_definitions.py` exposing module-level constants `AGENTS_DIR: Path`, `ALLOWED_MODELS: set[str]`, `THEME_INVARIANT_ROSTER: set[str]`, and helpers `_expected_roster(theme)`, `_tool_tokens(value)`, `_may_not_edit(fields)`, plus a `TestFrontmatterMixin` supplying `_frontmatter(path)`. Tasks 2 and 3 append `unittest.TestCase` classes to this same file and reuse those helpers.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_agent_definitions.py`:
+Create `tests/test_agent_definitions.py`. It is a `unittest` module — that is the
+only framework this repo has (`pyproject.toml` declares `dependencies = []`) and
+the one every other file in `tests/` uses. Per-agent cases are `subTest` loops,
+not `pytest.mark.parametrize`.
+
+The shipped file is the reference; its shape is:
 
 ```python
-"""Validate the crew's agent definitions.
-
-Agent behaviour is prose and cannot be unit-tested. What *can* be pinned
-mechanically is the frontmatter contract and the orchestrator's dispatch
-wiring — which is precisely what drifts silently when these files are
-edited by hand.
-"""
-
-from __future__ import annotations
-
+# tests/test_agent_definitions.py
 import re
+import sys
+import unittest
 from pathlib import Path
 
-import pytest
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-AGENTS_DIR = REPO_ROOT / "agents"
+import apply_theme  # noqa: E402
 
-# Models the crew is allowed to name. Anything else is a typo or an
-# unreviewed bump.
-ALLOWED_MODELS = {
-    "claude-opus-5",
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-}
+AGENTS_DIR = ROOT / "agents"
 
-EXPECTED_ROSTER = {
-    "advisor",
-    "builder",
-    "critic",
-    "explore",
-    "librarian",
-    "orchestrator",
-    "planner",
-    "reviewer",
-    "scout",
-    "validator",
-    "vision",
+ALLOWED_MODELS = {"claude-opus-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"}
+
+# The four themed agents are derived from apply_theme.PAIRS, never hardcoded —
+# `scripts/apply_theme.py` is a shipped feature and renames them on demand.
+THEME_INVARIANT_ROSTER = {
+    "builder", "explore", "librarian", "orchestrator", "scout", "validator", "vision",
 }
 
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
-def _agent_files() -> list[Path]:
-    return sorted(AGENTS_DIR.glob("*.md"))
+def _expected_roster(theme):
+    themed = {p if theme == "philosophers" else f for f, p in apply_theme.PAIRS}
+    return THEME_INVARIANT_ROSTER | themed
 
 
-def _frontmatter(path: Path) -> dict[str, str]:
-    text = path.read_text(encoding="utf-8")
-    match = FRONTMATTER_RE.match(text)
-    assert match, f"{path.name}: missing YAML frontmatter block"
-    fields: dict[str, str] = {}
-    for line in match.group(1).splitlines():
-        if ":" in line and not line.startswith((" ", "\t", "#")):
-            key, _, value = line.partition(":")
-            fields[key.strip()] = value.strip()
-    return fields
+def _tool_tokens(value):
+    # Exact tokens, not substrings: "Edit" in "NotebookEdit" is True.
+    return {t.strip() for t in value.split(",") if t.strip()}
 
 
-def test_roster_matches_expected() -> None:
-    found = {path.stem for path in _agent_files()}
-    assert found == EXPECTED_ROSTER
+def _may_not_edit(fields):
+    disallowed = _tool_tokens(fields.get("disallowedTools", ""))
+    tools = _tool_tokens(fields.get("tools", ""))
+    return "Edit" in disallowed or (bool(tools) and not (tools & {"Edit", "Write"}))
 
 
-@pytest.mark.parametrize("path", _agent_files(), ids=lambda p: p.stem)
-def test_name_matches_filename(path: Path) -> None:
-    assert _frontmatter(path).get("name") == path.stem
+class TestFrontmatterMixin:
+    def _frontmatter(self, path):
+        ...  # parse the `---` block into a dict[str, str]
 
 
-@pytest.mark.parametrize("path", _agent_files(), ids=lambda p: p.stem)
-def test_model_is_allowed(path: Path) -> None:
-    model = _frontmatter(path).get("model")
-    assert model in ALLOWED_MODELS, f"{path.name}: unexpected model {model!r}"
+class TestRoster(TestFrontmatterMixin, unittest.TestCase):
+    def test_roster_matches_expected(self): ...
+    def test_roster_expectation_follows_the_philosophers_theme(self): ...
 
 
-@pytest.mark.parametrize("path", _agent_files(), ids=lambda p: p.stem)
-def test_description_is_substantive(path: Path) -> None:
-    description = _frontmatter(path).get("description", "")
-    assert len(description) >= 40, f"{path.name}: description too thin to route on"
+class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
+    # each a `for path in _agent_files(): with self.subTest(agent=path.stem):` loop
+    def test_name_matches_filename(self): ...
+    def test_model_is_allowed(self): ...
+    def test_description_is_substantive(self): ...
 
 
-def test_builder_is_the_only_editor() -> None:
-    """builder is the only agent permitted to edit production code.
+class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
+    def test_builder_is_the_only_editor(self): ...
+    def test_notebook_edit_alone_does_not_bar_editing(self): ...
+    def test_read_only_allowlist_containing_notebook_edit_is_accepted(self): ...
 
-    Note this is about Edit, not Write. orchestrator, planner and reviewer
-    deliberately retain Write so they can produce plans and audit reports —
-    but none of them may Edit. vision restricts itself with a read-only
-    ``tools`` allowlist instead of ``disallowedTools``.
-    """
-    for path in _agent_files():
-        fields = _frontmatter(path)
-        disallowed = fields.get("disallowedTools", "")
-        tools = fields.get("tools", "")
-        if path.stem == "builder":
-            assert "Edit" not in disallowed, "builder must retain Edit access"
-            assert "Write" not in disallowed, "builder must retain Write access"
-        else:
-            read_only_allowlist = bool(tools) and "Edit" not in tools and "Write" not in tools
-            assert "Edit" in disallowed or read_only_allowlist, (
-                f"{path.stem}: must not be able to Edit production code"
-            )
+
+if __name__ == "__main__":
+    unittest.main()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_agent_definitions.py -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -v`
 
 Expected: `test_roster_matches_expected` FAILS — the found set is missing `'builder'`.
 
@@ -290,7 +258,7 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest tests/test_agent_definitions.py -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -v`
 
 Expected: PASS, including a `builder` case in each parametrized test.
 
@@ -304,7 +272,7 @@ In `README.md`, in the `## The crew` table, insert this row immediately **after*
 
 - [ ] **Step 6: Run the full suite to confirm nothing else broke**
 
-Run: `uv run pytest -q`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests`
 
 Expected: all tests pass. `install.py` needs no change — it copies `agents/` wholesale (`("agents", "agents")`, install.py:56).
 
@@ -360,7 +328,7 @@ def test_orchestrator_names_builder_as_the_code_writer() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_agent_definitions.py -k orchestrator -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -k orchestrator -v`
 
 Expected: both FAIL.
 
@@ -405,7 +373,7 @@ with:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest tests/test_agent_definitions.py -k orchestrator -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -k orchestrator -v`
 
 Expected: PASS.
 
@@ -451,7 +419,7 @@ def test_orchestrator_parallelism_is_bounded() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_agent_definitions.py -k "boundary or parallelism" -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -k boundary -k parallelism -v`
 
 Expected: both FAIL.
 
@@ -512,7 +480,7 @@ with:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `uv run pytest tests/test_agent_definitions.py -v`
+Run: `PYTHONPATH=scripts python -m unittest discover -s tests -p test_agent_definitions.py -v`
 
 Expected: all PASS.
 
@@ -545,7 +513,7 @@ re-enter this conversation.
 
 - [ ] **Step 1: Confirm the prerequisite has landed**
 
-Run: `git -C C:/Users/marku/PycharmProjects/ai-os log --oneline -3`
+Run: `git -C <ai-os-checkout> log --oneline -3`
 
 Check whether `chore/bump-crew-opus-5` has merged. If it has not, the chip brief
 must still say **do not touch `orchestrator.md`'s `model:` line**.
@@ -559,14 +527,14 @@ Mirror a change that has landed in the public nescio-ai framework into the
 private ai-os clone, translating the naming.
 
 ## Source of truth
-`C:\Users\marku\PycharmProjects\nescio-ai` branch `feat/implementer-agent`:
+`<nescio-ai-checkout>` branch `feat/implementer-agent`:
 - `agents/builder.md` (new agent definition)
 - `agents/orchestrator.md` (routing + Delivery Boundary Check gate)
 - `docs/specs/2026-08-22-implementer-agent-and-delivery-boundaries-design.md`
 - `docs/plans/2026-08-22-implementer-agent.md`
 
 Read those first. Reproduce the same change in
-`C:\Users\marku\PycharmProjects\ai-os`.
+`<ai-os-checkout>`.
 
 ## Name substitution — REQUIRED
 ai-os uses Greek-figure names. Substitute throughout, including inside the

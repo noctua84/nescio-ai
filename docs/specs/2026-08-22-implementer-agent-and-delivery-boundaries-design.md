@@ -1,6 +1,7 @@
 # Dedicated implementer + delivery-boundary routing
 
-Status: draft — awaiting review
+Status: shipped — implemented on `feat/implementer-agent` (see
+[`docs/plans/2026-08-22-implementer-agent.md`](../plans/2026-08-22-implementer-agent.md))
 
 > Came out of a token-consumption forensic over 169 sessions (20,903 requests).
 > Neither change is justified on cost — subagent traffic is under 1% of weighted
@@ -71,6 +72,14 @@ nescio-ai variant substitutes throughout — in the filename, the frontmatter
 `explore`, `librarian`, `scout`, `validator`, `vision` and `orchestrator` keep the
 same name in both. Copying the agent body verbatim into `builder.md` without
 substituting the sibling names is the most likely mistake in this change.
+
+Note the philosopher names are not exclusive to ai-os: nescio-ai ships them as an
+opt-in theme via `scripts/apply_theme.py` (README: "Optional: the philosopher
+theme"), which renames `planner`/`advisor`/`reviewer`/`critic` and rewrites their
+cross-references. The public repo *defaults* to functional names — it does not
+forbid the philosopher ones. Anything in `tests/` that asserts on agent names must
+therefore derive them from the theme on disk rather than hardcoding either set.
+`archimedes` has no nescio-ai counterpart; `builder` is theme-invariant.
 
 ### 1. New agent file — `agents/archimedes.md` / `agents/builder.md`
 
@@ -294,7 +303,10 @@ Agent definitions are prompts, not code, so verification is behavioural:
 
 **Verified as needing no change:** `install.py` copies the directory wholesale
 (`("agents", "agents")`, install.py:56), so there is no per-agent manifest to
-update. `tests/` contains no agent-roster test.
+update. `tests/` had no agent-roster test, so this change adds
+`tests/test_agent_definitions.py` as one — stdlib `unittest`, since the repo
+declares `dependencies = []` and CI runs
+`PYTHONPATH=scripts python -m unittest discover -s tests`.
 
 ## Out of scope
 

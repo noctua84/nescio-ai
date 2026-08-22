@@ -266,7 +266,8 @@ Agent(
     ## Constraints
     - Follow existing patterns in the codebase
     - Do not modify files outside the scope of this task
-    - Run relevant tests if they exist
+    - Verify per your contract: run what the repo has and paste the real output;
+      return PARTIAL if nothing is runnable
     - Before committing, confirm HEAD is attached to the branch above:
       `git symbolic-ref -q HEAD` — if detached, `git switch <branch>` first.
       A detached-HEAD commit succeeds but lands on no branch and is lost.
@@ -286,7 +287,19 @@ Agent(
    ```
    Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
    is detached — recover before proceeding. A stale-base line is a warning only.
-4. If issues found, dispatch a follow-up agent to fix them
+4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
+   `PARTIAL` or `BLOCKED`:
+   - `COMPLETE` or `PARTIAL` with a fixable gap → dispatch a follow-up agent
+     naming the specific remaining work
+   - `BLOCKED` → **stop and take it to the user.** A block names a decision or a
+     missing fact; a second implementer returns either another `BLOCKED` or the
+     guess `builder` is forbidden to make. Get the answer, then re-dispatch.
+5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
+   into a running list you carry to DELIVER. `builder` is the only agent that
+   actually reads and edits the code, so its incidental findings are the
+   highest-value thing it produces after the code itself — today's findings are
+   the brief for tomorrow's spawned task. Do not act on them now (that is scope
+   drift); do not drop them either.
 
 **Progress update to user:**
 
@@ -300,8 +313,11 @@ Agent(
 ### In Progress
 - [ ] Task 3: [title]
 
+### Blocked — needs your decision
+- [!] Task 4: [title] — [the decision or missing information `builder` named]
+
 ### Remaining
-- [ ] Task 4: [title]
+- [ ] Task 5: [title]
 
 [Any issues encountered and how they were resolved]
 ```
@@ -359,7 +375,23 @@ Agent(
 
 ## PHASE 6: DELIVER
 
-**Goal**: Commit and optionally create a PR.
+**Goal**: Commit and optionally create a PR, and land the findings collected on the way.
+
+### Surface the Carried-Forward Findings
+
+Present the `<out-of-scope>` list you collected during EXECUTE. Each line is a
+**candidate spawned task**, not work to do now — apply the Delivery Boundary
+Check to decide which earn their own brief. Findings that never reach the user
+die with the session.
+
+```
+## Findings from implementation (not acted on)
+- [path:line] — [what was found] · [why it matters] · trivial | small | large
+
+Spin any of these out as their own task?
+```
+
+Omit the section only when every report said "None".
 
 ### Present Options
 
