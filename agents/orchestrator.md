@@ -278,7 +278,7 @@ Agent(
 ### After Each Task (or Wave)
 
 1. Read the changed files to verify the work
-2. Run relevant tests if they exist
+2. Independently re-run relevant tests if they exist
 3. **Verify where each reported commit actually landed.** An agent's report of
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
