@@ -19,6 +19,8 @@
 - **Branch:** `feat/implementer-agent` (already created; the spec is committed at `9b28db3`).
 - **Conventional commits**, one per task.
 - **Do not commit `.sisyphus/`** — `data.json` contains private project slugs and this repo is public.
+- **Run tests with `uv run pytest`**, not `python -m pytest` — the system Python has no pytest; `uv` provisions the venv from `pyproject.toml`.
+- **`docs_site/docs/agents.md` is generated** by `docs_site/gen_catalog.py` and validated against the real repo by `docs_site/test_gen_catalog.py`. Adding or renaming an agent makes it stale. Regenerate with the generator; never hand-edit.
 
 ## File Structure
 
@@ -28,6 +30,8 @@
 | `agents/builder.md` | The implementer agent definition | Create (Task 1) |
 | `README.md` | Crew roster table, ~line 99–111 | Modify (Task 1) |
 | `agents/orchestrator.md` | Dispatch routing (Task 2), boundary gate + parallelism (Task 3) | Modify |
+| `docs_site/gen_catalog.py` | `AGENT_GROUPS` lifecycle buckets for the generated catalog | Modify (Task 1) |
+| `docs_site/docs/agents.md` | Generated catalog page - never hand-edit, regenerate | Regenerate (Task 1) |
 
 ---
 
@@ -153,7 +157,7 @@ def test_builder_is_the_only_editor() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest tests/test_agent_definitions.py -v`
+Run: `uv run pytest tests/test_agent_definitions.py -v`
 
 Expected: `test_roster_matches_expected` FAILS — the found set is missing `'builder'`.
 
@@ -286,7 +290,7 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `python -m pytest tests/test_agent_definitions.py -v`
+Run: `uv run pytest tests/test_agent_definitions.py -v`
 
 Expected: PASS, including a `builder` case in each parametrized test.
 
@@ -300,7 +304,7 @@ In `README.md`, in the `## The crew` table, insert this row immediately **after*
 
 - [ ] **Step 6: Run the full suite to confirm nothing else broke**
 
-Run: `python -m pytest -q`
+Run: `uv run pytest -q`
 
 Expected: all tests pass. `install.py` needs no change — it copies `agents/` wholesale (`("agents", "agents")`, install.py:56).
 
@@ -356,7 +360,7 @@ def test_orchestrator_names_builder_as_the_code_writer() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest tests/test_agent_definitions.py -k orchestrator -v`
+Run: `uv run pytest tests/test_agent_definitions.py -k orchestrator -v`
 
 Expected: both FAIL.
 
@@ -401,7 +405,7 @@ with:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `python -m pytest tests/test_agent_definitions.py -k orchestrator -v`
+Run: `uv run pytest tests/test_agent_definitions.py -k orchestrator -v`
 
 Expected: PASS.
 
@@ -447,7 +451,7 @@ def test_orchestrator_parallelism_is_bounded() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest tests/test_agent_definitions.py -k "boundary or parallelism" -v`
+Run: `uv run pytest tests/test_agent_definitions.py -k "boundary or parallelism" -v`
 
 Expected: both FAIL.
 
@@ -508,7 +512,7 @@ with:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `python -m pytest tests/test_agent_definitions.py -v`
+Run: `uv run pytest tests/test_agent_definitions.py -v`
 
 Expected: all PASS.
 
