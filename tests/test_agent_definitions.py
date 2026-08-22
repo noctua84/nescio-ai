@@ -114,3 +114,15 @@ def test_orchestrator_dispatches_builder_not_general_purpose() -> None:
 
 def test_orchestrator_names_builder_as_the_code_writer() -> None:
     assert "delegate to `builder`" in _orchestrator_text()
+
+
+def test_orchestrator_has_delivery_boundary_check() -> None:
+    text = _orchestrator_text()
+    assert "### Delivery Boundary Check" in text
+    assert "does the result need to re-enter this conversation?" in text
+
+
+def test_orchestrator_parallelism_is_bounded() -> None:
+    text = _orchestrator_text()
+    assert "Maximize parallelism within a boundary" in text
+    assert "2. **Maximize parallelism** — dispatch" not in text
