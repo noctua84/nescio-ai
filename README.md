@@ -104,6 +104,7 @@ and changes nothing if it can't.
 | `scout` | Pre-plan risk/intent triage — surfaces assumptions and likely failure points. |
 | `planner` | Interviews for requirements and writes the work plan. |
 | `validator` | Checks a plan is executable before work starts. |
+| `builder` | Implements one scoped task from a plan — the only agent that writes production code. Verifies before reporting. |
 | `advisor` | Read-only architecture/design advice for hard tradeoffs. |
 | `reviewer` | QA audit of implemented code — bugs, regressions, security. |
 | `critic` | Devil's advocate — challenges the approach before it's built. |
