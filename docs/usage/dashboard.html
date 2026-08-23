@@ -1,0 +1,239 @@
+<title>Where the Tokens Went</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+ --paper:#F2F4F6; --surface:#FFFFFF; --ink:#141A22; --ink2:#4A5566; --muted:#77839A;
+ --line:#DCE2EA; --line2:#EAEEF3; --accent:#4553C7;
+ --s1:#5A6AE8; --s2:#12A594; --s3:#D97706;
+ --waste:rgba(90,106,232,.20); --under:rgba(90,106,232,.07);
+ --warnbg:#FDF3E3; --warnfg:#8A5A08; --okbg:#E7F4F1; --okfg:#0C6E62;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --paper:#0F1319; --surface:#161C25; --ink:#E8ECF3; --ink2:#AEB9C9; --muted:#7F8B9E;
+ --line:#242C38; --line2:#1C232E; --accent:#8A95F0;
+ --s1:#5C6BE0; --s2:#0E9182; --s3:#B87A15;
+ --waste:rgba(92,107,224,.30); --under:rgba(92,107,224,.10);
+ --warnbg:#2E2410; --warnfg:#E0AC55; --okbg:#0F2A26; --okfg:#4FC0AE;
+}}
+:root[data-theme="dark"]{
+ --paper:#0F1319; --surface:#161C25; --ink:#E8ECF3; --ink2:#AEB9C9; --muted:#7F8B9E;
+ --line:#242C38; --line2:#1C232E; --accent:#8A95F0;
+ --s1:#5C6BE0; --s2:#0E9182; --s3:#B87A15;
+ --waste:rgba(92,107,224,.30); --under:rgba(92,107,224,.10);
+ --warnbg:#2E2410; --warnfg:#E0AC55; --okbg:#0F2A26; --okfg:#4FC0AE;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+ font-family:Archivo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+ font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:56px 28px 96px;display:flex;flex-direction:column;gap:52px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+header{display:flex;flex-direction:column;gap:14px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.14em;
+ text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(38px,6vw,62px);line-height:1.02;font-weight:800;letter-spacing:-.028em;
+ margin:0;text-wrap:balance}
+.lede{font-size:19px;color:var(--ink2);max-width:66ch;margin:0}
+.thesis{font-size:clamp(21px,2.6vw,27px);line-height:1.4;font-weight:600;letter-spacing:-.015em;
+ margin:0;padding:24px 0 24px 26px;border-left:3px solid var(--accent);max-width:60ch;text-wrap:balance}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:1px;
+ background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stat{background:var(--surface);padding:18px 20px;display:flex;flex-direction:column;gap:3px}
+.stat b{font-family:"IBM Plex Mono",monospace;font-size:27px;font-weight:600;
+ letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted);letter-spacing:.02em}
+section{display:flex;flex-direction:column;gap:18px}
+h2{font-size:13px;font-family:"IBM Plex Mono",monospace;letter-spacing:.15em;text-transform:uppercase;
+ color:var(--muted);margin:0;padding-bottom:11px;border-bottom:1px solid var(--line);font-weight:500}
+h3{margin:0;font-size:18.5px;font-weight:700;letter-spacing:-.012em}
+p{margin:0;max-width:70ch;color:var(--ink2)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px}
+.chartwrap{overflow-x:auto}
+.chart{width:100%;min-width:620px;display:block}
+.grid{stroke:var(--line2);stroke-width:1}
+.ax{fill:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:11px}
+.axt{fill:var(--muted);font-family:Archivo,sans-serif;font-size:12px}
+.fill-under{fill:var(--under)}
+.fill-waste{fill:var(--waste)}
+.line{fill:none;stroke:var(--s1);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.thresh{stroke:var(--ink2);stroke-width:1.5;stroke-dasharray:5 4;opacity:.75}
+.infl{stroke:var(--s3);stroke-width:1.5;stroke-dasharray:4 4}
+.thlab{fill:var(--ink2);font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.endpt{fill:var(--s1);stroke:var(--surface);stroke-width:2}
+.endlab{fill:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+.startlab{fill:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.hp{fill:transparent;cursor:crosshair}
+.bar{fill:var(--s1);opacity:.65}
+.bar.late{opacity:1}
+.bar:hover{fill:var(--accent);opacity:1}
+.propbar{display:flex;gap:2px;height:60px;border-radius:8px;overflow:hidden}
+.seg{display:flex;align-items:center;justify-content:center}
+.seg.s1{background:var(--s1)}
+.seg.s2{background:var(--s2)}
+.seg.s3{background:var(--s3)}
+.segp{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:15px;color:#fff}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px}
+.ki{display:flex;gap:10px;align-items:flex-start}
+.sw{width:12px;height:12px;border-radius:3px;flex:none;margin-top:5px}
+.sw.s1{background:var(--s1)}
+.sw.s2{background:var(--s2)}
+.sw.s3{background:var(--s3)}
+.ki b{font-size:14.5px;color:var(--ink)}
+.kp{font-family:"IBM Plex Mono",monospace;color:var(--muted);font-size:13px}
+.ki em{display:block;font-style:normal;font-size:13px;color:var(--muted);line-height:1.45}
+.levs{display:flex;flex-direction:column;gap:12px}
+.lev{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+ padding:20px 22px;display:flex;flex-direction:column;gap:9px}
+.levhead{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.rank{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--surface);
+ background:var(--ink);width:23px;height:23px;border-radius:50%;display:grid;place-items:center;flex:none}
+.levhead h3{flex:1;min-width:210px}
+.save{font-family:"IBM Plex Mono",monospace;font-size:19px;font-weight:600;color:var(--accent);
+ display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+.save em{font-style:normal;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+ color:var(--muted);font-family:Archivo,sans-serif}
+.conf{font-size:11px;font-family:"IBM Plex Mono",monospace;padding:3px 9px;border-radius:20px;
+ border:1px solid var(--line);color:var(--muted)}
+.do{font-size:14.5px;color:var(--ink);border-top:1px dashed var(--line);padding-top:9px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.09em;
+ text-transform:uppercase;color:var(--muted);font-weight:500;padding:0 12px 9px;
+ border-bottom:1px solid var(--line)}
+th.num{text-align:right}
+td{padding:11px 12px;border-bottom:1px solid var(--line2);color:var(--ink2);vertical-align:top}
+td.mono{color:var(--ink);font-size:13px}
+.pill{font-size:11px;font-family:"IBM Plex Mono",monospace;padding:2.5px 9px;
+ border-radius:20px;white-space:nowrap}
+.p-ok{background:var(--okbg);color:var(--okfg)}
+.p-warn{background:var(--warnbg);color:var(--warnfg)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.9em;background:var(--line2);
+ padding:1.5px 5px;border-radius:4px;color:var(--ink)}
+.blind{border-left:3px solid var(--s3);padding-left:22px;display:flex;flex-direction:column;gap:15px}
+.blind h3{font-size:16px}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--paper);
+ padding:7px 11px;border-radius:7px;font-family:"IBM Plex Mono",monospace;font-size:12px;
+ opacity:0;transition:opacity .12s;z-index:9;white-space:nowrap}
+.tip b{display:block;font-weight:600}
+footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);
+ padding-top:20px;max-width:78ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+ <div class="eyebrow">Claude Code &middot; 169 sessions &middot; 12 Jul &#8211; 22 Aug 2026</div>
+ <h1>Where the Tokens Went</h1>
+ <p class="lede">A forensic read of 20,903 requests across every transcript on this machine &#8212;
+ reconstructing why the weekly budget drains, before changing a single setting.</p>
+</header>
+
+<div class="stats">
+ <div class="stat"><b>7.24B</b><span>tokens sent</span></div>
+ <div class="stat"><b>20,903</b><span>model requests</span></div>
+ <div class="stat"><b>169</b><span>sessions</span></div>
+ <div class="stat"><b>289k</b><span>median context / request</span></div>
+ <div class="stat"><b>96.7%</b><span>of input is cache re-reads</span></div>
+</div>
+
+<p class="thesis">Only 13% of the bill is Claude writing things. The other 87% is Claude re-reading
+the conversation &#8212; 7.0 billion cache-read tokens, one accumulating context at a time.</p>
+
+<section>
+ <h2>What the spend is made of</h2>
+ <div class="propbar"><div class="seg s1" style="flex:61.1"><span class="segp">61.1%</span></div><div class="seg s2" style="flex:26.0"><span class="segp">26.0%</span></div><div class="seg s3" style="flex:12.9"><span class="segp">12.9%</span></div></div>
+ <div class="key"><div class="ki"><span class="sw s1"></span><div><b>Cache reads</b> <span class="kp">61.1%</span><em>re-sending the conversation</em></div></div><div class="ki"><span class="sw s2"></span><div><b>Cache writes</b> <span class="kp">26.0%</span><em>context churn</em></div></div><div class="ki"><span class="sw s3"></span><div><b>Output</b> <span class="kp">12.9%</span><em>text Claude actually generates</em></div></div></div>
+ <p style="font-size:14px">Weighted by API-relative cost &#8212; cache reads &times;0.1, cache writes
+ &times;1.25, output &times;5. Input tokens are 0.24M of 7,245M and too small to plot.</p>
+</section>
+
+<section>
+ <h2>The cause &#8212; context compounds with every turn</h2>
+ <p>Context grows about <b>2.4k tokens per request</b> and never shrinks. A session opens at 84k and
+ crosses the 200k line around request 55. Every request re-sends the whole accumulation, so the shaded
+ band is not a rate &#8212; it is volume paid for again on every single turn.</p>
+ <div class="card chartwrap"><svg viewBox="0 0 1060 400" class="chart" role="img" aria-label="Median context size grows steadily with request number within a session, crossing 200k around request 55 and reaching 789k by request 275."><line class="grid" x1="62" y1="356.0" x2="1034" y2="356.0"/><text class="ax" x="52" y="360.0" text-anchor="end">0k</text><line class="grid" x1="62" y1="272.5" x2="1034" y2="272.5"/><text class="ax" x="52" y="276.5" text-anchor="end">200k</text><line class="grid" x1="62" y1="189.0" x2="1034" y2="189.0"/><text class="ax" x="52" y="193.0" text-anchor="end">400k</text><line class="grid" x1="62" y1="105.5" x2="1034" y2="105.5"/><text class="ax" x="52" y="109.5" text-anchor="end">600k</text><line class="grid" x1="62" y1="22.0" x2="1034" y2="22.0"/><text class="ax" x="52" y="26.0" text-anchor="end">800k</text><polygon class="fill-under" points="62,356.0 62.0,320.9 98.0,309.2 134.0,299.2 170.0,289.6 206.0,278.3 242.0,268.7 278.0,257.1 314.0,244.9 350.0,232.4 386.0,222.4 422.0,212.4 458.0,201.1 494.0,189.4 530.0,180.7 566.0,171.5 602.0,162.7 638.0,150.2 674.0,136.0 710.0,125.5 746.0,113.4 782.0,103.0 818.0,88.4 854.0,78.4 890.0,70.8 926.0,61.2 962.0,48.3 998.0,40.4 1034.0,26.6 1034.0,356.0"/><polygon class="fill-waste" points="242.0,272.5 242.0,268.7 278.0,257.1 314.0,244.9 350.0,232.4 386.0,222.4 422.0,212.4 458.0,201.1 494.0,189.4 530.0,180.7 566.0,171.5 602.0,162.7 638.0,150.2 674.0,136.0 710.0,125.5 746.0,113.4 782.0,103.0 818.0,88.4 854.0,78.4 890.0,70.8 926.0,61.2 962.0,48.3 998.0,40.4 1034.0,26.6 1034.0,272.5"/><line class="thresh" x1="62" y1="272.5" x2="1034" y2="272.5"/><text class="thlab" x="1034" y="263.5" text-anchor="end">200k &#8212; a standard context ceiling</text><polyline class="line" points="62.0,320.9 98.0,309.2 134.0,299.2 170.0,289.6 206.0,278.3 242.0,268.7 278.0,257.1 314.0,244.9 350.0,232.4 386.0,222.4 422.0,212.4 458.0,201.1 494.0,189.4 530.0,180.7 566.0,171.5 602.0,162.7 638.0,150.2 674.0,136.0 710.0,125.5 746.0,113.4 782.0,103.0 818.0,88.4 854.0,78.4 890.0,70.8 926.0,61.2 962.0,48.3 998.0,40.4 1034.0,26.6"/><circle class="endpt" cx="1034.0" cy="26.6" r="5"/><text class="endlab" x="1034.0" y="12.6" text-anchor="end">789k</text><text class="startlab" x="70.0" y="306.9">84k at session start</text><text class="ax" x="62.0" y="376" text-anchor="middle">0</text><text class="ax" x="206.0" y="376" text-anchor="middle">40</text><text class="ax" x="350.0" y="376" text-anchor="middle">80</text><text class="ax" x="494.0" y="376" text-anchor="middle">120</text><text class="ax" x="638.0" y="376" text-anchor="middle">160</text><text class="ax" x="782.0" y="376" text-anchor="middle">200</text><text class="ax" x="926.0" y="376" text-anchor="middle">240</text><text class="axt" x="548.0" y="396" text-anchor="middle">request number within a session</text><circle class="hp" cx="62.0" cy="320.9" r="12" data-l="request #0&#8211;9" data-v="84k median context"/><circle class="hp" cx="98.0" cy="309.2" r="12" data-l="request #10&#8211;19" data-v="112k median context"/><circle class="hp" cx="134.0" cy="299.2" r="12" data-l="request #20&#8211;29" data-v="136k median context"/><circle class="hp" cx="170.0" cy="289.6" r="12" data-l="request #30&#8211;39" data-v="159k median context"/><circle class="hp" cx="206.0" cy="278.3" r="12" data-l="request #40&#8211;49" data-v="186k median context"/><circle class="hp" cx="242.0" cy="268.7" r="12" data-l="request #50&#8211;59" data-v="209k median context"/><circle class="hp" cx="278.0" cy="257.1" r="12" data-l="request #60&#8211;69" data-v="237k median context"/><circle class="hp" cx="314.0" cy="244.9" r="12" data-l="request #70&#8211;79" data-v="266k median context"/><circle class="hp" cx="350.0" cy="232.4" r="12" data-l="request #80&#8211;89" data-v="296k median context"/><circle class="hp" cx="386.0" cy="222.4" r="12" data-l="request #90&#8211;99" data-v="320k median context"/><circle class="hp" cx="422.0" cy="212.4" r="12" data-l="request #100&#8211;109" data-v="344k median context"/><circle class="hp" cx="458.0" cy="201.1" r="12" data-l="request #110&#8211;119" data-v="371k median context"/><circle class="hp" cx="494.0" cy="189.4" r="12" data-l="request #120&#8211;129" data-v="399k median context"/><circle class="hp" cx="530.0" cy="180.7" r="12" data-l="request #130&#8211;139" data-v="420k median context"/><circle class="hp" cx="566.0" cy="171.5" r="12" data-l="request #140&#8211;149" data-v="442k median context"/><circle class="hp" cx="602.0" cy="162.7" r="12" data-l="request #150&#8211;159" data-v="463k median context"/><circle class="hp" cx="638.0" cy="150.2" r="12" data-l="request #160&#8211;169" data-v="493k median context"/><circle class="hp" cx="674.0" cy="136.0" r="12" data-l="request #170&#8211;179" data-v="527k median context"/><circle class="hp" cx="710.0" cy="125.5" r="12" data-l="request #180&#8211;189" data-v="552k median context"/><circle class="hp" cx="746.0" cy="113.4" r="12" data-l="request #190&#8211;199" data-v="581k median context"/><circle class="hp" cx="782.0" cy="103.0" r="12" data-l="request #200&#8211;209" data-v="606k median context"/><circle class="hp" cx="818.0" cy="88.4" r="12" data-l="request #210&#8211;219" data-v="641k median context"/><circle class="hp" cx="854.0" cy="78.4" r="12" data-l="request #220&#8211;229" data-v="665k median context"/><circle class="hp" cx="890.0" cy="70.8" r="12" data-l="request #230&#8211;239" data-v="683k median context"/><circle class="hp" cx="926.0" cy="61.2" r="12" data-l="request #240&#8211;249" data-v="706k median context"/><circle class="hp" cx="962.0" cy="48.3" r="12" data-l="request #250&#8211;259" data-v="737k median context"/><circle class="hp" cx="998.0" cy="40.4" r="12" data-l="request #260&#8211;269" data-v="756k median context"/><circle class="hp" cx="1034.0" cy="26.6" r="12" data-l="request #270&#8211;279" data-v="789k median context"/></svg></div>
+ <p style="font-size:14px">Median context by request position, pooled across all 169 sessions.
+ Truncated at request 279; beyond that the sample thins and the tail distorts.</p>
+</section>
+
+<section>
+ <h2>Daily burn</h2>
+ <p>The threefold step change on <b>13 August</b> is a plan change, not a behaviour change &#8212;
+ a Max-5 subscription became Max-20. Daily requests went from 300&#8211;700 to 1,400&#8211;2,000 because
+ the ceiling moved; the 14th alone cost 110M weighted tokens. Read this as capacity being taken up,
+ not as a regression.</p>
+ <p>It does sharpen everything above, though. The inefficiencies are ratios &#8212; they do not care how
+ many requests you make &#8212; so the same 289k median context now costs roughly three times as much
+ in absolute terms as it did in July.</p>
+ <div class="card chartwrap"><svg viewBox="0 0 1060 260" class="chart" role="img" aria-label="Daily weighted token spend. The step change on August 13 is a subscription upgrade from Max-5 to Max-20, not a change in behaviour."><line class="grid" x1="62" y1="218.0" x2="1040" y2="218.0"/><text class="ax" x="52" y="222.0" text-anchor="end">0M</text><line class="grid" x1="62" y1="151.3" x2="1040" y2="151.3"/><text class="ax" x="52" y="155.3" text-anchor="end">40M</text><line class="grid" x1="62" y1="84.7" x2="1040" y2="84.7"/><text class="ax" x="52" y="88.7" text-anchor="end">80M</text><line class="grid" x1="62" y1="18.0" x2="1040" y2="18.0"/><text class="ax" x="52" y="22.0" text-anchor="end">120M</text><rect class="bar " x="63.2" y="216.3" width="22.1" height="1.7" rx="2.5" data-l="07-12" data-v="1M weighted tokens"/><rect class="bar " x="87.7" y="216.3" width="22.1" height="1.7" rx="2.5" data-l="07-13" data-v="1M weighted tokens"/><rect class="bar " x="112.1" y="213.0" width="22.1" height="5.0" rx="2.5" data-l="07-14" data-v="3M weighted tokens"/><rect class="bar " x="136.5" y="214.7" width="22.1" height="3.3" rx="2.5" data-l="07-15" data-v="2M weighted tokens"/><rect class="bar " x="161.0" y="203.0" width="22.1" height="15.0" rx="2.5" data-l="07-16" data-v="9M weighted tokens"/><rect class="bar " x="185.4" y="163.0" width="22.1" height="55.0" rx="2.5" data-l="07-17" data-v="33M weighted tokens"/><rect class="bar " x="209.9" y="186.3" width="22.1" height="31.7" rx="2.5" data-l="07-18" data-v="19M weighted tokens"/><rect class="bar " x="234.3" y="191.3" width="22.1" height="26.7" rx="2.5" data-l="07-19" data-v="16M weighted tokens"/><rect class="bar " x="258.8" y="203.0" width="22.1" height="15.0" rx="2.5" data-l="07-20" data-v="9M weighted tokens"/><rect class="bar " x="283.2" y="163.0" width="22.1" height="55.0" rx="2.5" data-l="07-21" data-v="33M weighted tokens"/><rect class="bar " x="307.7" y="189.7" width="22.1" height="28.3" rx="2.5" data-l="07-22" data-v="17M weighted tokens"/><rect class="bar " x="332.1" y="206.3" width="22.1" height="11.7" rx="2.5" data-l="07-23" data-v="7M weighted tokens"/><rect class="bar " x="356.6" y="176.3" width="22.1" height="41.7" rx="2.5" data-l="07-25" data-v="25M weighted tokens"/><rect class="bar " x="381.0" y="156.3" width="22.1" height="61.7" rx="2.5" data-l="07-26" data-v="37M weighted tokens"/><rect class="bar " x="405.5" y="199.7" width="22.1" height="18.3" rx="2.5" data-l="07-27" data-v="11M weighted tokens"/><rect class="bar " x="429.9" y="166.3" width="22.1" height="51.7" rx="2.5" data-l="07-28" data-v="31M weighted tokens"/><rect class="bar " x="454.4" y="194.7" width="22.1" height="23.3" rx="2.5" data-l="07-29" data-v="14M weighted tokens"/><rect class="bar " x="478.8" y="174.7" width="22.1" height="43.3" rx="2.5" data-l="07-30" data-v="26M weighted tokens"/><rect class="bar " x="503.3" y="203.0" width="22.1" height="15.0" rx="2.5" data-l="07-31" data-v="9M weighted tokens"/><rect class="bar " x="527.8" y="216.3" width="22.1" height="1.7" rx="2.5" data-l="08-02" data-v="1M weighted tokens"/><rect class="bar " x="552.2" y="203.0" width="22.1" height="15.0" rx="2.5" data-l="08-03" data-v="9M weighted tokens"/><rect class="bar " x="576.6" y="194.7" width="22.1" height="23.3" rx="2.5" data-l="08-04" data-v="14M weighted tokens"/><rect class="bar " x="601.1" y="134.7" width="22.1" height="83.3" rx="2.5" data-l="08-05" data-v="50M weighted tokens"/><rect class="bar " x="625.6" y="154.7" width="22.1" height="63.3" rx="2.5" data-l="08-06" data-v="38M weighted tokens"/><rect class="bar " x="650.0" y="158.0" width="22.1" height="60.0" rx="2.5" data-l="08-07" data-v="36M weighted tokens"/><rect class="bar " x="674.5" y="208.0" width="22.1" height="10.0" rx="2.5" data-l="08-08" data-v="6M weighted tokens"/><rect class="bar " x="698.9" y="169.7" width="22.1" height="48.3" rx="2.5" data-l="08-09" data-v="29M weighted tokens"/><rect class="bar " x="723.4" y="168.0" width="22.1" height="50.0" rx="2.5" data-l="08-10" data-v="30M weighted tokens"/><rect class="bar " x="747.8" y="174.7" width="22.1" height="43.3" rx="2.5" data-l="08-11" data-v="26M weighted tokens"/><rect class="bar " x="772.2" y="194.7" width="22.1" height="23.3" rx="2.5" data-l="08-12" data-v="14M weighted tokens"/><rect class="bar late" x="796.7" y="73.0" width="22.1" height="145.0" rx="2.5" data-l="08-13" data-v="87M weighted tokens"/><rect class="bar late" x="821.1" y="34.7" width="22.1" height="183.3" rx="2.5" data-l="08-14" data-v="110M weighted tokens"/><rect class="bar late" x="845.6" y="201.3" width="22.1" height="16.7" rx="2.5" data-l="08-15" data-v="10M weighted tokens"/><rect class="bar late" x="870.1" y="83.0" width="22.1" height="135.0" rx="2.5" data-l="08-16" data-v="81M weighted tokens"/><rect class="bar late" x="894.5" y="98.0" width="22.1" height="120.0" rx="2.5" data-l="08-17" data-v="72M weighted tokens"/><rect class="bar late" x="919.0" y="106.3" width="22.1" height="111.7" rx="2.5" data-l="08-18" data-v="67M weighted tokens"/><rect class="bar late" x="943.4" y="69.7" width="22.1" height="148.3" rx="2.5" data-l="08-19" data-v="89M weighted tokens"/><rect class="bar late" x="967.9" y="144.7" width="22.1" height="73.3" rx="2.5" data-l="08-20" data-v="44M weighted tokens"/><rect class="bar late" x="992.3" y="183.0" width="22.1" height="35.0" rx="2.5" data-l="08-21" data-v="21M weighted tokens"/><rect class="bar late" x="1016.8" y="218.0" width="22.1" height="0.8" rx="2.5" data-l="08-22" data-v="0M weighted tokens"/><line class="infl" x1="795.5" y1="18" x2="795.5" y2="218.0"/><text class="thlab" x="787.5" y="31" text-anchor="end">Aug 13 &#8212; Max-5 to Max-20</text><text class="ax" x="74.2" y="238" text-anchor="middle">07-12</text><text class="ax" x="196.5" y="238" text-anchor="middle">07-17</text><text class="ax" x="318.7" y="238" text-anchor="middle">07-22</text><text class="ax" x="441.0" y="238" text-anchor="middle">07-28</text><text class="ax" x="563.2" y="238" text-anchor="middle">08-03</text><text class="ax" x="685.5" y="238" text-anchor="middle">08-08</text><text class="ax" x="807.7" y="238" text-anchor="middle">08-13</text><text class="ax" x="930.0" y="238" text-anchor="middle">08-18</text></svg></div>
+</section>
+
+<section>
+ <h2>The levers, ranked by what they return</h2>
+ <div class="levs"><article class="lev"><div class="levhead"><span class="rank">1</span><h3>Cap or clear context near 200k</h3><span class="save">31&#8211;43%<em>est. saving</em></span><span class="conf c-high">high confidence</span></div><p>49% of every context token you have ever sent &#8212; 3,566M of 7,245M &#8212; is the portion sitting above the 200k mark. 66% of all requests carry more than 200k. This is not a tuning knob; it is half the bill.</p><p class="do">Drop <code>opus[1m]</code> to a 200k model, or <code>/clear</code> on task boundaries instead of running one long session.</p></article><article class="lev"><div class="levhead"><span class="rank">2</span><h3>Break up marathon sessions</h3><span class="save">up to 17%<em>est. saving</em></span><span class="conf c-high">high confidence</span></div><p>Your two largest sessions &#8212; 1,300 and 1,198 requests &#8212; together burned 195M weighted tokens: 17% of six weeks of spend, from two sittings. Median session is 78 requests; p90 is 284.</p><p class="do">A session past roughly 80 requests is carrying far more history than it is using.</p></article><article class="lev"><div class="levhead"><span class="rank">3</span><h3>Trim the session preamble</h3><span class="save">&#8776;6%<em>est. saving</em></span><span class="conf c-medium">medium confidence</span></div><p>Every session opens at 72k tokens before you type &#8212; MCP tool schemas, 7 plugins, the skills listing, and a 12.8k-character orchestrator prompt. That floor is re-sent on all 20,903 requests: 1,505M tokens, 21% of all context.</p><p class="do">Halving the preamble to ~36k returns roughly 6% of weighted spend. Disable MCP servers you are not using in a given project.</p></article><article class="lev"><div class="levhead"><span class="rank">4</span><h3>Tier the model</h3><span class="save">unquantified<em>est. saving</em></span><span class="conf c-medium">medium confidence</span></div><p>100% of spend is Opus &#8212; 80% opus-4-8, 19% opus-5. Bash alone is 12,921 of ~16,700 tool calls, and mechanical shell work does not need the frontier model. The crew has since moved to <code>claude-opus-5</code>, which is priced identically to 4.8 &#8212; so that was a free upgrade, not a saving.</p><p class="do">The lever is the <em>main loop</em>, not the subagents. Route routine sessions to Sonnet.</p></article><article class="lev"><div class="levhead"><span class="rank">5</span><h3>Reconsider always-high effort</h3><span class="save">&#8776;2% direct<em>est. saving</em></span><span class="conf c-low">low confidence</span></div><p>Every one of 18,432 recorded requests ran at <code>effort: high</code>. Thinking is 4.87M of 29.53M output tokens.</p><p class="do">Direct cost is small. The indirect cost &#8212; longer outputs, more tool loops &#8212; is real but not measurable from this data.</p></article></div>
+</section>
+
+<section>
+ <h2>Agent configuration audit</h2>
+ <p>You suspected model misalignment was driving cost. <b>It is not</b> &#8212; subagents are roughly
+ 1% of measured spend, so these are correctness and latency findings, not budget findings. Two are
+ worth fixing anyway.</p>
+ <div class="card" style="overflow-x:auto">
+ <table><thead><tr><th>Agent</th><th>Model</th><th class="num">Calls</th><th>Status</th>
+ <th>Note</th></tr></thead><tbody><tr><td class="mono">general-purpose</td><td class="mono">inherits Opus</td><td class="mono num">1111</td><td><span class="pill p-warn">review</span></td><td>60% of all subagent calls and the only one with no model set.</td></tr><tr><td class="mono">explore</td><td class="mono">haiku-4-5</td><td class="mono num">322</td><td><span class="pill p-ok">aligned</span></td><td>Correctly cheap for a search role, and the second-most used.</td></tr><tr><td class="mono">socrates</td><td class="mono">opus-4-8</td><td class="mono num">62</td><td><span class="pill p-ok">aligned</span></td><td>Adversarial reasoning earns the frontier model.</td></tr><tr><td class="mono">validator</td><td class="mono">opus-4-8</td><td class="mono num">53</td><td><span class="pill p-warn">review</span></td><td>Its own brief says <em>blocker-finder, not perfectionist</em>, in a 2.4k prompt. Sonnet work.</td></tr><tr><td class="mono">pyrrho</td><td class="mono">opus-4-8</td><td class="mono num">37</td><td><span class="pill p-ok">aligned</span></td><td>Code audit; justified.</td></tr><tr><td class="mono">aristotle</td><td class="mono">opus-4-8</td><td class="mono num">35</td><td><span class="pill p-ok">aligned</span></td><td>Architecture reasoning; justified.</td></tr><tr><td class="mono">plato</td><td class="mono">opus-4-8</td><td class="mono num">30</td><td><span class="pill p-ok">aligned</span></td><td>Planning; justified.</td></tr><tr><td class="mono">librarian</td><td class="mono">sonnet-5</td><td class="mono num">19</td><td><span class="pill p-ok">aligned</span></td><td>Aligned.</td></tr><tr><td class="mono">scout</td><td class="mono">opus-4-8</td><td class="mono num">2</td><td><span class="pill p-warn">review</span></td><td>Pre-plan triage on the most expensive model.</td></tr><tr><td class="mono">vision</td><td class="mono">sonnet-5</td><td class="mono num">&#8212;</td><td><span class="pill p-ok">aligned</span></td><td>Aligned.</td></tr></tbody></table>
+ </div>
+ <h3 style="margin-top:12px">Two vocabularies, one crew</h3>
+ <p><b>Correction.</b> An earlier version of this page called these duplicates. They are not. The
+ public framework ships functional names and the private instance runs the same crew under a
+ <code>philosophers</code> theme, applied by a supported script &#8212; a documented feature, not drift.
+ The similarity figures below measure how closely the two vocabularies track each other.</p>
+ <div class="card" style="overflow-x:auto">
+ <table><thead><tr><th>Functional</th><th>Themed</th><th class="num">Similarity</th></tr></thead>
+ <tbody><tr><td class="mono">advisor</td><td class="mono">aristotle</td><td class="mono num">99.5%</td></tr><tr><td class="mono">critic</td><td class="mono">socrates</td><td class="mono num">99.1%</td></tr><tr><td class="mono">planner</td><td class="mono">plato</td><td class="mono num">99.6%</td></tr><tr><td class="mono">reviewer</td><td class="mono">pyrrho</td><td class="mono num">87.2%</td></tr></tbody></table>
+ </div>
+ <p style="margin-top:6px">One pair is worth a look: <code>reviewer</code>&#8202;/&#8202;<code>pyrrho</code>
+ sits at 87%, against 99%+ for the others. That is either a deliberate divergence or real drift.</p>
+ <p style="margin-top:6px">Two settings never vary across the whole corpus: <code>agentSetting</code>
+ is <code>orchestrator</code> in all 3,815 records, and <code>effort</code> is <code>high</code> in all
+ 18,432. Every session runs a 12.8k-character coordinator prompt at maximum effort on Opus &#8212;
+ including the ones that turn out to be a one-line question.</p>
+</section>
+
+<section>
+ <h2>What this cannot tell you</h2>
+ <div class="blind">
+  <div><h3>Subagent spend is unmeasured</h3><p>1,842 <code>Agent</code> calls appear in the transcripts
+  and <b>not one</b> records its internal token count. At a plausible 20&#8211;50k each that is
+  37&#8211;92M tokens, 0.5&#8211;1.3% of the total &#8212; an estimate, not a measurement. It is the one
+  number here that could not be verified.</p></div>
+  <div><h3>The weighting is published, the accounting is not</h3><p>Since this page was first
+  built, the multipliers have been checked against Anthropic's own pricing rather than inferred: Opus is
+  $5.00/1M in and $25.00/1M out (the &times;5), with cache writes at &asymp;&times;1.25 and cache reads
+  at &asymp;&times;0.1. What remains undocumented is whether <em>subscription weekly limits</em> use the
+  same accounting as API billing. If they count <em>raw</em> tokens, cache reads are 96.7% of everything
+  and lever 1 gets bigger, not smaller.</p></div>
+  <div><h3>The source format is unofficial</h3><p>These figures are parsed from session
+  <code>.jsonl</code> files that Anthropic documents as internal and version-unstable. The numbers are
+  right today; the parser can break on any release.</p></div>
+ </div>
+</section>
+
+<footer>Compiled from 172 transcript files (407&nbsp;MB) under <span class="mono">~/.claude/projects</span>.
+Requests deduplicated by <span class="mono">requestId</span> &#8212; streaming writes each request several
+times, and naive summing inflates every total by roughly 3&times;.</footer>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+const tip=document.getElementById('tip');
+document.querySelectorAll('[data-l]').forEach(function(el){
+ el.addEventListener('mouseenter',function(){
+   tip.innerHTML='<b>'+el.dataset.l+'</b>'+el.dataset.v; tip.style.opacity='1';});
+ el.addEventListener('mousemove',function(e){
+   tip.style.left=Math.min(e.clientX+14,window.innerWidth-190)+'px';
+   tip.style.top=(e.clientY-46)+'px';});
+ el.addEventListener('mouseleave',function(){tip.style.opacity='0';});
+});
+</script>

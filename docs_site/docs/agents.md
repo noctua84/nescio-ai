@@ -3,7 +3,7 @@
 
 # Agents
 
-Nescio ships 10 agent definitions in `agents/`. Each one is a Markdown
+Nescio ships 11 agent definitions in `agents/`. Each one is a Markdown
 file whose YAML frontmatter declares a `name`, a `description`, the `model`
 it runs on, and its tool restrictions. The `description` is what Claude Code
 reads when it decides which agent to dispatch, so it is reproduced verbatim
@@ -18,6 +18,7 @@ Agent names are identifiers, and are set in mono throughout.
 | Coordinate | `orchestrator` |
 | Discover | `scout`, `explore`, `librarian`, `vision` |
 | Plan and challenge | `planner`, `validator`, `advisor`, `critic` |
+| Build | `builder` |
 | Verify | `reviewer` |
 
 ## Coordinate
@@ -79,6 +80,14 @@ Read-only architecture advisor. Deep reasoning for debugging, design decisions, 
 Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a single bounded pass — blind spots, shaky premises, overlooked alternatives, and PII/legal exposure — then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan risk triage), validator (executability), advisor (design direction), and reviewer (built-code audit).
 
 **Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
+
+## Build
+
+### `builder`
+
+Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. The only crew member with write access to production code. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+
+**Model** `claude-opus-5` · [`agents/builder.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder.md)
 
 ## Verify
 

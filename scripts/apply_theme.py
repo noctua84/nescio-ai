@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Apply or revert the optional Graeco-Roman philosopher theme for the crew.
 
-The default agent names are functional (planner / advisor / reviewer / critic).
-This renames the four thinker/advisor agents to philosophers (and back) — the
-agent files, their ``name:`` frontmatter, and every cross-reference in the crew
+The default agent names are functional (planner / advisor / reviewer / critic
+/ builder). This renames those agents to philosophers (and back) — the agent
+files, their ``name:`` frontmatter, and every cross-reference in the crew
 (charters + the orchestrator's ``subagent_type`` dispatches). The other agents
 (orchestrator, scout, validator, librarian, explore, vision) are already
 functional and are left untouched.
 
     python scripts/apply_theme.py philosophers   # planner->plato, advisor->aristotle,
-                                                  #  reviewer->pyrrho, critic->socrates
+                                                  #  reviewer->pyrrho, critic->socrates,
+                                                  #  builder->archimedes
     python scripts/apply_theme.py functional      # revert to the default names
     python scripts/apply_theme.py --dry-run philosophers
 
@@ -30,6 +31,7 @@ PAIRS = [
     ("advisor", "aristotle"),
     ("reviewer", "pyrrho"),
     ("critic", "socrates"),
+    ("builder", "archimedes"),
 ]
 THEMES = ("functional", "philosophers")
 
