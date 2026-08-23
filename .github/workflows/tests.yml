@@ -14,3 +14,19 @@ jobs:
         with:
           python-version: "3.13"
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
+
+  # `uv.lock` records the project's own version, so it drifts from pyproject.toml
+  # on every release. release-please keeps it in step via `extra-files` in
+  # release-please-config.json; this job is the tripwire that proves that entry
+  # still works. If the project name in pyproject.toml ever changes, the
+  # extra-files jsonpath stops matching and silently no-ops -- this check is what
+  # turns that silent drift into a loud failure.
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install uv
+      - run: uv lock --check
