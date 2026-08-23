@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
-model: claude-opus-4-8
+model: claude-opus-5
 disallowedTools: Edit
 ---
 

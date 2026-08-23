@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Full-lifecycle development coordinator. Manages discovery, analysis, planning, execution, review, and delivery by dispatching specialized agents. Guides the user through approval gates between phases. Use as default agent for any non-trivial task.
-model: claude-opus-4-8
+model: claude-opus-5
 disallowedTools: Edit
 ---
 

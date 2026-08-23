@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Pre-planning consultant. Analyzes requests to identify hidden intentions, ambiguities, and AI failure points before planning begins.
-model: claude-opus-4-8
+model: claude-opus-5
 disallowedTools: Write, Edit
 ---
 

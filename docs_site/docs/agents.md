@@ -27,7 +27,7 @@ Agent names are identifiers, and are set in mono throughout.
 
 Full-lifecycle development coordinator. Manages discovery, analysis, planning, execution, review, and delivery by dispatching specialized agents. Guides the user through approval gates between phases. Use as default agent for any non-trivial task.
 
-**Model** `claude-opus-4-8` · **Denied tools** `Edit` · [`agents/orchestrator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/orchestrator.md)
+**Model** `claude-opus-5` · **Denied tools** `Edit` · [`agents/orchestrator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/orchestrator.md)
 
 ## Discover
 
@@ -35,7 +35,7 @@ Full-lifecycle development coordinator. Manages discovery, analysis, planning, e
 
 Pre-planning consultant. Analyzes requests to identify hidden intentions, ambiguities, and AI failure points before planning begins.
 
-**Model** `claude-opus-4-8` · **Denied tools** `Write`, `Edit` · [`agents/scout.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/scout.md)
+**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/scout.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/scout.md)
 
 ### `explore`
 
@@ -61,25 +61,25 @@ Interprets media files (PDFs, images, diagrams, screenshots) that require visual
 
 Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
 
-**Model** `claude-opus-4-8` · **Denied tools** `Edit` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
+**Model** `claude-opus-5` · **Denied tools** `Edit` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
 
 ### `validator`
 
 Work plan reviewer. Verifies plans are executable with valid references. Blocker-finder, not perfectionist.
 
-**Model** `claude-opus-4-8` · **Denied tools** `Write`, `Edit` · [`agents/validator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/validator.md)
+**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/validator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/validator.md)
 
 ### `advisor`
 
 Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
 
-**Model** `claude-opus-4-8` · **Denied tools** `Write`, `Edit` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
+**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
 
 ### `critic`
 
 Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a single bounded pass — blind spots, shaky premises, overlooked alternatives, and PII/legal exposure — then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan risk triage), validator (executability), advisor (design direction), and reviewer (built-code audit).
 
-**Model** `claude-opus-4-8` · **Denied tools** `Write`, `Edit` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
+**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
 
 ## Build
 
@@ -95,4 +95,4 @@ Implementation specialist. Executes one scoped task from a plan — writes the c
 
 QA engineer. Audits implemented code or features for bugs, regressions, security flaws, and quality issues, then files a dated, severity-ranked report. Works on code whether pre-delivery (in a worktree or PR) or already landed. Read-only against the code under audit — writes only its report file. Distinct from validator (reviews plans for executability before work begins) and advisor (advises on architecture/design).
 
-**Model** `claude-opus-4-8` · **Denied tools** `Edit`, `NotebookEdit` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
+**Model** `claude-opus-5` · **Denied tools** `Edit`, `NotebookEdit` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
