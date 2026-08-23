@@ -14,6 +14,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import record_stop as rs  # noqa: E402
 import compute_readiness as cr  # noqa: E402
 
+# `tests/` is synced to instances by scripts/sync_from_upstream.py; `memory/` is
+# deliberately not. So a framework test may only depend on framework-owned
+# content — the fixture, not the shipped example note it mirrors.
+EXAMPLE_READINESS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "example_readiness.md"
+EXAMPLE_READINESS_SHIPPED = ROOT / "memory" / "repo" / "EXAMPLE" / "readiness.md"
+
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -440,12 +446,31 @@ class ComposeTest(unittest.TestCase):
         self.assertIn(cr.GENERATED_BEGIN, out)
 
     def test_seed_template_keeps_the_example_files_sections(self):
-        example = (ROOT / "memory" / "repo" / "EXAMPLE" / "readiness.md").read_text(
-            encoding="utf-8"
-        )
+        example = EXAMPLE_READINESS_FIXTURE.read_text(encoding="utf-8")
         expected = [ln for ln in example.splitlines() if ln.startswith("## ")]
         seeded = [ln for ln in cr.SEED_TEMPLATE.splitlines() if ln.startswith("## ")]
         self.assertEqual(expected, seeded)
+
+    @unittest.skipUnless(
+        EXAMPLE_READINESS_SHIPPED.exists(),
+        "no memory/repo/EXAMPLE/ — expected on an instance, where memory/ is not synced",
+    )
+    def test_example_fixture_has_not_drifted_from_the_shipped_example(self):
+        """Drift guard for the fixture copy of the shipped EXAMPLE readiness.
+
+        `memory/repo/EXAMPLE/readiness.md` is a product artifact (README calls it
+        out as the one seeded example note), so it stays where users expect it.
+        But `memory/` is excluded from `FRAMEWORK_PATHS`, so a synced test cannot
+        read it downstream — hence the copy under `tests/fixtures/`. This test
+        runs only in the framework repo, where both files exist, and fails there
+        the moment the two diverge.
+        """
+        self.assertEqual(
+            EXAMPLE_READINESS_FIXTURE.read_text(encoding="utf-8"),
+            EXAMPLE_READINESS_SHIPPED.read_text(encoding="utf-8"),
+            "tests/fixtures/example_readiness.md has drifted from "
+            "memory/repo/EXAMPLE/readiness.md — re-copy one onto the other",
+        )
 
 
 # ── the outcome summary must stay honest ───────────────────────────────────
