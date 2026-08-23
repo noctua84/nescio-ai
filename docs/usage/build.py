@@ -110,10 +110,11 @@ xl2 = "".join(
 infl_x = ML2 + 30 * bw
 daily_chart = (
     '<svg viewBox="0 0 %d %d" class="chart" role="img" aria-label="Daily weighted token '
-    'spend; a step change on August 13 roughly triples the prior daily rate.">' % (W2, H2)
+    'spend. The step change on August 13 is a subscription upgrade from Max-5 to '
+    'Max-20, not a change in behaviour.">' % (W2, H2)
     + g2 + "".join(bars)
     + '<line class="infl" x1="%.1f" y1="%d" x2="%.1f" y2="%.1f"/>' % (infl_x, MT2, infl_x, MT2 + ph2)
-    + '<text class="thlab" x="%.1f" y="%d" text-anchor="end">Aug 13 &#8212; rate triples</text>'
+    + '<text class="thlab" x="%.1f" y="%d" text-anchor="end">Aug 13 &#8212; Max-5 to Max-20</text>'
       % (infl_x - 8, MT2 + 13)
     + xl2 + '</svg>')
 
@@ -374,8 +375,13 @@ the conversation &#8212; 7.0 billion cache-read tokens, one accumulating context
 
 <section>
  <h2>Daily burn</h2>
- <p>Roughly a threefold step change on <b>13 August</b> &#8212; from 300&#8211;700 requests a day to
- 1,400&#8211;2,000. The 14th alone cost 110M weighted tokens, more than all of 12&#8211;23 July combined.</p>
+ <p>The threefold step change on <b>13 August</b> is a plan change, not a behaviour change &#8212;
+ a Max-5 subscription became Max-20. Daily requests went from 300&#8211;700 to 1,400&#8211;2,000 because
+ the ceiling moved; the 14th alone cost 110M weighted tokens. Read this as capacity being taken up,
+ not as a regression.</p>
+ <p>It does sharpen everything above, though. The inefficiencies are ratios &#8212; they do not care how
+ many requests you make &#8212; so the same 289k median context now costs roughly three times as much
+ in absolute terms as it did in July.</p>
  <div class="card chartwrap">__DAILY__</div>
 </section>
 
