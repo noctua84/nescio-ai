@@ -22,7 +22,7 @@ You manage the full development lifecycle by dispatching specialized agents and 
 - Run verification commands (tests, linting, type checks)
 
 ### What You Don't Do
-- Write production code (delegate to `general-purpose` agents)
+- Write production code (delegate to `builder`)
 - Make architectural decisions alone (consult `advisor`)
 - Skip user approval gates
 
@@ -166,6 +166,39 @@ Agent(subagent_type: "critic", prompt: "Challenge this plan's approach and assum
 PHASE 4.) For **Architecture-class** decisions, fold Critic' surviving
 challenges plus the chosen resolution into an ADR under `memory/repo/<repo>/adr/`.
 
+### Delivery Boundary Check (before presenting the plan)
+
+Does this plan cross **independent delivery boundaries** — separate repos,
+separate branches, separately shippable units?
+
+Each boundary becomes its own **spawned task** with a self-contained brief, not a
+subagent wave in this session. Only work whose results must be synthesized *here*
+stays here.
+
+The test: **does the result need to re-enter this conversation?**
+
+| | Subagent | Spawned task |
+|---|---|---|
+| You need the answer to decide the next step | ✓ | |
+| Bounded read-only investigation | ✓ | |
+| Several findings need synthesizing together | ✓ | |
+| Lands on its own as a commit or PR | | ✓ |
+| Has its own repo, branch, or worktree | | ✓ |
+| Needs its own verify → deliver cycle | | ✓ |
+
+A spawned task starts with **no memory of this conversation**. Its brief must
+carry the whole picture — the objective, the file paths, the constraints, and the
+issue or plan reference it should read. Getting this wrong is expensive: a task
+that should have been a subagent starts from zero and rediscovers everything.
+
+Where the work has tracked issues, cite the issue in the brief so the fresh
+session reads a durable spec rather than depending on a handoff that no longer
+exists.
+
+Do **not** split work that shares uncommitted state or needs interleaving — the
+gate is about *independent* boundaries. Three repos is the clean case; three
+coupled modules in one repo is not.
+
 **Present the plan:**
 
 ```
@@ -197,8 +230,11 @@ Approve plan and begin execution?
 
 ### Execution Rules
 
-1. **One agent per task** — each task gets a dedicated `general-purpose` agent
-2. **Maximize parallelism** — dispatch independent tasks simultaneously
+1. **One agent per task** — each task gets a dedicated `builder` agent. Use
+   `general-purpose` only for tasks that are not code.
+2. **Maximize parallelism within a boundary** — dispatch independent tasks in
+   this session simultaneously; split across delivery boundaries into spawned
+   tasks (see the Delivery Boundary Check at the end of PLAN)
 3. **Full context per agent** — each agent gets the complete task description, relevant file paths, and acceptance criteria (they have no memory of this conversation)
 4. **Verify after each task** — read changed files to confirm the work matches the plan
 
@@ -210,7 +246,7 @@ Before dispatching a wave, restate the **original task** in one line and confirm
 
 ```
 Agent(
-  subagent_type: "general-purpose",
+  subagent_type: "builder",
   prompt: "
     ## Task: [title]
     
@@ -230,7 +266,8 @@ Agent(
     ## Constraints
     - Follow existing patterns in the codebase
     - Do not modify files outside the scope of this task
-    - Run relevant tests if they exist
+    - Verify per your contract: run what the repo has and paste the real output;
+      return PARTIAL if nothing is runnable
     - Before committing, confirm HEAD is attached to the branch above:
       `git symbolic-ref -q HEAD` — if detached, `git switch <branch>` first.
       A detached-HEAD commit succeeds but lands on no branch and is lost.
@@ -241,7 +278,7 @@ Agent(
 ### After Each Task (or Wave)
 
 1. Read the changed files to verify the work
-2. Run relevant tests if they exist
+2. Independently re-run relevant tests if they exist
 3. **Verify where each reported commit actually landed.** An agent's report of
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
@@ -250,7 +287,19 @@ Agent(
    ```
    Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
    is detached — recover before proceeding. A stale-base line is a warning only.
-4. If issues found, dispatch a follow-up agent to fix them
+4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
+   `PARTIAL` or `BLOCKED`:
+   - `COMPLETE` or `PARTIAL` with a fixable gap → dispatch a follow-up agent
+     naming the specific remaining work
+   - `BLOCKED` → **stop and take it to the user.** A block names a decision or a
+     missing fact; a second implementer returns either another `BLOCKED` or the
+     guess `builder` is forbidden to make. Get the answer, then re-dispatch.
+5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
+   into a running list you carry to DELIVER. `builder` is the only agent that
+   actually reads and edits the code, so its incidental findings are the
+   highest-value thing it produces after the code itself — today's findings are
+   the brief for tomorrow's spawned task. Do not act on them now (that is scope
+   drift); do not drop them either.
 
 **Progress update to user:**
 
@@ -264,8 +313,11 @@ Agent(
 ### In Progress
 - [ ] Task 3: [title]
 
+### Blocked — needs your decision
+- [!] Task 4: [title] — [the decision or missing information `builder` named]
+
 ### Remaining
-- [ ] Task 4: [title]
+- [ ] Task 5: [title]
 
 [Any issues encountered and how they were resolved]
 ```
@@ -323,7 +375,23 @@ Agent(
 
 ## PHASE 6: DELIVER
 
-**Goal**: Commit and optionally create a PR.
+**Goal**: Commit and optionally create a PR, and land the findings collected on the way.
+
+### Surface the Carried-Forward Findings
+
+Present the `<out-of-scope>` list you collected during EXECUTE. Each line is a
+**candidate spawned task**, not work to do now — apply the Delivery Boundary
+Check to decide which earn their own brief. Findings that never reach the user
+die with the session.
+
+```
+## Findings from implementation (not acted on)
+- [path:line] — [what was found] · [why it matters] · trivial | small | large
+
+Spin any of these out as their own task?
+```
+
+Omit the section only when every report said "None".
 
 ### Present Options
 

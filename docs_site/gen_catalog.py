@@ -71,11 +71,12 @@ class CatalogError(RuntimeError):
 # page (the count-guard would fail the build if it did).
 # --------------------------------------------------------------------------
 
-# Lifecycle order: coordinate -> discover -> plan and challenge -> verify.
+# Lifecycle order: coordinate -> discover -> plan and challenge -> build -> verify.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
     ("Plan and challenge", ["planner", "validator", "advisor", "critic"]),
+    ("Build", ["builder"]),
     ("Verify", ["reviewer"]),
 ]
 

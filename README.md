@@ -104,6 +104,7 @@ and changes nothing if it can't.
 | `scout` | Pre-plan risk/intent triage — surfaces assumptions and likely failure points. |
 | `planner` | Interviews for requirements and writes the work plan. |
 | `validator` | Checks a plan is executable before work starts. |
+| `builder` | Implements one scoped task from a plan — the only agent that writes production code. Verifies before reporting. |
 | `advisor` | Read-only architecture/design advice for hard tradeoffs. |
 | `reviewer` | QA audit of implemented code — bugs, regressions, security. |
 | `critic` | Devil's advocate — challenges the approach before it's built. |
@@ -141,8 +142,10 @@ refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 The agent names above are functional on purpose. If you'd like personality, an
 optional theme renames the thinker/advisor agents after Graeco-Roman philosophers
 (`planner`→`plato`, `advisor`→`aristotle`, `reviewer`→`pyrrho`, `critic`→
-`socrates`) — tracing the Socrates → Plato → Aristotle lineage, plus Pyrrho the
-skeptic.
+`socrates`, `builder`→`archimedes`) — tracing the Socrates → Plato → Aristotle
+lineage, plus Pyrrho the skeptic, plus Archimedes the engineer and craftsman
+(not part of that lineage, which is fitting for the agent that builds rather
+than reasons).
 
 Apply it with `python scripts/apply_theme.py philosophers` (and
 `python scripts/apply_theme.py functional` to revert). It renames the agent files,

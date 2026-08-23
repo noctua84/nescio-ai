@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Apply or revert the optional Graeco-Roman philosopher theme for the crew.
 
-The default agent names are functional (planner / advisor / reviewer / critic).
-This renames the four thinker/advisor agents to philosophers (and back) — the
-agent files, their ``name:`` frontmatter, and every cross-reference in the crew
+The default agent names are functional (planner / advisor / reviewer / critic
+/ builder). This renames those agents to philosophers (and back) — the agent
+files, their ``name:`` frontmatter, and every cross-reference in the crew
 (charters + the orchestrator's ``subagent_type`` dispatches). The other agents
 (orchestrator, scout, validator, librarian, explore, vision) are already
 functional and are left untouched.
 
     python scripts/apply_theme.py philosophers   # planner->plato, advisor->aristotle,
-                                                  #  reviewer->pyrrho, critic->socrates
+                                                  #  reviewer->pyrrho, critic->socrates,
+                                                  #  builder->archimedes
     python scripts/apply_theme.py functional      # revert to the default names
     python scripts/apply_theme.py --dry-run philosophers
 
@@ -30,6 +31,7 @@ PAIRS = [
     ("advisor", "aristotle"),
     ("reviewer", "pyrrho"),
     ("critic", "socrates"),
+    ("builder", "archimedes"),
 ]
 THEMES = ("functional", "philosophers")
 
@@ -77,16 +79,22 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
                     else [(p, f) for f, p in PAIRS])
 
     # 1) rewrite cross-references in every agent charter (incl. orchestrator dispatch).
+    #
+    # newline="" on both ends disables universal-newline translation, so a
+    # charter keeps the line endings it had. Without it `write_text` expands
+    # "\n" to os.linesep, which on Windows rewrote every LF charter as CRLF —
+    # dirtying a tree that .gitattributes pins to `eol=lf`, and making the
+    # advertised round trip non-identical on disk.
     changed = 0
     for md in sorted(agents_dir.glob("*.md")):
-        text = md.read_text(encoding="utf-8")
+        text = md.read_text(encoding="utf-8", newline="")
         new = _transform(text, mappings)
         if new != text:
             changed += 1
             if dry_run:
                 print(f"  would update refs in {md.name}")
             else:
-                md.write_text(new, encoding="utf-8")
+                md.write_text(new, encoding="utf-8", newline="")
 
     # 2) rename the four agent files.
     for frm, to in file_renames:
