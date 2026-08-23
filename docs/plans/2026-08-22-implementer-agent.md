@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **This plan covers `nescio-ai` only.** The `ai-os` counterpart is a separate delivery boundary and is spawned as its own task in Task 4 — this is the design's own Delivery Boundary Check applied to itself.
-- **Public vocabulary by default.** This repo ships the functional names — `builder`, `advisor`, `planner`, `critic`, `reviewer` — and files authored here should use them. The philosopher names (`aristotle`, `plato`, `socrates`, `pyrrho`) are a documented feature of *this* repo, applied on demand by `scripts/apply_theme.py` (README: "Optional: the philosopher theme"), so anything asserting on agent names must be theme-aware rather than hardcoding either set. `archimedes` is the `ai-os` name for `builder` and has no counterpart here.
+- **Public vocabulary by default.** This repo ships the functional names — `builder`, `advisor`, `planner`, `critic`, `reviewer` — and files authored here should use them. The philosopher names (`aristotle`, `plato`, `socrates`, `pyrrho`, `archimedes`) are a documented feature of *this* repo, applied on demand by `scripts/apply_theme.py` (README: "Optional: the philosopher theme"), so anything asserting on agent names must be theme-aware rather than hardcoding either set. `archimedes` is also the `ai-os` name for `builder`; here it's produced by the theme script (`PAIRS` includes `builder`↔`archimedes`), not hand-authored.
 - **Do not touch the `model:` frontmatter line of `agents/orchestrator.md`.** A separate in-flight task (`chore/bump-crew-opus-5`) owns that line. Editing it here causes a merge conflict.
 - **New agent model is exactly `claude-opus-5`.** Verified same price as `claude-opus-4-8` ($5.00/1M in, $25.00/1M out).
 - **Branch:** `feat/implementer-agent` (already created; the spec is committed at `9b28db3`).
@@ -552,6 +552,14 @@ agent's own `description` where it names its siblings:
 identical in both. Copying the body verbatim without substituting the sibling
 names is the most likely mistake in this task — check the `description` line
 specifically.
+
+Note: nescio-ai's `scripts/apply_theme.py` now carries `builder`↔`archimedes`
+in its `PAIRS` list, so this substitution no longer has to be done by hand —
+copy `agents/builder.md` into the ai-os checkout unchanged, then run
+`python scripts/apply_theme.py --agents-dir <ai-os-checkout>/agents philosophers`
+from the nescio-ai side to rename the file and rewrite its cross-references.
+Verify the result against ai-os's existing philosopher-named files before
+committing, since ai-os's own crew may not mirror nescio-ai's roster exactly.
 
 ## Deliverables
 - `agents/archimedes.md` — new, `model: claude-opus-5`, NO `disallowedTools`

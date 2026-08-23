@@ -75,11 +75,13 @@ substituting the sibling names is the most likely mistake in this change.
 
 Note the philosopher names are not exclusive to ai-os: nescio-ai ships them as an
 opt-in theme via `scripts/apply_theme.py` (README: "Optional: the philosopher
-theme"), which renames `planner`/`advisor`/`reviewer`/`critic` and rewrites their
-cross-references. The public repo *defaults* to functional names — it does not
-forbid the philosopher ones. Anything in `tests/` that asserts on agent names must
-therefore derive them from the theme on disk rather than hardcoding either set.
-`archimedes` has no nescio-ai counterpart; `builder` is theme-invariant.
+theme"), which renames `planner`/`advisor`/`reviewer`/`critic`/`builder` and
+rewrites their cross-references. The public repo *defaults* to functional names
+— it does not forbid the philosopher ones. Anything in `tests/` that asserts on
+agent names must therefore derive them from the theme on disk rather than
+hardcoding either set. `PAIRS` in `scripts/apply_theme.py` carries a
+`builder`↔`archimedes` entry, so `archimedes` *does* have a nescio-ai
+counterpart — it's produced by running the theme script, not hand-authored.
 
 ### 1. New agent file — `agents/archimedes.md` / `agents/builder.md`
 

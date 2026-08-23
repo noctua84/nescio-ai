@@ -142,8 +142,10 @@ refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 The agent names above are functional on purpose. If you'd like personality, an
 optional theme renames the thinker/advisor agents after Graeco-Roman philosophers
 (`planner`→`plato`, `advisor`→`aristotle`, `reviewer`→`pyrrho`, `critic`→
-`socrates`) — tracing the Socrates → Plato → Aristotle lineage, plus Pyrrho the
-skeptic.
+`socrates`, `builder`→`archimedes`) — tracing the Socrates → Plato → Aristotle
+lineage, plus Pyrrho the skeptic, plus Archimedes the engineer and craftsman
+(not part of that lineage, which is fitting for the agent that builds rather
+than reasons).
 
 Apply it with `python scripts/apply_theme.py philosophers` (and
 `python scripts/apply_theme.py functional` to revert). It renames the agent files,

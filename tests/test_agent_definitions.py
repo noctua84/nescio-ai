@@ -32,12 +32,11 @@ ALLOWED_MODELS = {
     "claude-haiku-4-5",
 }
 
-# Agents whose names are the same under every theme. The remaining four are
+# Agents whose names are the same under every theme. The remaining five are
 # renamed by `scripts/apply_theme.py` (planner->plato, advisor->aristotle,
-# reviewer->pyrrho, critic->socrates), so the roster is derived from the
-# theme actually on disk rather than hardcoded.
+# reviewer->pyrrho, critic->socrates, builder->archimedes), so the roster is
+# derived from the theme actually on disk rather than hardcoded.
 THEME_INVARIANT_ROSTER = {
-    "builder",
     "explore",
     "librarian",
     "orchestrator",
