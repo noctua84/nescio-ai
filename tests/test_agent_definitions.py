@@ -58,6 +58,30 @@ def _expected_roster(theme):
     return THEME_INVARIANT_ROSTER | themed
 
 
+def _themed(functional_name, agents_dir=AGENTS_DIR):
+    """The on-disk name of `functional_name` under the theme currently applied.
+
+    These tests ship to instances (``tests`` is in ``FRAMEWORK_PATHS``), and an
+    instance may have run ``apply_theme.py``. Asserting the functional name
+    there asserts this repo's own state rather than a property of the framework.
+    """
+    if apply_theme.detect_theme(agents_dir) != "philosophers":
+        return functional_name
+    return dict(apply_theme.PAIRS)[functional_name]
+
+
+def _off_theme(functional_name, agents_dir=AGENTS_DIR):
+    """The counterpart name that must *not* survive under the current theme.
+
+    A half-applied rename leaves both names in the tree; asserting the absence
+    of this one gives the wiring tests teeth in either direction.
+    """
+    themed = _themed(functional_name, agents_dir)
+    if themed != functional_name:
+        return functional_name
+    return dict(apply_theme.PAIRS)[functional_name]
+
+
 def _tool_tokens(value):
     """Split a `tools:`/`disallowedTools:` frontmatter value into exact tokens.
 
@@ -142,14 +166,22 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         deliberately retain Write so they can produce plans and audit reports —
         but none of them may Edit. vision restricts itself with a read-only
         ``tools`` allowlist instead of ``disallowedTools``.
+
+        The builder is renamed to ``archimedes`` on a themed instance, so the
+        agent that must keep Edit is resolved through the theme on disk.
         """
+        builder = _themed("builder")
+        self.assertIn(
+            builder, {path.stem for path in _agent_files()},
+            f"{builder}.md is missing — without it this test asserts nothing",
+        )
         for path in _agent_files():
             with self.subTest(agent=path.stem):
                 fields = self._frontmatter(path)
-                if path.stem == "builder":
+                if path.stem == builder:
                     disallowed = _tool_tokens(fields.get("disallowedTools", ""))
-                    self.assertNotIn("Edit", disallowed, "builder must retain Edit access")
-                    self.assertNotIn("Write", disallowed, "builder must retain Write access")
+                    self.assertNotIn("Edit", disallowed, f"{builder} must retain Edit access")
+                    self.assertNotIn("Write", disallowed, f"{builder} must retain Write access")
                 else:
                     self.assertTrue(
                         _may_not_edit(fields),
@@ -175,11 +207,15 @@ class TestOrchestratorWiring(unittest.TestCase):
 
     def test_orchestrator_dispatches_builder_not_general_purpose(self):
         text = self._text()
-        self.assertIn('subagent_type: "builder"', text)
+        builder, off_theme = _themed("builder"), _off_theme("builder")
+        self.assertIn(f'subagent_type: "{builder}"', text)
+        self.assertNotIn(f'subagent_type: "{off_theme}"', text)
         self.assertNotIn('subagent_type: "general-purpose"', text)
 
     def test_orchestrator_names_builder_as_the_code_writer(self):
-        self.assertIn("delegate to `builder`", self._text())
+        text = self._text()
+        self.assertIn(f"delegate to `{_themed('builder')}`", text)
+        self.assertNotIn(f"delegate to `{_off_theme('builder')}`", text)
 
     def test_orchestrator_has_delivery_boundary_check(self):
         text = self._text()
