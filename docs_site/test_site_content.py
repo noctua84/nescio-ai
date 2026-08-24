@@ -21,10 +21,12 @@ What these guard, and why each one is worth a test:
     that reads as an arbitrary preference to anyone tidying the file later.
   * The 404 and footer copy is quoted verbatim from §7.
   * No external request may leave the built site (§3).
-  * The diagrams break out of the article column, at their natural size, without
-    ever making the page body scroll sideways. DiagramLayoutTest pins all three
-    halves of that: no scale-to-fit, no bare `100vw`, and break-out distances
-    that match the Material layout constants they are derived from.
+  * The diagrams render at their natural size, in a column wide enough to be
+    worth reading, without ever making the page body scroll sideways or sliding
+    under the sidebars. DiagramLayoutTest pins that: no scale-to-fit, no
+    viewport units at all, no negative margins on the wrapper, and the
+    `hide: [navigation, toc]` front matter that gives the homepage the full
+    grid in the first place.
 """
 
 from __future__ import annotations
@@ -78,21 +80,6 @@ def _rule(css: str, selector: str) -> str:
     if match is None:  # pragma: no cover - assertion failure path
         raise AssertionError(f"no `{selector}` rule in nescio.css")
     return match.group(1)
-
-
-def _material_stylesheet() -> str:
-    """mkdocs-material's own main.css, or SkipTest when it is not installed."""
-    try:
-        import material
-    except ImportError:  # pragma: no cover - depends on the environment
-        raise unittest.SkipTest("mkdocs-material is not installed")
-    sheets = sorted(
-        (Path(material.__file__).parent / "templates" / "assets" / "stylesheets")
-        .glob("main.*.min.css")
-    )
-    if not sheets:  # pragma: no cover - depends on the environment
-        raise unittest.SkipTest("mkdocs-material ships no main.css here")
-    return sheets[0].read_text(encoding="utf-8")
 
 
 class DiagramSourcesTest(unittest.TestCase):
@@ -173,14 +160,21 @@ class DiagramSourcesTest(unittest.TestCase):
 
 
 class DiagramLayoutTest(unittest.TestCase):
-    """How the inlined artwork is sized — nescio.css §3, "Diagram break-out".
+    """How the inlined artwork is sized — nescio.css §3, "Wide diagrams".
 
-    Measured on the built site at a 1440px viewport (client box 1425px): the
-    article column is 551px and the artwork is 1400px, so inside the column 61%
-    of every diagram was off-screen. The break-out takes the wrapper out to the
-    site grid, which measures 1352px there — 97% of the artwork. Scaling to fit
-    is NOT the alternative: 1400px artwork squeezed into 551px puts the smallest
-    labels at ~4.5px.
+    The artwork is 1400px and a 68ch column is 551px, so inside the column 61%
+    of every diagram is off-screen. Scaling to fit is NOT the alternative:
+    1400px squeezed into 551px puts the smallest labels at ~4.5px. The width
+    comes from the page instead — docs/index.md hides both rails, so the
+    homepage article spans the full 61rem grid (~1170px, ~84% of the artwork)
+    and the wrapper scrolls the rest.
+
+    This replaced a break-out that pulled the wrapper out over both rails with
+    negative margins and a 100vw bleed. Measured at 1440x900 that put 63 SVG
+    elements under a sticky sidebar; the opaque-scrollwrap mitigation covered
+    12-15% of the collision and punched a hole through the artwork where it did.
+    The tests below pin the replacement: no scale-to-fit, no viewport units, no
+    negative margins, and the front matter that makes the room.
     """
 
     @classmethod
@@ -224,85 +218,100 @@ class DiagramLayoutTest(unittest.TestCase):
             "on the scheme toggle. Use a §2 token.",
         )
 
-    def test_no_bare_viewport_width_anywhere(self) -> None:
+    def test_no_viewport_units_anywhere(self) -> None:
         """The page body must never scroll sideways (§5).
 
         `100vw` counts the classic scrollbar and `documentElement.clientWidth`
         does not -- measured 15px apart in Chrome on Windows -- so anything
-        sized `100vw` overflows the page by exactly the scrollbar. The break-out
-        therefore sizes with `width: auto` off its containing block. The single
-        viewport unit left is the surplus-page-margin bleed, and it is both
-        clamped at zero and docked a 2rem allowance for the scrollbar.
+        sized off the viewport overflows the page by exactly the scrollbar.
+        Nothing in this sheet needs the viewport: every length comes from the
+        containing block, which is already scrollbar-correct. The one former
+        exception, the break-out's `--nescio-bleed`, went out with the break-out
+        itself, so the rule is now simply "no viewport units at all".
+        """
+        offenders = sorted(set(re.findall(r"\b\d*\.?\d+(?:vw|vh|vmin|vmax|dvw|dvh|svw|svh|lvw|lvh)\b", self.bare)))
+        self.assertEqual(
+            [], offenders,
+            "a viewport unit is back in nescio.css. Every length here must come "
+            "from the containing block -- viewport units count the classic "
+            "scrollbar and the client box does not, which is a sideways-"
+            "scrolling page by exactly that difference.",
+        )
+
+    def test_wrapper_never_escapes_its_column(self) -> None:
+        """Regression: the wrapper must not pull itself out over the sidebars.
+
+        This is the bug that was shipped and reverted. Negative margins on the
+        wrapper slide the artwork under Material's two sticky sidebars, which
+        paint above the article -- 63 SVG elements ended up behind a rail at
+        1440x900 -- and no opaque ground on the rails fixes it, because the
+        rails are content-height and the diagram is 849px tall. The wrapper
+        stays inside its column; the page makes the column wide instead.
         """
         self.assertNotRegex(
-            self.bare, r"width:\s*100vw",
-            "nothing may be sized 100vw -- that is the page's horizontal "
-            "scrollbar, by exactly the width of the vertical one.",
+            self.wrapper, r"margin[-\w]*:\s*[^;]*(?<![\w)])-\s*[\d.]",
+            "a negative margin is back on the diagram wrapper. That is the "
+            "sidebar overlap: the wrapper leaves the article column and the "
+            "sticky rails paint straight over the artwork.",
         )
-        for declaration in re.findall(r"([-\w]+)\s*:\s*([^;{}]*100vw[^;{}]*)", self.bare):
-            prop, value = declaration
-            with self.subTest(property=prop):
-                self.assertEqual(
-                    "--nescio-bleed", prop,
-                    "a viewport unit escaped the break-out bleed; every other "
-                    "length must come from the containing block.",
-                )
-                self.assertIn("max(0px", value, "the bleed must clamp at zero")
-                self.assertRegex(
-                    value, r"-\s*2rem",
-                    "the bleed must dock an allowance for the scrollbar 100vw "
-                    "counts and the client box does not.",
-                )
-
-    def test_breakout_never_pins_the_wrapper_width(self) -> None:
-        # `width: auto` + negative margins is what makes the box scrollbar-
-        # correct: its width is derived from the containing block, which is
-        # already inside the client box.
+        self.assertNotRegex(
+            self.bare,
+            r"\.nescio-diagram\s*\{[^}]*margin[-\w]*:\s*[^;]*(?<![\w)])-\s*[\d.]",
+            "a negative margin is back on the diagram wrapper, in a media query "
+            "or a second rule. Same bug, different block.",
+        )
         self.assertNotRegex(
             self.wrapper, r"(?<!max-)(?<!background-)\bwidth:",
             "the wrapper must stay `width: auto` so its size comes from the "
             "content column rather than from the viewport.",
         )
 
-    def test_breakout_distances_match_material_layout(self) -> None:
-        """The bleed distances are Material's numbers, not invented ones.
+    def test_homepage_hides_both_rails(self) -> None:
+        """The front matter is what gives the diagrams room to not collide.
 
-        A Material bump that moves the sidebar width or the grid cap silently
-        changes how far the diagram may bleed -- and the failure mode is a page
-        that scrolls sideways, which no other check in the build would catch.
+        The homepage is the only page carrying diagrams, and it is a landing
+        page whose every destination is already linked twice in the body (hero
+        buttons, then "Where to go next"). Hiding the navigation rail and the
+        table of contents there costs nothing and buys the article the full
+        61rem grid -- ~1170px of the 1400px artwork with zero overlap, against
+        97% visible *underneath* two sticky sidebars before. Re-enable either
+        rail on this page and the diagrams overflow into it again.
+
+        MkDocs only parses a YAML block that starts at the very first byte, so
+        this also pins the front matter to the top of the file: preceded by so
+        much as a blank line it is inert and the rails come back silently.
         """
-        material_css = _material_stylesheet()
-
-        sidebar = re.search(r"\.md-sidebar\{[^}]*width:([\d.]+rem)", material_css)
-        grid = re.search(r"\.md-grid\{[^}]*max-width:([\d.]+rem)", material_css)
-        self.assertIsNotNone(sidebar, "cannot find .md-sidebar's width in Material")
-        self.assertIsNotNone(grid, "cannot find .md-grid's max-width in Material")
-        assert sidebar is not None and grid is not None
-
-        # The wrapper bleeds one sidebar's width over each rail ...
-        self.assertIn(f"margin-right: -{sidebar.group(1)}", self.bare)
-        self.assertIn(f"margin-left: calc(-{sidebar.group(1)}", self.bare)
-        self.assertIn(f"margin-right: calc(-{sidebar.group(1)}", self.bare)
-        # ... and spends the page margin past the grid cap.
-        self.assertIn(f"100vw - {grid.group(1)}", self.bare)
-
-        # The two media queries are Material's own sidebar breakpoints: the
-        # table of contents joins the flex row at 60em, the rail at 76.25em.
-        for breakpoint in ("60em", "76.25em"):
-            with self.subTest(breakpoint=breakpoint):
-                self.assertIn(f"(min-width:{breakpoint})", material_css)
-                self.assertIn(f"@media screen and (min-width: {breakpoint})", self.bare)
+        source = _INDEX.read_text(encoding="utf-8")
+        self.assertTrue(
+            source.startswith("---\n") or source.startswith("---\r\n"),
+            "docs/index.md must open with YAML front matter on line 1 -- MkDocs "
+            "ignores a block that starts anywhere else.",
+        )
+        front_matter = source.split("---", 2)[1]
+        self.assertRegex(
+            front_matter, r"(?m)^hide:",
+            "docs/index.md has front matter but no `hide:` key.",
+        )
+        for rail in ("navigation", "toc"):
+            with self.subTest(rail=rail):
+                self.assertRegex(
+                    front_matter, rf"(?m)^\s*-\s*{rail}\s*$",
+                    f"the homepage must hide `{rail}` -- with that rail on, the "
+                    f"1400px diagrams slide underneath it.",
+                )
 
     def test_measure_cap_sits_on_the_article_blocks(self) -> None:
-        """§5's ~68ch measure survives the break-out.
+        """§5's ~68ch measure, on an article that is no longer capped itself.
 
-        The article itself is uncapped, because `width: auto` on a child can
-        never exceed its containing block -- a capped article would pin the
-        diagram to 68ch no matter what its margins said. The cap moves to the
-        article's blocks, and --nescio-measure has to be a *registered* property
-        for that to be equivalent: unregistered, `68ch` is substituted as a
-        token stream and re-resolved against each block's own font, so `68ch` on
-        an h1 comes out nearly twice the paragraph measure.
+        The article is uncapped so the diagram wrapper can use the whole content
+        column: `width: auto` on a child can never exceed its containing block,
+        and a capped article would pin the diagram to 68ch. The cap moves to the
+        article's blocks instead -- which is the ONLY thing holding prose to the
+        measure on the rail-less homepage, where the article spans the full
+        grid. --nescio-measure has to be a *registered* property for that to be
+        equivalent: unregistered, `68ch` is substituted as a token stream and
+        re-resolved against each block's own font, so `68ch` on an h1 comes out
+        nearly twice the paragraph measure.
         """
         self.assertRegex(
             self.bare,

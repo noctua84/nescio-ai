@@ -270,7 +270,12 @@ fabrication, no ceremony" — a hero that hides two shell commands behind a clic
 contradicts it.
 
 **Docs pages.** Three columns: left nav, article, right table of contents.
-Article measure capped at ~68ch.
+Article measure capped at ~68ch. True of `/agents/` and `/skills/`.
+
+**The homepage is the exemption.** It is a single-column landing page —
+`index.md` hides both `navigation` and `toc`. Its navigation already lives in
+the hero as buttons, and it is the only page carrying diagrams, which need the
+full grid width. See §6.
 
 **Spacing.** Lay out sibling groups with flex/grid `gap`, never per-element
 margins. Wide content — tables, code, diagrams — gets its own
@@ -318,38 +323,91 @@ Generating the pair rather than hand-maintaining it is what stops them drifting.
 **Confirmed.** One tokenised source, inlined on the site, twins generated for
 GitHub.
 
-### Presentation: diagrams break out of the column
+### Presentation: diagrams span a single-column homepage
 
 Diagrams carry the architecture explanation, so legibility outranks column
-alignment. A diagram **breaks out of the article column and spans the
-viewport**, centred at natural size; prose keeps its 551px measure either way.
+alignment — but not at the cost of colliding with the chrome. Both diagrams
+live on the homepage and nowhere else, so the homepage stops being a
+three-column page: `index.md` carries `hide: [navigation, toc]`, and the
+diagram spans the full `.md-grid` at natural size. Prose keeps its 68ch
+measure, because the cap sits on the article's *blocks*, not the article.
 
-Two traps, both measured on the built site:
+**This works only because the homepage hides both rails.** Re-enable
+`navigation` or `toc` on `index.md` and the diagrams overflow straight back
+into them. The front matter and the diagram width are one decision, not two —
+touch either and re-measure both.
+
+Nothing is lost by hiding them there. The hero already links Agents, Skills and
+Source as buttons, and "Where to go next" repeats the first two. The homepage
+TOC was four entries on a landing page.
+
+The price, stated plainly: `.md-grid` caps at `61rem`, and that cap is
+font-relative, so it grows as Material raises the root font-size at wider
+viewports. Measured, `.md-content__inner` is 1188px at 1440 (root 20px) and
+1307px at 1920 (root 22px) — **~85%** and **~93%** of the 1400px artwork,
+against 97% and ~97–98% under the old break-out. So the fix costs about twelve
+points at 1440 and only a few at 1920: it gets cheaper the wider the window.
+The wrapper keeps its `overflow-x: auto` and its scroll affordance — 1400 still
+exceeds the content column at every width, so it still scrolls, just far less.
+
+**The reversal, on the record.** A viewport-spanning break-out — negative
+margins derived from Material's sidebar constants, diagram centred at natural
+size across the whole site grid — was tried, shipped, and withdrawn. It slid
+the artwork underneath both sticky sidebars. Measured on the built site at the
+pinned `mkdocs-material==9.7.7`, 1440×900 on `/`: nav rail x=103–345, article
+x=369–1057, TOC x=1081–1323; the diagram wrapper spanned x=37–1389 and stood
+849px tall, putting **63 SVG elements — node rects and text labels — inside a
+sidebar column.** 1920×1080 was worse: 32 shapes under the left rail, 26 under
+the TOC. At 1024 the left nav is an off-canvas drawer, but 37 text labels still
+sat under the TOC. `/agents/` and `/skills/` scanned clean at every width, and
+prose never overlapped anywhere — the collision was diagram-specific and
+homepage-only. The one mitigation that shipped with it, an opaque
+`background-color` on `.md-sidebar__scrollwrap`, covered 12–15% of the
+collision: that element is content-height, not column-height — 99px left, 126px
+right, against an 849px diagram — and where it did cover, it punched an opaque
+rectangle through the artwork.
+
+Two traps, both measured, both still worth keeping:
 
 - **The root cause is the measure cap, not the diagram.** `width: auto` on a
   child can never exceed its containing block, so while `.md-content__inner`
   carried the 68ch cap the diagram stayed pinned at 551px whatever its margins
-  said. The cap belongs on the article's *blocks*, not the article.
-- **`margin-inline: calc(50% - 50vw)` is wrong here.** It centres on the
-  containing block, and Material's article column is not viewport-centred —
-  measured −68px off centre at 1440, −213px at 1024. That hangs the box past
-  the left edge, where the artwork is unreachable at `scrollLeft: 0`. Left
-  overflow produces no scrollbar, so nothing catches it automatically. Use
-  negative margins derived from Material's own sidebar constants instead, and
-  assert those constants against the shipped CSS so a version bump fails loudly.
+  said. This mattered under the break-out; it matters *more* now, because the
+  full grid width is the entire mechanism. The diagram reaches the full column
+  width only because the cap sits on the article's blocks. Move the cap back
+  onto `.md-content__inner` and the diagram is 551px again, single column or
+  not.
+- **`margin-inline: calc(50% - 50vw)` was wrong for the break-out.** History,
+  not live guidance — there is no break-out left to implement. Recorded so the
+  idea is not rediscovered as a fix: it centres on the containing block, and
+  Material's article column is not viewport-centred (measured −68px off centre
+  at 1440, −213px at 1024), so it hangs the box past the left edge, where the
+  artwork is unreachable at `scrollLeft: 0` and left overflow produces no
+  scrollbar to catch it.
+
+**Decision: break-out withdrawn, homepage single-column.** Full grid width, no
+negative margins, both rails hidden on `index.md`.
 
 ### Known limitation: narrow viewports — accepted
 
-| Viewport | Diagram visible |
-|---|---|
-| 1440 | 97% |
-| 1280 | 85% |
-| 1024 | 70% |
-| 768 | 51% |
-| 375 | 25% |
+| Viewport | Diagram visible | Basis |
+|---|---|---|
+| 1920 | ~93% | measured — root 22px, `61rem` = 1342px, content 1307px |
+| 1440 | ~85% | measured — root 20px, `61rem` = 1220px, content 1188px |
+| 1024 | ~70% | measured |
+| 768 | ~51% | measured |
+| 375 | ~25% | measured |
 
-Below roughly 800px the break-out buys nothing: there is no viewport left to
-break into. `1400×826` is a landscape composition and phones are portrait, so
+**The `61rem` grid cap is font-relative, not a fixed pixel width**, and Material
+raises the root font-size at large viewports — 20px at 1440, 22px at 1920. The
+cap therefore grows with the window, and the diagram's visible share keeps
+climbing instead of plateauing. Below the cap the grid tracks the viewport and
+the percentage falls with it, which is why the 1024-and-below rows carry over
+unchanged from the break-out era — a full-width grid and a viewport-spanning
+break-out are the same width once there are no rails to break past.
+
+Below roughly 800px width there is nothing left to give the diagram.
+`1400×826` is a landscape composition and phones are portrait, so
 this is an aspect-ratio mismatch, not a sizing bug — **no amount of CSS fixes
 it.** On a phone the reader scrolls a 1400px canvas through a 343px window.
 
@@ -675,7 +733,7 @@ since it is the exact ambiguity that raised the question.
 | 8 | Brand kit moves into the repo as a `brand/` package | Files drift; generators don't |
 | 9 | Docs live at `docs.nescio-ai.org` | Subdomain CNAME beats apex A records; apex kept free |
 | 10 | Brand and site stay in `nescio-ai` | `FRAMEWORK_PATHS` already isolates them; a split buys nothing |
-| 11 | Diagrams break out of the column; narrow viewports accepted as-is | Legibility beats alignment; the mobile case is an aspect-ratio mismatch CSS cannot fix |
+| 11 | Homepage is single-column; diagrams span the grid; narrow viewports accepted as-is | The column break-out slid 63 elements under the sticky rails; the mobile case is an aspect-ratio mismatch CSS cannot fix |
 
 ---
 

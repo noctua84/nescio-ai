@@ -335,11 +335,15 @@ samp,
 }
 
 /* The ARTICLE is the exception: the cap moves off the box and onto its blocks.
-   A capped article would make the break-out below impossible — `width: auto` on
-   a child can never exceed its containing block, so the diagram would be
-   pinned to 68ch no matter what its margins said. Uncapping the article and
-   capping its blocks leaves prose at exactly the same measure while giving the
-   diagram a containing block as wide as the content column. */
+   A capped article would pin the diagram wrapper to 68ch as well — `width:
+   auto` on a child can never exceed its containing block. Uncapping the article
+   and capping its blocks leaves prose at exactly the same measure while giving
+   the diagram a containing block as wide as the content column.
+
+   This got MORE load-bearing, not less, when the homepage went single-column
+   (see the diagram section below). With both rails hidden the article spans the
+   full 61rem grid, so this cap is now the only thing holding running text to
+   §5's measure there. Remove it and the homepage prose runs the full width. */
 .md-content__inner.md-typeset {
   --nescio-measure: 68ch;
   max-width: none;
@@ -362,28 +366,52 @@ samp,
 }
 
 /* ---------------------------------------------------------------------------
-   Diagram break-out (§5 "wide content", §6)
+   Wide diagrams (§5 "wide content", §6)
 
    The diagrams are authored 1400px wide and their smallest labels are 11.5px at
-   that size. Inside the 68ch article column the wrapper measured 551px, so 61%
-   of every diagram sat outside the visible box; scaling to fit would have put
-   those labels at ~4.5px. Neither is acceptable, so the wrapper leaves the
-   article column and spans the site grid instead — prose keeps its measure, the
-   artwork gets the window.
+   that size. Inside a 68ch column the wrapper measures 551px, so 61% of every
+   diagram would sit outside the visible box; scaling to fit would put those
+   labels at ~4.5px. Neither is acceptable. The wrapper therefore gets the whole
+   content column and scrolls whatever still does not fit.
 
-   >>> COUPLING <<< 12.1rem is Material's .md-sidebar width and 61rem is
-   .md-grid's max-width, both read out of 9.7.7's main.css. The two media
-   queries are Material's own sidebar breakpoints: the table of contents joins
-   the flex row at 60em, the navigation rail at 76.25em. A Material bump that
-   moves either changes how far the diagram may bleed — same standing rule as
-   the colour coupling in §2: re-check visually, never bump blind.
+   >>> THE RULE THAT KEEPS THIS WORKING <<<
+   docs/index.md carries `hide: [navigation, toc]` in its front matter, so the
+   homepage — the ONLY page with diagrams on it; the two `diagram:` markers in
+   the whole site are both there — is a single column spanning the full 61rem
+   grid. That cap is font-relative, not a fixed pixel width, and Material raises
+   the root font-size at wide viewports, so the column measures 1188px at 1440
+   (root 20px) and 1307px at 1920 (root 22px). If anyone re-enables either
+   rail on the homepage, the diagrams will overflow into it again. That coupling
+   is the whole design; it is not a stylistic preference about the homepage.
 
-   NOTE THE ABSENCE OF 100vw. `100vw` includes the classic scrollbar — measured
-   at 15px in Chrome on Windows — so a 100vw-wide element overflows the page by
-   exactly that much and the body scrolls sideways, which §5 forbids. Sizing
-   with `width: auto` and negative margins takes the width from the containing
-   block instead, which is already scrollbar-correct. The one place a viewport
-   unit appears (--nescio-bleed) subtracts a 2rem allowance for it.
+   WHAT WAS HERE BEFORE, so nobody reinvents it. Until this rule was rewritten,
+   the wrapper broke OUT of the article column: negative margins, one sidebar
+   width per side, plus a viewport-derived bleed to spend the page margin past
+   the grid cap. That deliberately slid the artwork underneath both sticky
+   sidebars, which paint above the article, and the only mitigation shipped with
+   it was an opaque ground on the sidebar's scroll wrapper. That mitigation was
+   undersized by roughly 7x, because the wrapper is content-height and the
+   sidebar COLUMN is not. Measured on the built site at 1440x900: nav rail
+   column x=103–345, article x=369–1057, ToC x=1081–1323; the diagram wrapper
+   spanned x=37–1389 (1352px) and was 849px tall, against an opaque ground 99px
+   tall on the left and 126px on the right. It covered 12–15% of the collision,
+   and where it did cover it punched an opaque rectangle straight through the
+   artwork. 63 SVG elements — node rects and text labels — landed inside a
+   sidebar column. At 1920x1080: 32 under the rail, 26 under the ToC. At
+   1024x900 the rail is an off-canvas drawer, but 37 labels still sat under the
+   ToC. /agents/ and /skills/ scanned clean at every width, and prose never
+   collided anywhere: the fault was diagram-specific and homepage-only, which is
+   exactly why hiding the rails on that one page removes it rather than manages
+   it. Net trade, measured: ~85% of the artwork visible at 1440 and ~93% at
+   1920, both with zero collision, against 97% visible *with* the collision.
+   The cost falls as the window widens, because the grid cap grows with it.
+
+   NO VIEWPORT UNIT APPEARS ANYWHERE IN THIS FILE, and none should — the bleed
+   above was the last one. A viewport width counts the classic scrollbar (15px
+   in Chrome on Windows) and the client box does not, so anything sized off it
+   overflows the page by exactly that much and the body scrolls sideways, which
+   §5 forbids. Every length here comes from the containing block, which is
+   already scrollbar-correct.
    --------------------------------------------------------------------------- */
 
 /* Inlined diagrams get this class from hooks/inline_svg.py. */
@@ -417,41 +445,12 @@ samp,
   background-attachment: local, local, scroll, scroll;
 }
 
-/* 60em: the table of contents takes 12.1rem out of the flex row on the right. */
-@media screen and (min-width: 60em) {
-  .md-typeset .nescio-diagram {
-    margin-right: -12.1rem;
-  }
-}
-
-/* 76.25em: the navigation rail takes another 12.1rem on the left, and .md-grid
-   stops growing at 61rem so everything past that is page margin. Spend it,
-   less a 2rem allowance for the scrollbar 100vw counts and the client box does
-   not. The gutter that leaves is (2rem - scrollbar)/2 + the article's own
-   1.2rem, i.e. 44px - scrollbar/2 — non-negative for any scrollbar up to 88px,
-   and identical on both sides because .md-grid is centred. */
-@media screen and (min-width: 76.25em) {
-  .md-typeset .nescio-diagram {
-    --nescio-bleed: max(0px, (100vw - 61rem - 2rem) / 2);
-    margin-left: calc(-12.1rem - var(--nescio-bleed));
-    margin-right: calc(-12.1rem - var(--nescio-bleed));
-  }
-}
-
 .md-typeset .nescio-diagram > svg {
   display: block;
   height: auto;
   max-width: none;
   /* Centred when it fits; flush left, and scrolling, when it does not. */
   margin-inline: auto;
-}
-
-/* The sidebars are sticky and therefore paint above the article. Where a
-   diagram passes behind one, an opaque ground reads as "the rail is on top" —
-   without it the nav links sit directly on the artwork. The colour is the page
-   ground, so this is invisible everywhere else. */
-.md-sidebar__scrollwrap {
-  background-color: var(--md-default-bg-color);
 }
 
 /* ===========================================================================
