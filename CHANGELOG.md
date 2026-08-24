@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.3.0](https://github.com/noctua84/nescio-ai/compare/v1.2.0...v1.3.0) (2026-08-23)
+
+
+### Features
+
+* add a dedicated implementer agent and delivery-boundary routing ([d463744](https://github.com/noctua84/nescio-ai/commit/d463744be48753b18622f947fa27802e65ea4bec))
+* **agents:** add builder, the crew's dedicated implementer ([517921e](https://github.com/noctua84/nescio-ai/commit/517921e8e5a597c65dcfaebe133cdbbdd7067675))
+* **brand:** add brand generator package with shared palette ([a02cc37](https://github.com/noctua84/nescio-ai/commit/a02cc3781e5d3784cade94511581265b5d45a014))
+* **brand:** brand package — shared palette, tokenised diagrams, self-hosted fonts ([4365423](https://github.com/noctua84/nescio-ai/commit/43654236ccd575a69985fd43abe67fc875937dfd))
+* **brand:** tokenise diagrams, self-host fonts, outline the wordmark ([b865d7e](https://github.com/noctua84/nescio-ai/commit/b865d7e95d0115a514e2e0de3a2016ab31decea1))
+* **docs:** build the real site — schemes, catalog, hero, diagrams ([b7bd1ae](https://github.com/noctua84/nescio-ai/commit/b7bd1aefd0198356e39ebbc3e01b190959486a57))
+* **docs:** publish the token-usage toolkit, anonymized ([a3f1ed9](https://github.com/noctua84/nescio-ai/commit/a3f1ed925f804f073c8ee817b8210e9efbeee7a5))
+* **docs:** the real site — schemes, catalog, hero, inlined diagrams ([82450dd](https://github.com/noctua84/nescio-ai/commit/82450dd26ad4f9d6b86dbd413c6e398ae1645381))
+* **orchestrator:** add Delivery Boundary Check to PLAN ([4078caa](https://github.com/noctua84/nescio-ai/commit/4078caa4f0edba09bf36c78af95c116f49499595))
+* **orchestrator:** dispatch implementation tasks to builder ([8f461d0](https://github.com/noctua84/nescio-ai/commit/8f461d07e65ee63ef6635058b30e7fcd32780843))
+* **theme:** register builder in the philosopher theme as archimedes ([c26cc2b](https://github.com/noctua84/nescio-ai/commit/c26cc2bdbacbc94de2fc2c51905b8580038afc92))
+
+
+### Bug Fixes
+
+* **agents:** green CI and close the implementer review findings ([6d6e632](https://github.com/noctua84/nescio-ai/commit/6d6e63248ecdca7d4d6a2c100d30268152ac6d8c))
+* **docs:** let diagrams break out of the article column ([124d556](https://github.com/noctua84/nescio-ai/commit/124d55643c7a61c8b0b38bcacdfc3e5d0c56497a))
+* **docs:** let diagrams break out of the article column ([f19f996](https://github.com/noctua84/nescio-ai/commit/f19f996a4c825f40247c95d16e4a4656b9188294))
+* make framework tests theme-aware and independent of memory/ ([668a69e](https://github.com/noctua84/nescio-ai/commit/668a69e391a1c7f736c3fbf28eb76d5d64adf88b))
+* **release:** keep uv.lock version in step with pyproject.toml ([e8f0104](https://github.com/noctua84/nescio-ai/commit/e8f01040c9fb30c31915ba22e39563d3ef541573))
+* **release:** keep uv.lock version in step with pyproject.toml ([db5a628](https://github.com/noctua84/nescio-ai/commit/db5a628fb05e6da9053595341fc3524fb65c734b))
+* **theme:** preserve charter line endings when switching themes ([1c6fba7](https://github.com/noctua84/nescio-ai/commit/1c6fba733577ad43b7bc478196c2877f407000e1)), closes [#82](https://github.com/noctua84/nescio-ai/issues/82)
+
+
+### Documentation
+
+* **orchestrator:** disambiguate the controller's own re-verification step ([d948e58](https://github.com/noctua84/nescio-ai/commit/d948e58e0c3f79761889cc022fda8bbc535ea022))
+* **plans:** correct the test command and account for the generated catalog ([c7e8b71](https://github.com/noctua84/nescio-ai/commit/c7e8b71b4e2cdc231f6a5c8933d29e6555eaf214))
+* **plans:** implementation plan for the builder agent and boundary gate ([68f7df3](https://github.com/noctua84/nescio-ai/commit/68f7df307e38a372440c08a1a2015b6a6716d0b4))
+* **specs:** design a dedicated implementer agent and delivery-boundary routing ([9b28db3](https://github.com/noctua84/nescio-ai/commit/9b28db3233383e281c77a0b744359a5b6b6ffa15))
+* **usage:** read the Aug-13 step change as a plan change, not a regression ([b0c2569](https://github.com/noctua84/nescio-ai/commit/b0c256918b852fdad55c0d23fb59f9020f55764e))
+
 ## [1.2.0](https://github.com/noctua84/nescio-ai/compare/v1.1.1...v1.2.0) (2026-08-19)
 
 
