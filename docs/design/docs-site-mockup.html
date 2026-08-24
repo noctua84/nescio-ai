@@ -305,6 +305,11 @@ td b{color:var(--ink)}
       <span class="pill set">Favicons · shipped</span>
       <span class="pill set">Generators · complete</span>
       <span class="pill set">docs.nescio-ai.org</span>
+      <span class="pill open">&sect;08 &middot; superseded</span>
+    </div>
+    <div class="callout warn">
+      <p><b>Point-in-time snapshot &mdash; 24 August 2026.</b> This page records the design as <em>approved</em>, not as currently shipped. Everything below still holds <b>except section 08 &middot; Layout</b>, which documents a diagram break-out that was measured, found to collide with both sidebars, and withdrawn in <a href="https://github.com/noctua84/nescio-ai/pull/86">PR&nbsp;#86</a>.</p>
+      <p>The living spec is <code>docs/design/design-system.md</code> &sect;5 (homepage exemption) and &sect;6 (&ldquo;Presentation: diagrams span a single-column homepage&rdquo;). <b>Where this page and the spec disagree, the spec wins.</b> This file is deliberately not re-rendered: its value is as the record of a decision that was made, shipped, measured and reversed.</p>
     </div>
   </header>
 
@@ -575,7 +580,26 @@ td b{color:var(--ink)}
 
   <!-- DIAGRAM WIDTH -->
   <section>
-    <div class="sec-head"><div class="eyebrow">08 · Layout</div><h2>Diagrams do not fit the column</h2></div>
+    <div class="sec-head"><div class="eyebrow">08 · Layout &middot; superseded</div><h2>Diagrams do not fit the column</h2></div>
+    <div class="callout warn">
+      <p><b>Superseded &mdash; the break-out was withdrawn on 24 August 2026 (<a href="https://github.com/noctua84/nescio-ai/pull/86">PR&nbsp;#86</a>).</b> Everything in this section describes that break-out: negative margins of one sidebar width per side, plus a viewport-derived bleed. It shipped, and it slid the artwork underneath both sticky sidebars &mdash; 63 SVG nodes and labels measured inside a sidebar column at 1440&times;900. The break-out was deleted outright. The homepage now hides both rails (<code>hide: [navigation, toc]</code> in <code>index.md</code>) and the diagram spans the single-column grid at natural size.</p>
+      <p><b>The numbers below are wrong; the reasoning is not.</b> Current measured figures &mdash; <code>design-system.md</code> &sect;6, &ldquo;Known limitation: narrow viewports&rdquo;:</p>
+      <div class="tbl-wrap">
+        <table class="meas">
+          <thead><tr><th>Viewport</th><th>Diagram visible</th><th>Basis</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1920</td><td class="n good">~93%</td><td>root 22px, <code>61rem</code> = 1342px</td></tr>
+            <tr><td class="n">1440</td><td class="n good">~85%</td><td>root 20px, <code>61rem</code> = 1220px</td></tr>
+            <tr><td class="n">1024</td><td class="n">~70%</td><td>below the cap &mdash; grid tracks viewport</td></tr>
+            <tr><td class="n">768</td><td class="n bad">~51%</td><td>&mdash;</td></tr>
+            <tr><td class="n">375</td><td class="n bad">~25%</td><td>&mdash;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The wide figures differ from the &ldquo;after&rdquo; table below because <b>the <code>61rem</code> grid cap is font-relative, not a fixed 1220px</b>, and Material raises the root font-size at wide viewports (20px at 1440, 22px at 1920) &mdash; so the cap grows with the window instead of plateauing. The 1024-and-below rows carry over unchanged: with no rails left to break past, a full-width grid and a viewport-spanning break-out are the same width.</p>
+      <p style="color:var(--muted);font-size:.86rem">Kept unedited rather than rewritten. The argument further down about <code>margin-inline: calc(50% - 50vw)</code> centring on the containing block is still correct and still worth reading &mdash; it is the record of a trap, and the trap did not go away.</p>
+    </div>
+
     <p class="note">Measured on the built site at a 1440px viewport, not estimated. Material&rsquo;s three-column layout leaves the article a fraction of the width the artwork needs.</p>
 
     <div class="tbl-wrap">
