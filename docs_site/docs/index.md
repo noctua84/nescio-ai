@@ -1,3 +1,24 @@
+---
+# This front matter MUST be the first bytes of the file — MkDocs only parses a
+# YAML block that opens on line 1, and a page whose front matter is preceded by
+# so much as a blank line silently keeps both rails.
+#
+# Why the homepage hides them: it is a landing page, and every destination it
+# offers is already reachable in-page twice — the hero buttons link to Agents,
+# Skills and Source, and "Where to go next" at the foot repeats all three. A
+# navigation rail and a table of contents here duplicate links the reader can
+# already see. What they cost is the whole width the two diagrams need: with
+# both rails present the 1400px artwork slid underneath them (see nescio.css §3
+# for the measurements). Single column, no rails, no collision.
+#
+# So this is load-bearing layout, not a cosmetic preference. Re-enable either
+# rail and the diagrams go back to overlapping it. agents.md and skills.md keep
+# both rails — they are reference pages with real headings to navigate.
+hide:
+  - navigation
+  - toc
+---
+
 <!--
   The homepage. Two mechanisms are load-bearing here and neither is obvious:
 
