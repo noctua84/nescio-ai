@@ -271,6 +271,8 @@ Agent(
     - Before committing, confirm HEAD is attached to the branch above:
       `git symbolic-ref -q HEAD` — if detached, `git switch <branch>` first.
       A detached-HEAD commit succeeds but lands on no branch and is lost.
+    - Prefix every commit: `[impl]` for production code, `[fix]` for bug fixes,
+      `[chore]` for tooling-only — e.g. `feat: [impl] add refresh handler`
   "
 )
 ```
@@ -300,6 +302,23 @@ Agent(
    highest-value thing it produces after the code itself — today's findings are
    the brief for tomorrow's spawned task. Do not act on them now (that is scope
    drift); do not drop them either.
+
+### Regression Gate (after `[test]` phases)
+
+When a `test-writer` agent has committed a `[test]` wave, verify before
+accepting the verdict that no implementation file paths appear in those commits:
+
+```bash
+# identify the [test] commits
+git log --oneline --grep='\[test\]' <base>..<head>
+# check which files each one touched
+git diff-tree --no-commit-id -r <sha> --name-only
+```
+
+If any path outside the project's test directories appears in the diff, reject
+the verdict and re-dispatch with an explicit boundary reminder: name the file
+that was touched, ask `test-writer` to revert it, document the issue in
+`<blocked-on>`, and return `BLOCKED`.
 
 **Progress update to user:**
 

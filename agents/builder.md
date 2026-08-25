@@ -60,7 +60,20 @@ you have not executed. "This should work" is not a verification.
 If nothing is runnable, say exactly that in `<verification>` and return
 `PARTIAL`, not `COMPLETE`.
 
-### 5. Report
+### 5. Commit
+
+Prefix every commit with the bracket that identifies the workflow phase:
+
+| What you built | Prefix |
+|---|---|
+| Production code | `[impl]` |
+| Bug fix surfaced by a failing test | `[fix]` |
+| Tooling or config only | `[chore]` |
+
+The bracket coexists with conventional commit format — `feat: [impl] add token
+refresh` — so release tooling and phase-scoped review each get what they need.
+
+### 6. Report
 Use the contract below. Nothing else.
 
 **Collect out-of-scope findings as you hit them, not from memory at the end.** By
