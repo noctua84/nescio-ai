@@ -238,6 +238,27 @@ Approve plan and begin execution?
 3. **Full context per agent** — each agent gets the complete task description, relevant file paths, and acceptance criteria (they have no memory of this conversation)
 4. **Verify after each task** — read changed files to confirm the work matches the plan
 
+### Documentation parallel track
+
+Dispatch `doc-researcher` in the same wave as the first `[impl]` agent. It maps
+the documentation landscape while implementation runs, so the doc-writing step
+in DELIVER has a ready brief when the code is done:
+
+```
+Agent(
+  subagent_type: "doc-researcher",
+  prompt: "
+    ## What changed
+    [Description of the feature or change being implemented]
+
+    ## Project docs entry point
+    [README, docs/ index, or mkdocs config path]
+
+    Return a coverage map, gap list, and update targets for doc-writer.
+  "
+)
+```
+
 ### Scope-Drift Reflex (before each wave)
 
 Before dispatching a wave, restate the **original task** in one line and confirm the wave's tasks still serve it. If an activity is 2+ steps removed from the original goal, or is "nice-to-have" rather than "must-have," stop and surface the drift to the user — name the chain (A → B → C → you-are-here) and the cut-back point. Cheap insurance against long waves wandering off the goal.
@@ -470,6 +491,30 @@ Spin any of these out as their own task?
 ```
 
 Omit the section only when every report said "None".
+
+### Documentation Update (if applicable)
+
+If the plan included documentation updates, dispatch `doc-writer` with the
+`doc-researcher` findings gathered during EXECUTE:
+
+```
+Agent(
+  subagent_type: "doc-writer",
+  prompt: "
+    ## What changed
+    [Description of the implementation just completed]
+
+    ## Research findings
+    [Paste the full <doc-research> block from doc-researcher]
+
+    ## Branch
+    [Current branch — doc-writer commits with [docs] prefix]
+  "
+)
+```
+
+If `doc-writer` returns `BLOCKED`: the block names a code fix needed before the
+doc can be written — that is a `builder` task; add it to the findings list.
 
 ### Present Options
 
