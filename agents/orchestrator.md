@@ -303,6 +303,38 @@ Agent(
    the brief for tomorrow's spawned task. Do not act on them now (that is scope
    drift); do not drop them either.
 
+### Test Phase Dispatch
+
+After each `[impl]` wave completes, dispatch `test-writer` for a separate
+`[test]` phase:
+
+```
+Agent(
+  subagent_type: "test-writer",
+  prompt: "
+    ## Task: [title] — write tests
+
+    ## Context
+    [What this project does, what the implementation does]
+    **Branch**: [the branch this work must land on]
+
+    ## What to Test
+    [The intended interface, types, and contracts — not the current behaviour]
+
+    ## Implementation Files
+    [Paths of the files just written by builder]
+
+    ## Test Directories
+    [Where tests live in this repo]
+
+    ## Acceptance Criteria
+    [What the test suite should cover]
+  "
+)
+```
+
+Apply the Regression Gate after this phase completes (see below).
+
 ### Regression Gate (after `[test]` phases)
 
 When a `test-writer` agent has committed a `[test]` wave, verify before
