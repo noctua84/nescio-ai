@@ -272,10 +272,14 @@ contradicts it.
 **Docs pages.** Three columns: left nav, article, right table of contents.
 Article measure capped at ~68ch. True of `/agents/` and `/skills/`.
 
-**The homepage is the exemption.** It is a single-column landing page —
-`index.md` hides both `navigation` and `toc`. Its navigation already lives in
-the hero as buttons, and it is the only page carrying diagrams, which need the
-full grid width. See §6.
+**The homepage is a partial exemption.** It keeps the navigation rail and hides
+only the table of contents — `index.md` carries `hide: [toc]`. The TOC goes
+because it is four entries on a landing page whose destinations are already
+linked twice in the body (hero buttons, then "Where to go next"). The rail
+stays because hiding it removes every desktop navigation affordance at once:
+at ≥76.25em Material drops the rail, the header hamburger and the footer
+prev/next block together, leaving the GitHub icon. That was shipped, measured
+and reverted. See §6.
 
 **Spacing.** Lay out sibling groups with flex/grid `gap`, never per-element
 margins. Wide content — tables, code, diagrams — gets its own
@@ -323,32 +327,46 @@ Generating the pair rather than hand-maintaining it is what stops them drifting.
 **Confirmed.** One tokenised source, inlined on the site, twins generated for
 GitHub.
 
-### Presentation: diagrams span a single-column homepage
+### Presentation: diagrams scroll inside the content column
 
 Diagrams carry the architecture explanation, so legibility outranks column
-alignment — but not at the cost of colliding with the chrome. Both diagrams
-live on the homepage and nowhere else, so the homepage stops being a
-three-column page: `index.md` carries `hide: [navigation, toc]`, and the
-diagram spans the full `.md-grid` at natural size. Prose keeps its 68ch
-measure, because the cap sits on the article's *blocks*, not the article.
+alignment — but not at the cost of colliding with the chrome, and not at the
+cost of navigation. Both diagrams live on the homepage and nowhere else. That
+page keeps its navigation rail, hides the table of contents, and renders the
+diagram at natural size inside an `overflow-x: auto` wrapper that fills the
+content column. Prose keeps its 68ch measure, because the cap sits on the
+article's *blocks*, not the article — that is what lets the wrapper use the
+whole column instead of 551px.
 
-**This works only because the homepage hides both rails.** Re-enable
-`navigation` or `toc` on `index.md` and the diagrams overflow straight back
-into them. The front matter and the diagram width are one decision, not two —
-touch either and re-measure both.
+Measured on the built site with this arrangement:
 
-Nothing is lost by hiding them there. The hero already links Agents, Skills and
-Source as buttons, and "Where to go next" repeats the first two. The homepage
-TOC was four entries on a landing page.
+| Viewport | Root font | Content column | Diagram visible | Shapes under a rail |
+|---|---|---|---|---|
+| 1440×900 | 20px | 938px | **67.0%** | 0 |
+| 1920×1080 | 22px | 1032px | **73.7%** | 0 |
 
-The price, stated plainly: `.md-grid` caps at `61rem`, and that cap is
-font-relative, so it grows as Material raises the root font-size at wider
-viewports. Measured, `.md-content__inner` is 1188px at 1440 (root 20px) and
-1307px at 1920 (root 22px) — **~85%** and **~93%** of the 1400px artwork,
-against 97% and ~97–98% under the old break-out. So the fix costs about twelve
-points at 1440 and only a few at 1920: it gets cheaper the wider the window.
-The wrapper keeps its `overflow-x: auto` and its scroll affordance — 1400 still
-exceeds the content column at every width, so it still scrolls, just far less.
+No horizontal page scroll at either width, prose still capped at 551px,
+`/agents/` and `/skills/` unchanged (both rails, article 369–1057).
+
+**Do not hide the navigation rail to buy diagram width.** That is the standing
+rule, and it is the opposite of what an earlier revision of this section said.
+`hide: navigation` on `index.md` does widen the column — it also, at ≥76.25em,
+sets `.md-header__button[for="__drawer"]` to `display: none` and drops the
+footer prev/next block, so the rail, the hamburger and prev/next disappear
+together and the GitHub icon becomes the only persistent link on the page.
+Mobile is unaffected: below that breakpoint Material's drawer CSS overrides the
+`hidden` attribute, so the hamburger is a working 40×40 target and the drawer
+lists Home / Agents / Skills. The regression was therefore desktop-only and
+invisible to anyone checking on a phone. Shipped, measured, reverted.
+
+The cost is real and accepted: the diagram is further from its 1400px authored
+width than under either previous arrangement, so it scrolls more. Navigation
+outranks diagram width.
+
+**The durable fix is narrower artwork, not more page.** The crew diagram's
+width is `3 columns × 380px + 2 gaps × 44px` in `brand/make_diagrams.py` — a
+layout parameter, not a property of the drawing. Re-authoring it to fit a
+three-column page removes the trade entirely. Identified; not done.
 
 **The reversal, on the record.** A viewport-spanning break-out — negative
 margins derived from Material's sidebar constants, diagram centred at natural
@@ -373,10 +391,9 @@ Two traps, both measured, both still worth keeping:
   child can never exceed its containing block, so while `.md-content__inner`
   carried the 68ch cap the diagram stayed pinned at 551px whatever its margins
   said. This mattered under the break-out; it matters *more* now, because the
-  full grid width is the entire mechanism. The diagram reaches the full column
+  content column is the entire mechanism. The diagram reaches the full column
   width only because the cap sits on the article's blocks. Move the cap back
-  onto `.md-content__inner` and the diagram is 551px again, single column or
-  not.
+  onto `.md-content__inner` and the diagram is 551px again, rails or no rails.
 - **`margin-inline: calc(50% - 50vw)` was wrong for the break-out.** History,
   not live guidance — there is no break-out left to implement. Recorded so the
   idea is not rediscovered as a fix: it centres on the containing block, and
@@ -385,26 +402,23 @@ Two traps, both measured, both still worth keeping:
   artwork is unreachable at `scrollLeft: 0` and left overflow produces no
   scrollbar to catch it.
 
-**Decision: break-out withdrawn, homepage single-column.** Full grid width, no
-negative margins, both rails hidden on `index.md`.
+**Decision: break-out withdrawn, navigation rail kept, TOC hidden.** The
+diagram stays inside the content column and scrolls; `index.md` hides `toc`
+only.
 
 ### Known limitation: narrow viewports — accepted
 
 | Viewport | Diagram visible | Basis |
 |---|---|---|
-| 1920 | ~93% | measured — root 22px, `61rem` = 1342px, content 1307px |
-| 1440 | ~85% | measured — root 20px, `61rem` = 1220px, content 1188px |
-| 1024 | ~70% | measured |
-| 768 | ~51% | measured |
-| 375 | ~25% | measured |
+| 1920×1080 | ~74% | measured — root 22px, content column 1032px |
+| 1440×900 | ~67% | measured — root 20px, content column 938px |
+| 1024 and below | **not re-measured** | earlier figures were taken under the break-out and the rail-less layout; both are gone |
 
-**The `61rem` grid cap is font-relative, not a fixed pixel width**, and Material
-raises the root font-size at large viewports — 20px at 1440, 22px at 1920. The
-cap therefore grows with the window, and the diagram's visible share keeps
-climbing instead of plateauing. Below the cap the grid tracks the viewport and
-the percentage falls with it, which is why the 1024-and-below rows carry over
-unchanged from the break-out era — a full-width grid and a viewport-spanning
-break-out are the same width once there are no rails to break past.
+Only the two desktop rows are current. The old 1024 / 768 / 375 numbers were
+measured against layouts that no longer exist and are not carried over — do not
+reinstate them without re-measuring. The qualitative shape still holds: the
+content column shrinks with the window, so the visible share falls with it, and
+below the `61rem` grid cap the column tracks the viewport directly.
 
 Below roughly 800px width there is nothing left to give the diagram.
 `1400×826` is a landscape composition and phones are portrait, so
@@ -733,7 +747,7 @@ since it is the exact ambiguity that raised the question.
 | 8 | Brand kit moves into the repo as a `brand/` package | Files drift; generators don't |
 | 9 | Docs live at `docs.nescio-ai.org` | Subdomain CNAME beats apex A records; apex kept free |
 | 10 | Brand and site stay in `nescio-ai` | `FRAMEWORK_PATHS` already isolates them; a split buys nothing |
-| 11 | Homepage is single-column; diagrams span the grid; narrow viewports accepted as-is | The column break-out slid 63 elements under the sticky rails; the mobile case is an aspect-ratio mismatch CSS cannot fix |
+| 11 | Homepage keeps the nav rail and hides only `toc`; diagrams scroll inside the content column | The break-out slid 63 elements under the sticky rails; hiding `navigation` to widen the column removed rail, hamburger and prev/next at once on desktop. Narrower artwork is the durable fix (§6) |
 
 ---
 

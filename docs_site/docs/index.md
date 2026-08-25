@@ -1,21 +1,30 @@
 ---
 # This front matter MUST be the first bytes of the file — MkDocs only parses a
 # YAML block that opens on line 1, and a page whose front matter is preceded by
-# so much as a blank line silently keeps both rails.
+# so much as a blank line silently keeps the table of contents.
 #
-# Why the homepage hides them: it is a landing page, and every destination it
-# offers is already reachable in-page twice — the hero buttons link to Agents,
-# Skills and Source, and "Where to go next" at the foot repeats all three. A
-# navigation rail and a table of contents here duplicate links the reader can
-# already see. What they cost is the whole width the two diagrams need: with
-# both rails present the 1400px artwork slid underneath them (see nescio.css §3
-# for the measurements). Single column, no rails, no collision.
+# Only the TOC is hidden. This is a landing page with four headings, and every
+# destination it offers is already reachable in-page twice — the hero buttons
+# link to Agents, Skills and Source, and "Where to go next" at the foot repeats
+# all three. A four-entry table of contents here is duplication.
 #
-# So this is load-bearing layout, not a cosmetic preference. Re-enable either
-# rail and the diagrams go back to overlapping it. agents.md and skills.md keep
-# both rails — they are reference pages with real headings to navigate.
+# THE NAVIGATION RAIL STAYS. Do not add `navigation` to this list. `hide:
+# navigation` does not merely drop the left rail: at desktop widths (≥76.25em)
+# Material also sets the header hamburger — .md-header__button[for="__drawer"] —
+# to display:none and omits the footer prev/next block, so all three navigation
+# affordances vanish at once and the only persistent link left on the homepage
+# is the GitHub icon. Mobile is unaffected (the drawer CSS overrides the hidden
+# attribute below that breakpoint), which is exactly why the regression shipped
+# unnoticed. It was measured on the deployed site and reverted.
+#
+# The rail costs the diagrams width — the 1400px artwork now scrolls more inside
+# its wrapper (nescio.css §3 carries the measurements). That trade is deliberate:
+# navigation outranks diagram width. The durable fix is re-authoring the diagrams
+# narrower, which is separate work.
+#
+# agents.md and skills.md keep both rails — they are reference pages with real
+# headings to navigate.
 hide:
-  - navigation
   - toc
 ---
 
