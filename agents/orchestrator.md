@@ -381,12 +381,27 @@ that was touched, ask `test-writer` to revert it, document the issue in
 
 **Goal**: Ensure everything works together and meets the original requirements.
 
-### Step 1: Run Automated Checks
-Use Bash to run:
-- Test suite (if it exists)
-- Linter / formatter
-- Type checker
-- Build command
+### Step 1: CI Gate — dispatch `qa-guard`
+
+```
+Agent(
+  subagent_type: "qa-guard",
+  prompt: "
+    ## Context
+    [What this project is]
+    **Branch**: [current branch]
+
+    ## What to Check
+    Discover and run all CI checks for this project. Fix mechanical failures.
+    Return PASSED when all checks pass, BLOCKED if you hit a genuine bug or
+    an out-of-mandate failure.
+  "
+)
+```
+
+If `qa-guard` returns `BLOCKED`: surface the blocker to the user before
+dispatching `reviewer`. A bug surfaced here is a `builder` task, not a
+review finding.
 
 ### Step 2: QA Audit
 ```
