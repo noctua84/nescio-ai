@@ -81,6 +81,7 @@ Wave-based parallel execution plan
 
 ## TODOs
 - [ ] 1. Task Title
+  **Complexity**: simple | standard | complex
   **What to do**: Specific instructions with file paths
   **Files**: List of files to create/modify
   **Acceptance criteria**: How to verify completion
@@ -89,6 +90,21 @@ Wave-based parallel execution plan
 ## Success Criteria
 How we know the entire plan is complete
 ```
+
+### Complexity Classification
+
+Every task must carry a `Complexity` tier. This is your estimate — the
+orchestrator routes to the right builder variant from it and does not reclassify:
+
+| Tier | When to use |
+|---|---|
+| `simple` | Mechanical — no design judgment, no ambiguity, under 50 lines, well-understood pattern |
+| `standard` | Moderate — some judgment required, 50–200 lines, one or two design decisions |
+| `complex` | High reasoning load — architecture decisions, cross-system impact, significant ambiguity |
+
+When in doubt between two tiers, choose the higher one. If a `simple` task turns
+out to be complex at execution time, `builder-simple` returns `BLOCKED` — that is
+the correct outcome, not a classification failure.
 
 ### Maximise Parallelism
 - One task = one module/concern = 1-3 files

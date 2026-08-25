@@ -244,9 +244,21 @@ Before dispatching a wave, restate the **original task** in one line and confirm
 
 ### Per-Task Dispatch
 
+Select the builder variant from the task's complexity tier in the plan:
+
+| Tier | Agent |
+|---|---|
+| `simple` | `builder-simple` |
+| `standard` | `builder-standard` |
+| `complex` or unclassified | `builder` |
+
+The tier is planner's estimate — do not reclassify here. If `builder-simple`
+returns `BLOCKED` because a task proved more complex than expected, re-dispatch
+as `builder` (the task stays `simple` in the plan).
+
 ```
 Agent(
-  subagent_type: "builder",
+  subagent_type: "builder | builder-standard | builder-simple",
   prompt: "
     ## Task: [title]
     
