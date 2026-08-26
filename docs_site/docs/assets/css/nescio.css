@@ -340,10 +340,11 @@ samp,
    and capping its blocks leaves prose at exactly the same measure while giving
    the diagram a containing block as wide as the content column.
 
-   This got MORE load-bearing, not less, when the homepage went single-column
-   (see the diagram section below). With both rails hidden the article spans the
-   full 61rem grid, so this cap is now the only thing holding running text to
-   §5's measure there. Remove it and the homepage prose runs the full width. */
+   This is now the ONLY thing holding running text to §5's measure anywhere on
+   the site — the article box is uncapped on every page, not just the homepage.
+   Remove it and the prose runs the full content column. It is also the whole
+   mechanism by which the diagrams get their width (see the diagram section
+   below): put the cap back on .md-content__inner and they are 551px again. */
 .md-content__inner.md-typeset {
   --nescio-measure: 68ch;
   max-width: none;
@@ -375,14 +376,29 @@ samp,
    content column and scrolls whatever still does not fit.
 
    >>> THE RULE THAT KEEPS THIS WORKING <<<
-   docs/index.md carries `hide: [navigation, toc]` in its front matter, so the
-   homepage — the ONLY page with diagrams on it; the two `diagram:` markers in
-   the whole site are both there — is a single column spanning the full 61rem
-   grid. That cap is font-relative, not a fixed pixel width, and Material raises
-   the root font-size at wide viewports, so the column measures 1188px at 1440
-   (root 20px) and 1307px at 1920 (root 22px). If anyone re-enables either
-   rail on the homepage, the diagrams will overflow into it again. That coupling
-   is the whole design; it is not a stylistic preference about the homepage.
+   The width comes from the measure cap sitting on the article's BLOCKS rather
+   than on the article itself (see §5 above). The homepage — the ONLY page with
+   diagrams on it; the two `diagram:` markers in the whole site are both there —
+   keeps its navigation rail and hides only the table of contents. Measured on
+   the built site with that arrangement: content column 938px at 1440 (root
+   20px, 67.0% of the artwork) and 1032px at 1920 (root 22px, 73.7%), zero
+   shapes under a rail at either width, no horizontal page scroll, prose still
+   capped at 551px.
+
+   >>> AND DO NOT BUY WIDTH BY HIDING THE NAV RAIL <<<
+   That was tried. `hide: navigation` in the homepage front matter gave the
+   diagram the full 61rem grid, and at ≥76.25em it simultaneously removed the
+   rail, the header hamburger button and the footer prev/next block, leaving the
+   GitHub icon as the only persistent link on the page. Mobile kept its drawer,
+   so nothing looked broken until someone opened a laptop. Reverted. Navigation
+   outranks diagram width.
+
+   The consequence, stated plainly: the diagram is further from its 1400px
+   authored width than it was under either previous arrangement, so it scrolls
+   more inside the wrapper below. That is a deliberate, temporary trade. The
+   durable fix is re-authoring the diagrams narrower — the crew diagram's width
+   is a layout parameter in brand/make_diagrams.py (3 columns × 380px + 2 gaps ×
+   44px), not a property of the artwork. Identified, not done.
 
    WHAT WAS HERE BEFORE, so nobody reinvents it. Until this rule was rewritten,
    the wrapper broke OUT of the article column: negative margins, one sidebar
@@ -400,11 +416,11 @@ samp,
    sidebar column. At 1920x1080: 32 under the rail, 26 under the ToC. At
    1024x900 the rail is an off-canvas drawer, but 37 labels still sat under the
    ToC. /agents/ and /skills/ scanned clean at every width, and prose never
-   collided anywhere: the fault was diagram-specific and homepage-only, which is
-   exactly why hiding the rails on that one page removes it rather than manages
-   it. Net trade, measured: ~85% of the artwork visible at 1440 and ~93% at
-   1920, both with zero collision, against 97% visible *with* the collision.
-   The cost falls as the window widens, because the grid cap grows with it.
+   collided anywhere: the fault was diagram-specific and homepage-only. Net
+   trade, measured against that: 97% of the artwork was visible *with* the
+   collision; the wrapper now stays inside its column and shows 67.0% at 1440
+   and 73.7% at 1920 with nothing behind a rail. Less artwork on screen, all of
+   it reachable, none of it painted over.
 
    NO VIEWPORT UNIT APPEARS ANYWHERE IN THIS FILE, and none should — the bleed
    above was the last one. A viewport width counts the classic scrollbar (15px

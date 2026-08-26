@@ -21,12 +21,11 @@ What these guard, and why each one is worth a test:
     that reads as an arbitrary preference to anyone tidying the file later.
   * The 404 and footer copy is quoted verbatim from §7.
   * No external request may leave the built site (§3).
-  * The diagrams render at their natural size, in a column wide enough to be
-    worth reading, without ever making the page body scroll sideways or sliding
-    under the sidebars. DiagramLayoutTest pins that: no scale-to-fit, no
-    viewport units at all, no negative margins on the wrapper, and the
-    `hide: [navigation, toc]` front matter that gives the homepage the full
-    grid in the first place.
+  * The diagrams render at their natural size, without ever making the page body
+    scroll sideways or sliding under the sidebars. DiagramLayoutTest pins that:
+    no scale-to-fit, no viewport units at all, no negative margins on the
+    wrapper — and that the homepage hides the table of contents but NOT the
+    navigation rail, which is a navigation regression that shipped once.
 """
 
 from __future__ import annotations
@@ -162,19 +161,18 @@ class DiagramSourcesTest(unittest.TestCase):
 class DiagramLayoutTest(unittest.TestCase):
     """How the inlined artwork is sized — nescio.css §3, "Wide diagrams".
 
-    The artwork is 1400px and a 68ch column is 551px, so inside the column 61%
-    of every diagram is off-screen. Scaling to fit is NOT the alternative:
-    1400px squeezed into 551px puts the smallest labels at ~4.5px. The width
-    comes from the page instead — docs/index.md hides both rails, so the
-    homepage article spans the full 61rem grid (~1170px, ~84% of the artwork)
-    and the wrapper scrolls the rest.
+    The artwork is 1400px and a 68ch prose block is 551px. Scaling to fit is NOT
+    the alternative: 1400px squeezed into 551px puts the smallest labels at
+    ~4.5px. The width comes from the page instead — the measure cap sits on the
+    article's blocks rather than the article, so the wrapper gets the whole
+    content column (938px at 1440, 1032px at 1920) and scrolls the rest.
 
     This replaced a break-out that pulled the wrapper out over both rails with
-    negative margins and a 100vw bleed. Measured at 1440x900 that put 63 SVG
-    elements under a sticky sidebar; the opaque-scrollwrap mitigation covered
-    12-15% of the collision and punched a hole through the artwork where it did.
-    The tests below pin the replacement: no scale-to-fit, no viewport units, no
-    negative margins, and the front matter that makes the room.
+    negative margins and a viewport-derived bleed. Measured at 1440x900 that put
+    63 SVG elements under a sticky sidebar; the opaque-scrollwrap mitigation
+    covered 12-15% of the collision and punched a hole through the artwork where
+    it did. The tests below pin the replacement: no scale-to-fit, no viewport
+    units, no negative margins on the wrapper.
     """
 
     @classmethod
@@ -266,20 +264,27 @@ class DiagramLayoutTest(unittest.TestCase):
             "content column rather than from the viewport.",
         )
 
-    def test_homepage_hides_both_rails(self) -> None:
-        """The front matter is what gives the diagrams room to not collide.
+    def test_homepage_hides_the_toc_but_keeps_the_nav_rail(self) -> None:
+        """`hide: toc` only. `hide: navigation` is a navigation regression.
 
-        The homepage is the only page carrying diagrams, and it is a landing
-        page whose every destination is already linked twice in the body (hero
-        buttons, then "Where to go next"). Hiding the navigation rail and the
-        table of contents there costs nothing and buys the article the full
-        61rem grid -- ~1170px of the 1400px artwork with zero overlap, against
-        97% visible *underneath* two sticky sidebars before. Re-enable either
-        rail on this page and the diagrams overflow into it again.
+        Hiding the TOC costs nothing: the homepage is a landing page with four
+        headings whose every destination is already linked twice in the body
+        (hero buttons, then "Where to go next").
+
+        Hiding `navigation` costs everything, and this is the guard against it
+        coming back. It does not merely drop the left rail. Measured on the
+        deployed site at desktop widths (>=76.25em) it ALSO makes Material set
+        the header hamburger, `.md-header__button[for="__drawer"]`, to
+        display:none and omit the footer prev/next block -- rail, hamburger and
+        prev/next gone at once, leaving the GitHub icon as the only persistent
+        link on the page. Mobile is unaffected, because the drawer CSS overrides
+        the `hidden` attribute below that breakpoint, which is exactly why the
+        regression shipped unnoticed. The diagrams are narrower with the rail
+        present and scroll more; that trade was made deliberately.
 
         MkDocs only parses a YAML block that starts at the very first byte, so
         this also pins the front matter to the top of the file: preceded by so
-        much as a blank line it is inert and the rails come back silently.
+        much as a blank line it is inert and the TOC comes back silently.
         """
         source = _INDEX.read_text(encoding="utf-8")
         self.assertTrue(
@@ -292,13 +297,20 @@ class DiagramLayoutTest(unittest.TestCase):
             front_matter, r"(?m)^hide:",
             "docs/index.md has front matter but no `hide:` key.",
         )
-        for rail in ("navigation", "toc"):
-            with self.subTest(rail=rail):
-                self.assertRegex(
-                    front_matter, rf"(?m)^\s*-\s*{rail}\s*$",
-                    f"the homepage must hide `{rail}` -- with that rail on, the "
-                    f"1400px diagrams slide underneath it.",
-                )
+        self.assertRegex(
+            front_matter, r"(?m)^\s*-\s*toc\s*$",
+            "the homepage must hide `toc` -- a four-entry table of contents on a "
+            "landing page whose links are already in the body twice.",
+        )
+        self.assertNotRegex(
+            front_matter, r"(?m)^\s*-\s*navigation\s*$",
+            "the homepage must NOT hide `navigation`. At >=76.25em that removes "
+            "the nav rail, the header hamburger and the footer prev/next block "
+            "simultaneously, leaving the GitHub icon as the only persistent link "
+            "on the page. Mobile still works, so this does not look broken until "
+            "someone opens the site on a laptop. Diagram width is not worth it -- "
+            "re-author the diagrams narrower instead.",
+        )
 
     def test_measure_cap_sits_on_the_article_blocks(self) -> None:
         """§5's ~68ch measure, on an article that is no longer capped itself.
@@ -306,9 +318,9 @@ class DiagramLayoutTest(unittest.TestCase):
         The article is uncapped so the diagram wrapper can use the whole content
         column: `width: auto` on a child can never exceed its containing block,
         and a capped article would pin the diagram to 68ch. The cap moves to the
-        article's blocks instead -- which is the ONLY thing holding prose to the
-        measure on the rail-less homepage, where the article spans the full
-        grid. --nescio-measure has to be a *registered* property for that to be
+        article's blocks instead -- which is then the ONLY thing holding prose to
+        the measure anywhere on the site. --nescio-measure has to be a
+        *registered* property for that to be
         equivalent: unregistered, `68ch` is substituted as a token stream and
         re-resolved against each block's own font, so `68ch` on an h1 comes out
         nearly twice the paragraph measure.
