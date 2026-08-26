@@ -33,6 +33,7 @@ Output directory, highest precedence first:
      to this file, not the current working directory.
 """
 import argparse
+import math
 import os
 import re
 import sys
@@ -150,6 +151,27 @@ def chars_wide(px, size):
     return max(1, int(px / (size * EM_PER_CHAR)))
 
 
+def px_wide(s, size):
+    """Width budget for `s` at `size`px — the inverse of `chars_wide`."""
+    return len(s) * size * EM_PER_CHAR
+
+
+def centre_width(authored, scale, *lines):
+    """Scale an authored box width, but never below the text it has to hold.
+
+    `lines` are `(string, size)` pairs. The floor is the widest of them on the
+    EM_PER_CHAR budget plus a `CARD_PAD` gutter either side — the same budget
+    the wrap widths use, so a box and its contents can never be sized by two
+    different rules.
+
+    The ratio serves the composition; it does not get to clip a label, and
+    shrinking type to make a target fit is not on the table. Where the two
+    disagree the text wins and the box is held wider than the ratio asks.
+    """
+    floor = max(px_wide(s, size) for s, size in lines) + 2 * CARD_PAD
+    return max(round(authored * scale), math.ceil(floor))
+
+
 def wrap(s, width):
     words, lines, cur = s.split(), [], ""
     for w in words:
@@ -237,41 +259,66 @@ def diagram_crew():
          f'viewBox="0 0 {W} {H}">', style(), defs()]
     cx = W / 2
 
+    # The three-column block of cards, stated here because the centre stack is
+    # sized against it and gets drawn first. 3 x 280 + 2 x 44 = 928, leaving
+    # 36px either side. The gap stays at 44: it separates groups, and shrinking
+    # it with the columns would blur the three-band reading the section labels
+    # set up.
+    ncols, col_w, gap = 3, 280, 44
+    col_block = ncols * col_w + (ncols - 1) * gap
+
+    # The centre stack — request pill, orchestrator, gate band — was authored
+    # against the 1228px block of the old 1400px canvas, so it scales by the
+    # ratio of the two blocks and keeps the proportion it was drawn in. Holding
+    # those boxes at their old pixel widths while the columns narrowed was the
+    # visible cost of the reflow: the gate band went from 70% of the block to
+    # 93% and the middle read far too heavy.
+    centre_scale = col_block / (ncols * 380 + (ncols - 1) * gap)
+
     s.append(text(60, 52, "The crew", size=25, weight="700", fill=NODE_LABEL, anchor="start"))
     s.append(text(60, 76, "One orchestrator, nine specialists. Delegation goes down; "
                   "every result comes back through the gate.",
                   size=14.5, fill=BODY, anchor="start"))
 
     # Request
-    s.append(box(cx - 90, 108, 180, 40, r=20))
-    s.append(text(cx, 133, "your request", size=14.5, fill=BODY))
+    pill_label = "your request"
+    pw = centre_width(180, centre_scale, (pill_label, 14.5))
+    s.append(box(cx - pw / 2, 108, pw, 40, r=20))
+    s.append(text(cx, 133, pill_label, size=14.5, fill=BODY))
     s.append(arrow(cx, 148, cx, 176))
 
-    # Orchestrator
-    ow, oh = 470, 84
+    # Orchestrator. The flow line is the widest string in the whole centre
+    # stack and holds this box above the ratio's target — see `centre_width`.
+    orch_sub = "coordinates the lifecycle · never writes production code"
+    orch_flow = "triage → discover → analyze → plan → execute → verify → deliver"
+    ow, oh = centre_width(470, centre_scale, (orch_sub, 13), (orch_flow, 12)), 84
     s.append(box(cx - ow / 2, 178, ow, oh, fill=ACCENT_FILL, stroke=ACCENT, sw=1.8))
     s.append(text(cx, 208, "orchestrator", size=19, weight="700", fill=ACCENT, family=MONO))
-    s.append(text(cx, 231, "coordinates the lifecycle · never writes production code",
-                  size=13, fill=BODY))
-    s.append(text(cx, 250, "triage → discover → analyze → plan → execute → verify → deliver",
-                  size=12, fill=MUTED))
+    s.append(text(cx, 231, orch_sub, size=13, fill=BODY))
+    s.append(text(cx, 250, orch_flow, size=12, fill=MUTED))
 
     # Gate band
     gy = 300
-    s.append(box(cx - 430, gy, 860, 52, fill=NODE_FILL, stroke=ACCENT, dash="5 4", r=10))
+    gate_line = ("judge a result before relaying it — never launder a "
+                 "low-trust answer")
+    gw = centre_width(860, centre_scale, (gate_line, 13))
+    s.append(box(cx - gw / 2, gy, gw, 52, fill=NODE_FILL, stroke=ACCENT, dash="5 4", r=10))
     s.append(text(cx, gy + 22, "ROUTING QUALITY GATE", size=12, weight="700",
                   fill=ACCENT, spacing="1.4"))
-    s.append(text(cx, gy + 40, "judge a result before relaying it — never launder a "
-                  "low-trust answer", size=13, fill=BODY))
+    s.append(text(cx, gy + 40, gate_line, size=13, fill=BODY))
 
-    # down / up arrows through the gate
-    s.append(arrow(cx - 150, 262, cx - 150, gy - 6))
-    s.append(arrow(cx - 150, gy + 58, cx - 150, 404))
-    s.append(text(cx - 168, gy - 14, "delegate", size=11.5, fill=MUTED, anchor="end"))
+    # Down / up arrows through the gate. The offsets ride the same ratio as the
+    # boxes, so the pair stays inside the band and keeps landing on the
+    # orchestrator's lower edge instead of drifting off its corners.
+    arm = round(150 * centre_scale)
+    label_arm = round(168 * centre_scale)
+    s.append(arrow(cx - arm, 262, cx - arm, gy - 6))
+    s.append(arrow(cx - arm, gy + 58, cx - arm, 404))
+    s.append(text(cx - label_arm, gy - 14, "delegate", size=11.5, fill=MUTED, anchor="end"))
 
-    s.append(arrow(cx + 150, 404, cx + 150, gy + 58, color=ACCENT_CONNECTOR, head="accent"))
-    s.append(arrow(cx + 150, gy - 6, cx + 150, 262, color=ACCENT_CONNECTOR, head="accent"))
-    s.append(text(cx + 168, gy - 14, "results", size=11.5, fill=ACCENT, anchor="start"))
+    s.append(arrow(cx + arm, 404, cx + arm, gy + 58, color=ACCENT_CONNECTOR, head="accent"))
+    s.append(arrow(cx + arm, gy - 6, cx + arm, 262, color=ACCENT_CONNECTOR, head="accent"))
+    s.append(text(cx + label_arm, gy - 14, "results", size=11.5, fill=ACCENT, anchor="start"))
 
     # Groups
     groups = [
@@ -292,12 +339,10 @@ def diagram_crew():
         ]),
     ]
 
-    # 3 x 280 + 2 x 44 = 928, leaving 36px either side. The gap stays at 44:
-    # it separates groups, and shrinking it with the columns would blur the
-    # three-band reading the section labels set up.
-    col_w, gap = 280, 44
-    total = len(groups) * col_w + (len(groups) - 1) * gap
-    x0 = (W - total) / 2
+    # `col_w` / `gap` / `col_block` are set at the top of this function — the
+    # centre stack is sized against the block and is drawn before we get here.
+    assert len(groups) == ncols, "col_block no longer describes these columns"
+    x0 = (W - col_block) / 2
     ytop = 432
     col_bottom = ytop
 

@@ -33,22 +33,22 @@
 </defs>
 <text x="60" y="52" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="25" fill="var(--diagram-node-label)" font-weight="700" text-anchor="start">The crew</text>
 <text x="60" y="76" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="14.5" fill="var(--diagram-body)" font-weight="400" text-anchor="start">One orchestrator, nine specialists. Delegation goes down; every result comes back through the gate.</text>
-<rect x="410.0" y="108" width="180" height="40" rx="20" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
+<rect x="432.0" y="108" width="136" height="40" rx="20" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
 <text x="500.0" y="133" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="14.5" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">your request</text>
 <path d="M 500.0 148 L 500.0 176" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
-<rect x="265.0" y="178" width="470" height="84" rx="8" fill="var(--diagram-accent-fill)" stroke="var(--diagram-accent)" stroke-width="1.8"/>
+<rect x="295.0" y="178" width="410" height="84" rx="8" fill="var(--diagram-accent-fill)" stroke="var(--diagram-accent)" stroke-width="1.8"/>
 <text x="500.0" y="208" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="19" fill="var(--diagram-accent)" font-weight="700" text-anchor="middle">orchestrator</text>
 <text x="500.0" y="231" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">coordinates the lifecycle · never writes production code</text>
 <text x="500.0" y="250" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">triage → discover → analyze → plan → execute → verify → deliver</text>
-<rect x="70.0" y="300" width="860" height="52" rx="10" fill="var(--diagram-node-fill)" stroke="var(--diagram-accent)" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="175.0" y="300" width="650" height="52" rx="10" fill="var(--diagram-node-fill)" stroke="var(--diagram-accent)" stroke-width="1.2" stroke-dasharray="5 4"/>
 <text x="500.0" y="322" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-accent)" font-weight="700" text-anchor="middle" letter-spacing="1.4">ROUTING QUALITY GATE</text>
 <text x="500.0" y="340" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">judge a result before relaying it — never launder a low-trust answer</text>
-<path d="M 350.0 262 L 350.0 294" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
-<path d="M 350.0 358 L 350.0 404" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
-<text x="332.0" y="286" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="end">delegate</text>
-<path d="M 650.0 404 L 650.0 358" fill="none" stroke="var(--diagram-accent-connector)" stroke-width="1.4" marker-end="url(#head-accent)"/>
-<path d="M 650.0 294 L 650.0 262" fill="none" stroke="var(--diagram-accent-connector)" stroke-width="1.4" marker-end="url(#head-accent)"/>
-<text x="668.0" y="286" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--diagram-accent)" font-weight="400" text-anchor="start">results</text>
+<path d="M 387.0 262 L 387.0 294" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
+<path d="M 387.0 358 L 387.0 404" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
+<text x="373.0" y="286" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="end">delegate</text>
+<path d="M 613.0 404 L 613.0 358" fill="none" stroke="var(--diagram-accent-connector)" stroke-width="1.4" marker-end="url(#head-accent)"/>
+<path d="M 613.0 294 L 613.0 262" fill="none" stroke="var(--diagram-accent-connector)" stroke-width="1.4" marker-end="url(#head-accent)"/>
+<text x="627.0" y="286" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--diagram-accent)" font-weight="400" text-anchor="start">results</text>
 <text x="176.0" y="420" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="11.5" fill="var(--diagram-muted)" font-weight="700" text-anchor="middle" letter-spacing="1.3">TRIAGE &amp; DISCOVERY</text>
 <line x1="36.0" y1="428" x2="316.0" y2="428" stroke="var(--diagram-node-stroke)" stroke-width="1"/>
 <rect x="36.0" y="448" width="280" height="82" rx="8" fill="var(--diagram-accent-fill)" stroke="var(--diagram-accent)" stroke-width="1.2"/><text x="176.0" y="474" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="15.5" fill="var(--diagram-accent)" font-weight="700" text-anchor="middle">scout</text><text x="176.0" y="494" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12.5" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">risk and intent triage; surfaces hidden</text><text x="176.0" y="511" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12.5" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">assumptions</text>
