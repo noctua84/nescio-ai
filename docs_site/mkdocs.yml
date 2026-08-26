@@ -63,6 +63,13 @@ theme:
 extra_css:
   - assets/css/nescio.css
 
+# The diagrams are capped to the content column, which costs label legibility;
+# this buys it back by opening the same inlined SVG at natural size in a modal.
+# Dependency-free by spec §3 (no CDN, no third-party request at runtime) — the
+# same rule that sets theme.font to false above.
+extra_javascript:
+  - assets/js/diagram-lightbox.js
+
 hooks:
   # Ships brand/fonts/*.woff2 and brand/favicons/* into the build output without
   # committing a second copy of them under docs/. See hooks/assets.py.
