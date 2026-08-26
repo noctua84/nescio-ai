@@ -1,7 +1,9 @@
 import io
+import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -519,6 +521,234 @@ class ProvenanceInBlockTest(unittest.TestCase):
             )
 
 
+class ReceiptTest(unittest.TestCase):
+    """The promotion receipt: an advisory audit record of one promote pass.
+
+    It states what the pass wrote, what it skipped, and when it hit the disk. It
+    does not gate `mark_harvested.py`'s watermark — see the module docstrings of
+    both scripts for why a same-flow receipt can only prove ordering.
+    """
+
+    def _receipt(self, manifest_dir: Path) -> dict:
+        path = manifest_dir / "receipt.json"
+        self.assertTrue(path.is_file(), f"no receipt at {path}")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def test_receipt_written_beside_manifest_on_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "eval" / "learnings" / "20260820T224011"
+            run_dir.mkdir(parents=True)
+            manifest = run_dir / "manifest.json"
+
+            nom = _nom()
+            rc, summary = pl.promote(
+                [nom],
+                repo_dir=repo,
+                receipt_dir=run_dir,
+                manifest_arg=str(manifest),
+            )
+            self.assertEqual(rc, 0, summary)
+
+            data = self._receipt(run_dir)
+            self.assertEqual(data["version"], 1)
+            self.assertEqual(data["manifest"], str(manifest))
+            self.assertEqual(data["promoted"], 1)
+            self.assertEqual(data["skipped"], 0)
+            self.assertEqual(data["targets"], [nom["target"]])
+            # The path is named in the summary so the operator can hand it on.
+            self.assertTrue(
+                any("receipt" in s and "receipt.json" in s for s in summary), summary
+            )
+
+    def test_counts_and_targets_match_what_happened(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            already = _nom(target="feedback/already.md", body="Previously promoted.")
+            pl.promote([already], repo_dir=repo)  # no receipt_dir — pure setup
+
+            fresh = _nom(target="feedback/fresh.md", body="Brand new learning.")
+            rc, summary = pl.promote(
+                [already, fresh],
+                repo_dir=repo,
+                receipt_dir=run_dir,
+                manifest_arg="run/manifest.json",
+            )
+            self.assertEqual(rc, 0, summary)
+            self.assertIn("promoted 1, skipped 1", summary)
+
+            data = self._receipt(run_dir)
+            self.assertEqual(data["promoted"], 1)
+            self.assertEqual(data["skipped"], 1)
+            # Only the written target is listed; the deduped one is absent.
+            self.assertEqual(data["targets"], [fresh["target"]])
+            self.assertNotIn(already["target"], data["targets"])
+
+    def test_written_at_is_timezone_aware_iso8601(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            rc, summary = pl.promote([_nom()], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+
+            stamp = datetime.fromisoformat(self._receipt(run_dir)["written_at"])
+            self.assertIsNotNone(stamp.tzinfo)
+            self.assertIsNotNone(stamp.utcoffset())
+
+    def test_dry_run_writes_no_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            rc, summary = pl.promote(
+                [_nom()], repo_dir=repo, dry_run=True, receipt_dir=run_dir
+            )
+            self.assertEqual(rc, 0, summary)
+            self.assertFalse((run_dir / "receipt.json").exists())
+            # The preview stays honest about what it would have written.
+            self.assertTrue(any("would write receipt" in s for s in summary), summary)
+
+    def test_no_receipt_when_validation_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            bad = _nom()
+            del bad["body"]
+            rc, summary = pl.promote([bad], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 1, summary)
+            self.assertFalse((run_dir / "receipt.json").exists())
+
+    def test_receipt_written_when_everything_was_skipped(self):
+        # promoted 0 is still a factual record of a pass — "read it, promoted
+        # nothing new" — and suppressing it would hide the run rather than
+        # report it.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            nom = _nom()
+            pl.promote([nom], repo_dir=repo)  # first pass promotes it
+
+            rc, summary = pl.promote([nom], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+
+            data = self._receipt(run_dir)
+            self.assertEqual(data["promoted"], 0)
+            self.assertEqual(data["skipped"], 1)
+            self.assertEqual(data["targets"], [])
+
+    def test_receipt_write_failure_is_non_fatal(self):
+        # A directory sitting where receipt.json belongs makes write_text raise
+        # OSError on both POSIX (IsADirectoryError) and Windows (PermissionError).
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            (run_dir / "receipt.json").mkdir(parents=True)
+
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo, receipt_dir=run_dir)
+
+            # The notes and ledger already landed — the promote did succeed.
+            self.assertEqual(rc, 0, summary)
+            self.assertTrue((repo / "memory" / nom["target"]).is_file())
+            self.assertTrue(
+                any("⚠" in s and "receipt" in s for s in summary), summary
+            )
+
+    def test_receipt_failure_warning_does_not_claim_the_stamp_is_blocked(self):
+        # The receipt stopped being a gate; the warning used to say otherwise
+        # ("mark_harvested.py will refuse to stamp without it"). Pinned as a
+        # string so the dead model cannot creep back into the operator-facing
+        # text — that drift is what caused the original scope bug.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            (run_dir / "receipt.json").mkdir(parents=True)
+
+            rc, summary = pl.promote([_nom()], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+
+            warning = next(s for s in summary if "⚠" in s and "receipt" in s)
+            self.assertNotIn("refuse", warning)
+            self.assertNotIn("will refuse to stamp without it", warning)
+            # The useful half survives: the promote itself succeeded...
+            self.assertIn("the promote succeeded", warning)
+            # ...and the honest downstream behaviour is named.
+            self.assertIn("stamps anyway", warning)
+
+    def test_module_docstring_describes_the_receipt_as_advisory(self):
+        # promote_learnings.py and mark_harvested.py must not describe the same
+        # object in contradictory terms.
+        doc = pl.__doc__ or ""
+        self.assertIn("audit record, not a gate", doc)
+        self.assertIn("does **not** authorise", doc)
+        self.assertNotIn("must not be\nstampable on trust alone", doc)
+
+    def test_write_receipt_helper_emits_the_schema(self):
+        # The helper is the single source of the shape mark_harvested.py parses.
+        with tempfile.TemporaryDirectory() as d:
+            path = pl.write_receipt(
+                Path(d) / "nested",
+                manifest="eval/learnings/x/manifest.json",
+                promoted=3,
+                skipped=0,
+                targets=["repo/holo-mind/foo.md", "repo/holo-mind/bar.md"],
+            )
+            self.assertEqual(path.name, "receipt.json")
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                sorted(data),
+                ["manifest", "promoted", "skipped", "targets", "version", "written_at"],
+            )
+            self.assertEqual(data["version"], 1)
+            self.assertEqual(data["manifest"], "eval/learnings/x/manifest.json")
+            self.assertEqual(data["promoted"], 3)
+            self.assertEqual(data["skipped"], 0)
+            self.assertEqual(
+                data["targets"], ["repo/holo-mind/foo.md", "repo/holo-mind/bar.md"]
+            )
+            # Indented JSON with a trailing newline, so it diffs readably.
+            self.assertTrue(path.read_text(encoding="utf-8").endswith("\n"))
+            self.assertIn('\n  "version": 1', path.read_text(encoding="utf-8"))
+
+    def test_manifest_falls_back_to_empty_string(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            rc, summary = pl.promote([_nom()], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+            self.assertEqual(self._receipt(run_dir)["manifest"], "")
+
+    def test_default_receipt_dir_none_writes_nothing(self):
+        # Every pre-existing caller passes no receipt_dir and must stay unchanged.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            rc, summary = pl.promote([_nom()], repo_dir=repo)
+            self.assertEqual(rc, 0, summary)
+            self.assertEqual(list(repo.rglob("receipt.json")), [])
+
+
 class ConsoleEncodingTest(unittest.TestCase):
     """Issue #55: a cp1252 console must not turn a successful promote into a crash.
 
@@ -551,7 +781,7 @@ class ConsoleEncodingTest(unittest.TestCase):
                 mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(
                     pl, "promote",
-                    lambda records, dry_run=False: (0, self.GLYPH_SUMMARY)):
+                    lambda records, **kw: (0, self.GLYPH_SUMMARY)):
             rc = pl.main()
         stream.flush()
         return rc, stream.buffer.getvalue().decode(stream.encoding)
