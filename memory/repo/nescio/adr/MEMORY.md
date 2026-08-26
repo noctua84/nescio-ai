@@ -1,0 +1,1 @@
+- [nescio-adr-0003-learning-loop-write-path](0003-learning-loop-write-path-verified.md) — The harvest declares its subject before reading and stamps only those trails, each at its own max_ts; corrects ADR 0002's "corpus is empty" evidence, which measured the template repo instead of the installed brain.
