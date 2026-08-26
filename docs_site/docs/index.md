@@ -17,10 +17,13 @@
 # attribute below that breakpoint), which is exactly why the regression shipped
 # unnoticed. It was measured on the deployed site and reverted.
 #
-# The rail costs the diagrams width — the 1400px artwork now scrolls more inside
-# its wrapper (nescio.css §3 carries the measurements). That trade is deliberate:
-# navigation outranks diagram width. The durable fix is re-authoring the diagrams
-# narrower, which is separate work.
+# The rail used to cost the diagrams width. It no longer does: the artwork was
+# re-authored on a 1000px canvas (crew 1000x834, loop 1000x800, down from 1400)
+# and is capped to the content column, so it FITS rather than scrolls — 1:1 at a
+# 1920 viewport, 0.938 at 1440. Clicking a diagram, or pressing Enter or Space on
+# it, opens the same SVG at natural size in a modal that pans; that is what made
+# the old "never scale the artwork" rule safe to retire. There is no trade left
+# to argue here. nescio.css and design-system.md §6 carry the measurements.
 #
 # agents.md and skills.md keep both rails — they are reference pages with real
 # headings to navigate.
@@ -40,12 +43,15 @@ hide:
 
   2. The two `diagram:` markers further down, each an HTML comment on its own
      line. docs_site/hooks/inline_svg.py splices the tokenised SVG in verbatim
-     during `on_page_content`, wrapped in a div.nescio-diagram. Inlined, never
-     an image element: that is the only way the page's --diagram-* custom
-     properties reach the artwork so the scheme toggle repaints it live
-     (design-system.md §6). Do not "simplify" them to Markdown images or to
-     pymdownx.snippets — the hook's docstring records why snippets was measured
-     and rejected.
+     during `on_page_content`, wrapped in a div.nescio-diagram and, inside that,
+     a real <button class="nescio-diagram__trigger"> — the artwork is an
+     activator, and clicking it opens the same SVG at natural size in the
+     lightbox (assets/js/diagram-lightbox.js). Inlined, never an image element:
+     that is the only way the page's --diagram-* custom properties reach the
+     artwork so the scheme toggle repaints it live, in the page AND in the
+     modal's clone (design-system.md §6). Do not "simplify" them to Markdown
+     images or to pymdownx.snippets — the hook's docstring records why snippets
+     was measured and rejected.
 
      NOTE: an HTML comment cannot contain the two-character sequence that ends
      one, so this block deliberately never spells a marker out in full. Writing

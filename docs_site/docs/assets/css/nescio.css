@@ -369,86 +369,235 @@ samp,
 /* ---------------------------------------------------------------------------
    Wide diagrams (§5 "wide content", §6)
 
-   The diagrams are authored 1400px wide and their smallest labels are 11.5px at
-   that size. Inside a 68ch column the wrapper measures 551px, so 61% of every
-   diagram would sit outside the visible box; scaling to fit would put those
-   labels at ~4.5px. Neither is acceptable. The wrapper therefore gets the whole
-   content column and scrolls whatever still does not fit.
+   The diagrams are authored much wider than any column this site has, and their
+   smallest labels are ~11.5px at the authored size. There were only ever two
+   ways out and both cost something:
+
+     (a) render at natural size and scroll the wrapper — legible, but two thirds
+         of the picture is off-box and the reader has to discover a scrollbar to
+         learn that;
+     (b) scale to fit — whole picture, unreadable labels.
+
+   This file shipped (a) for a while, with the "never scale the artwork" rule
+   written in capitals right here. THAT RULE IS RETIRED, deliberately. It was
+   the right call only while there was nowhere else to see the diagram; now
+   there is. The artwork fits its column, AND clicking it opens the same SVG at
+   natural size in the modal below, which pans. Legibility moved one click away
+   instead of being traded off — see docs/assets/js/diagram-lightbox.js.
+
+   What follows from that: the horizontal-scroll affordance that used to live on
+   the wrapper (layered gradients, `background-attachment: local, local, scroll,
+   scroll`, the scrollbar gutter, `overscroll-behavior-x`) is dead weight on the
+   inline wrapper — a box that can never overflow can never show it. It is NOT
+   deleted; it moves verbatim onto `.nescio-lightbox__stage`, which is the box
+   that now does the scrolling. Same technique, same tokens, the one surface
+   where it still means something.
 
    >>> THE RULE THAT KEEPS THIS WORKING <<<
    The width comes from the measure cap sitting on the article's BLOCKS rather
    than on the article itself (see §5 above). The homepage — the ONLY page with
    diagrams on it; the two `diagram:` markers in the whole site are both there —
-   keeps its navigation rail and hides only the table of contents. Measured on
-   the built site with that arrangement: content column 938px at 1440 (root
-   20px, 67.0% of the artwork) and 1032px at 1920 (root 22px, 73.7%), zero
-   shapes under a rail at either width, no horizontal page scroll, prose still
-   capped at 551px.
+   keeps its navigation rail and hides only the table of contents.
 
    >>> AND DO NOT BUY WIDTH BY HIDING THE NAV RAIL <<<
    That was tried. `hide: navigation` in the homepage front matter gave the
-   diagram the full 61rem grid, and at ≥76.25em it simultaneously removed the
+   diagram the full 61rem grid, and at >=76.25em it simultaneously removed the
    rail, the header hamburger button and the footer prev/next block, leaving the
    GitHub icon as the only persistent link on the page. Mobile kept its drawer,
    so nothing looked broken until someone opened a laptop. Reverted. Navigation
-   outranks diagram width.
+   outranks diagram width — and the artwork was re-authored to fit instead,
+   which is what made the argument moot.
 
-   The consequence, stated plainly: the diagram is further from its 1400px
-   authored width than it was under either previous arrangement, so it scrolls
-   more inside the wrapper below. That is a deliberate, temporary trade. The
-   durable fix is re-authoring the diagrams narrower — the crew diagram's width
-   is a layout parameter in brand/make_diagrams.py (3 columns × 380px + 2 gaps ×
-   44px), not a property of the artwork. Identified, not done.
+   THE ARTWORK NOW FITS. brand/make_diagrams.py authors both diagrams on a
+   1000px canvas, down from 1400px, and the SVG below is capped at 100% of its
+   column. A diagram that would overflow now SHRINKS rather than sliding under a
+   rail or forcing a scrollbar, and the lightbox restores full size on demand.
+   That combination is what retired the old "never scale the artwork" rule; see
+   the modal section below.
 
-   WHAT WAS HERE BEFORE, so nobody reinvents it. Until this rule was rewritten,
-   the wrapper broke OUT of the article column: negative margins, one sidebar
-   width per side, plus a viewport-derived bleed to spend the page margin past
-   the grid cap. That deliberately slid the artwork underneath both sticky
-   sidebars, which paint above the article, and the only mitigation shipped with
-   it was an opaque ground on the sidebar's scroll wrapper. That mitigation was
-   undersized by roughly 7x, because the wrapper is content-height and the
-   sidebar COLUMN is not. Measured on the built site at 1440x900: nav rail
-   column x=103–345, article x=369–1057, ToC x=1081–1323; the diagram wrapper
-   spanned x=37–1389 (1352px) and was 849px tall, against an opaque ground 99px
-   tall on the left and 126px on the right. It covered 12–15% of the collision,
-   and where it did cover it punched an opaque rectangle straight through the
-   artwork. 63 SVG elements — node rects and text labels — landed inside a
-   sidebar column. At 1920x1080: 32 under the rail, 26 under the ToC. At
-   1024x900 the rail is an off-canvas drawer, but 37 labels still sat under the
-   ToC. /agents/ and /skills/ scanned clean at every width, and prose never
-   collided anywhere: the fault was diagram-specific and homepage-only. Net
-   trade, measured against that: 97% of the artwork was visible *with* the
-   collision; the wrapper now stays inside its column and shows 67.0% at 1440
-   and 73.7% at 1920 with nothing behind a rail. Less artwork on screen, all of
-   it reachable, none of it painted over.
+   WHAT WAS HERE BEFORE, so nobody reinvents it. Two rules ago the wrapper broke
+   OUT of the article column: negative margins, one sidebar width per side, plus
+   a viewport-derived bleed to spend the page margin past the grid cap. That
+   deliberately slid the artwork underneath both sticky sidebars, which paint
+   above the article, and the only mitigation shipped with it was an opaque
+   ground on the sidebar's scroll wrapper. That mitigation was undersized by
+   roughly 7x, because the wrapper is content-height and the sidebar COLUMN is
+   not. Measured on the built site at 1440x900: nav rail column x=103–345,
+   article x=369–1057, ToC x=1081–1323; the diagram wrapper spanned x=37–1389
+   (1352px) and was 849px tall, against an opaque ground 99px tall on the left
+   and 126px on the right. It covered 12–15% of the collision, and where it did
+   cover it punched an opaque rectangle straight through the artwork. 63 SVG
+   elements — node rects and text labels — landed inside a sidebar column. At
+   1920x1080: 32 under the rail, 26 under the ToC. At 1024x900 the rail is an
+   off-canvas drawer, but 37 labels still sat under the ToC. /agents/ and
+   /skills/ scanned clean at every width, and prose never collided anywhere: the
+   fault was diagram-specific and homepage-only. Narrower artwork plus a fit cap
+   removes the whole class of problem rather than trading one compromise for
+   another.
 
    NO VIEWPORT UNIT APPEARS ANYWHERE IN THIS FILE, and none should — the bleed
    above was the last one. A viewport width counts the classic scrollbar (15px
    in Chrome on Windows) and the client box does not, so anything sized off it
    overflows the page by exactly that much and the body scrolls sideways, which
-   §5 forbids. Every length here comes from the containing block, which is
-   already scrollbar-correct.
+   §5 forbids. The modal below is the obvious place to reach for one and does
+   not: `position: fixed` with `inset: 0` takes its box from the viewport
+   *without* the scrollbar error, and every length inside it is a percentage of
+   that box. The one place the scrollbar width is genuinely needed — padding the
+   body when the modal locks it — is measured in JavaScript, where the real
+   number is observable.
    --------------------------------------------------------------------------- */
 
-/* Inlined diagrams get this class from hooks/inline_svg.py. */
+/* Inlined diagrams get this class from hooks/inline_svg.py. `max-width: none`
+   is load-bearing: it beats the `--nescio-measure` cap on the article's blocks
+   (same specificity, later in the file) so the wrapper gets the whole content
+   column rather than 68ch. */
 .md-typeset .nescio-diagram {
   max-width: none;
-  /* The artwork still renders at its natural width — DO NOT put `max-width:
-     100%` back on the svg. A legible diagram you scroll beats a shrunken one
-     you cannot read. */
-  overflow-x: auto;
-  /* Keep a rubber-band scroll inside the diagram rather than walking the page. */
-  overscroll-behavior-x: contain;
-  /* Room for the scrollbar so it never sits on top of the artwork. */
-  padding-bottom: .4rem;
+}
 
-  /* Scroll affordance: a soft edge shadow that is masked by a cover in the page
-     ground whenever the diagram is scrolled all the way to that edge. The
-     covers are attached `local` so they travel with the content; the shadows
-     are attached `scroll` so they stay pinned to the box. Fully scrolled ⇒
-     cover over shadow ⇒ nothing shown, which is also what a diagram narrower
-     than its box gets. Both colours are §2 tokens, so the affordance follows
-     the scheme toggle with the artwork. */
+/* The activator. hooks/inline_svg.py emits a real <button> around the SVG, so
+   this has a browser default look to strip: it must read as artwork, not as a
+   control. */
+.md-typeset .nescio-diagram__trigger {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  /* A button is a flex item / inline-block by default and will not stretch. */
+  width: 100%;
+}
+
+/* Pointer and hover affordances are gated on the attribute that
+   diagram-lightbox.js sets on <html> when it initialises. Without the script
+   the button is inert, and a zoom cursor over an inert control is a lie. Focus
+   styling is NOT gated — the button is focusable either way. */
+[data-nescio-lightbox="ready"] .md-typeset .nescio-diagram__trigger {
+  cursor: zoom-in;
+}
+
+[data-nescio-lightbox="ready"] .md-typeset .nescio-diagram__trigger:hover > svg {
+  outline: 1px solid var(--md-default-fg-color--lightest);
+  outline-offset: .3rem;
+}
+
+.md-typeset .nescio-diagram__trigger:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: .2rem;
+}
+
+/* The artwork fits its column. `height: auto` with the viewBox intact is what
+   keeps the aspect ratio while the width shrinks; no width is pinned here,
+   because the authored canvas size is brand/make_diagrams.py's number and has
+   already changed once. */
+.md-typeset .nescio-diagram__trigger > svg {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  /* Centred if the canvas is ever narrower than the column. */
+  margin-inline: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   The full-size modal (docs/assets/js/diagram-lightbox.js builds the markup)
+
+   Colours are §2 tokens throughout — the modal shows the same tokenised SVG the
+   page does, so a literal hex here would leave the chrome stranded in one
+   scheme while the artwork repainted around it.
+   --------------------------------------------------------------------------- */
+
+/* The overlay IS the backdrop; the script closes on a click that lands on it
+   directly. `inset: 0` on a fixed box is the viewport minus nothing — the whole
+   reason no viewport unit is needed here. */
+.nescio-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10;                      /* Material's header is z-index 5. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The gutter that leaves visible backdrop to click on all four sides. */
+  padding: 1.2rem;
+  background-color: var(--md-default-bg-color--light);
+  backdrop-filter: blur(2px);
+}
+
+.nescio-lightbox[hidden] {
+  display: none;
+}
+
+.nescio-lightbox__pane {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: .3rem;
+  background-color: var(--md-default-bg-color);
+  box-shadow: var(--md-shadow-z3);
+}
+
+.nescio-lightbox__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .5rem .5rem .5rem .9rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Labels the dialog via aria-labelledby, so it is a real caption and not
+   decoration; §3 puts small labels in the mono-adjacent uppercase role. */
+.nescio-lightbox__title {
+  margin: 0;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color--light);
+}
+
+.nescio-lightbox__close {
+  flex: none;
+  padding: .3rem .7rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: .2rem;
+  background: none;
+  color: var(--md-default-fg-color);
+  font-size: .7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nescio-lightbox__close:hover,
+.nescio-lightbox__close:focus-visible {
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-fg-color);
+}
+
+.nescio-lightbox__close:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: .1rem;
+}
+
+/* The panning surface. This is where the wrapper's old scroll affordance went:
+   a soft edge shadow masked by a cover in the pane's own ground whenever the
+   artwork is panned all the way to that edge. The covers are attached `local`
+   so they travel with the content; the shadows are attached `scroll` so they
+   stay pinned to the box. Fully panned ⇒ cover over shadow ⇒ nothing shown,
+   which is also what an artwork narrower than the box gets. Both colours are §2
+   tokens, so the affordance follows the scheme toggle with the artwork.
+
+   `min-height: 0` is required: a flex item's default `min-height: auto` refuses
+   to shrink below its content, which would push the pane past the overlay
+   instead of scrolling inside it. */
+.nescio-lightbox__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   background-color: var(--md-default-bg-color);
   background-image:
     linear-gradient(to right, var(--md-default-bg-color) 45%, rgba(0, 0, 0, 0)),
@@ -461,12 +610,21 @@ samp,
   background-attachment: local, local, scroll, scroll;
 }
 
-.md-typeset .nescio-diagram > svg {
+.nescio-lightbox__stage:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: -2px;
+}
+
+/* Natural size here — that is the entire point of the modal. `max-width: none`
+   is defensive: the clone is outside .md-typeset, but a future global image
+   rule would otherwise shrink it back to the size the reader just clicked away
+   from. */
+.nescio-lightbox__stage > svg {
   display: block;
-  height: auto;
   max-width: none;
-  /* Centred when it fits; flush left, and scrolling, when it does not. */
-  margin-inline: auto;
+  height: auto;
+  /* Centred when the artwork is smaller than the stage. */
+  margin: auto;
 }
 
 /* ===========================================================================
