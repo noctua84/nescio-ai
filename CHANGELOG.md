@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.1](https://github.com/noctua84/nescio-ai/compare/v1.3.0...v1.3.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **docs:** restore the homepage navigation rail ([5f87c07](https://github.com/noctua84/nescio-ai/commit/5f87c072b64dd0f0c9b0434d70a57676efb9c5d4))
+* **docs:** restore the homepage navigation rail ([28719ac](https://github.com/noctua84/nescio-ai/commit/28719acba3846496d855ba50862bf5a15557bdda))
+* **docs:** stop diagrams colliding with the sidebars ([1d5c8ea](https://github.com/noctua84/nescio-ai/commit/1d5c8ea4e1d07e4df17e6b36700c43fd3bcbbfc0))
+* **docs:** stop diagrams colliding with the sidebars ([616caa0](https://github.com/noctua84/nescio-ai/commit/616caa0c0f04fd02babc348e74230bba19136a08))
+
+
+### Documentation
+
+* **design:** mark the docs-site mockup as a point-in-time snapshot ([b7fe192](https://github.com/noctua84/nescio-ai/commit/b7fe1921f0c7ac2d8f2448bfacf243ac2257662f))
+* mark the docs-site mockup as a point-in-time snapshot ([55cd5af](https://github.com/noctua84/nescio-ai/commit/55cd5af208ff7b2d781241dc663c8555c245cb57))
+* **plans:** fix stale path to the docs-site mockup ([0185452](https://github.com/noctua84/nescio-ai/commit/01854528dfa21af6a4187ed10279dbebac132e37))
+
 ## [1.3.0](https://github.com/noctua84/nescio-ai/compare/v1.2.0...v1.3.0) (2026-08-23)
 
 
