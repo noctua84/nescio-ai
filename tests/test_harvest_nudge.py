@@ -215,6 +215,190 @@ class HarvestNudgeTest(unittest.TestCase):
             wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
             self.assertEqual(harvest_nudge.count_unharvested(trail, wm), 1)
 
+    # ---- the unfinished-harvest marker ----------------------------------
+
+    def _write_marker(self, payload, work):
+        """Write the marker for the repo containing ``work``; return its path."""
+        p = rs.trail_dir() / harvest_nudge.pending_name(rs.git_root(work))
+        p.write_text(
+            payload if isinstance(payload, str) else json.dumps(payload),
+            encoding="utf-8",
+        )
+        return p
+
+    def test_pending_marker_produces_a_message(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            try:
+                self._write_marker(
+                    {
+                        "at": "2026-07-12T08:00:00+00:00",
+                        "reason": "read manifest not readable",
+                        "read": "eval/learnings/20260712T080000Z/read.json",
+                        "cwd": work,
+                    },
+                    work,
+                )
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("WITHOUT stamping", msg)
+                self.assertIn("read manifest not readable", msg)
+                self.assertIn("eval/learnings/20260712T080000Z/read.json", msg)
+            finally:
+                self._restore_config(saved)
+
+    def test_pending_marker_outranks_the_count_nudge(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            saved_thresh = harvest_nudge.NUDGE_THRESHOLD
+            try:
+                wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                self._seed_trail(work, n_unharvested=50, watermark=wm)
+                harvest_nudge.NUDGE_THRESHOLD = 1
+                self._write_marker(
+                    {"reason": "no --read manifest given", "read": None}, work
+                )
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("WITHOUT stamping", msg)
+                self.assertNotIn("un-harvested learning-trail records", msg)
+                self.assertIn("No read manifest was given", msg)
+            finally:
+                harvest_nudge.NUDGE_THRESHOLD = saved_thresh
+                self._restore_config(saved)
+
+    def test_another_repos_marker_does_not_suppress_this_repos_count_nudge(self):
+        # The second half of the machine-global marker bug: while ANY repo had an
+        # unfinished harvest, every other repo on the machine got that repo's
+        # message instead of its own count nudge — one broken harvest blinding
+        # ~100 repos' reminders indefinitely.
+        with tempfile.TemporaryDirectory() as cfg, \
+                tempfile.TemporaryDirectory() as work, \
+                tempfile.TemporaryDirectory() as other:
+            saved = self._with_config(cfg)
+            saved_thresh = harvest_nudge.NUDGE_THRESHOLD
+            try:
+                wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                self._seed_trail(work, n_unharvested=50, watermark=wm)
+                harvest_nudge.NUDGE_THRESHOLD = 5
+                marker = self._write_marker(
+                    {"reason": "some other repo's problem", "read": "x/read.json"},
+                    other,
+                )
+                self.assertTrue(marker.is_file())
+                self.assertEqual(harvest_nudge.pending_message(rs.git_root(work)), "")
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("un-harvested learning-trail records", msg)
+                self.assertNotIn("WITHOUT stamping", msg)
+                # ...and the other repo still gets its own reminder.
+                self.assertIn(
+                    "WITHOUT stamping",
+                    harvest_nudge.nudge({"source": "startup", "cwd": other}),
+                )
+            finally:
+                harvest_nudge.NUDGE_THRESHOLD = saved_thresh
+                self._restore_config(saved)
+
+    def test_pending_marker_still_respects_the_source_filter(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            try:
+                self._write_marker({"reason": "whatever", "read": None}, work)
+                for source in ("compact", "clear"):
+                    self.assertEqual(
+                        harvest_nudge.nudge({"source": source, "cwd": work}), ""
+                    )
+            finally:
+                self._restore_config(saved)
+
+    def test_absent_marker_leaves_existing_behaviour_unchanged(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            saved_thresh = harvest_nudge.NUDGE_THRESHOLD
+            try:
+                wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                self._seed_trail(work, n_unharvested=5, watermark=wm)
+                harvest_nudge.NUDGE_THRESHOLD = 5
+                self.assertEqual(harvest_nudge.pending_message(rs.git_root(work)), "")
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("un-harvested learning-trail records", msg)
+            finally:
+                harvest_nudge.NUDGE_THRESHOLD = saved_thresh
+                self._restore_config(saved)
+
+    def test_malformed_marker_falls_back_to_normal_behaviour(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            saved_thresh = harvest_nudge.NUDGE_THRESHOLD
+            saved_stdin = sys.stdin
+            try:
+                wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                self._seed_trail(work, n_unharvested=5, watermark=wm)
+                harvest_nudge.NUDGE_THRESHOLD = 5
+                self._write_marker("{not json", work)
+                self.assertEqual(harvest_nudge.pending_message(rs.git_root(work)), "")
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("un-harvested learning-trail records", msg)
+                # And the hook itself still exits 0 with a marker it cannot read.
+                sys.stdin = io.StringIO(
+                    json.dumps({"source": "startup", "cwd": work})
+                )
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    rc = harvest_nudge.main()
+                self.assertEqual(rc, 0)
+                self.assertIn("un-harvested", out.getvalue())
+            finally:
+                harvest_nudge.NUDGE_THRESHOLD = saved_thresh
+                sys.stdin = saved_stdin
+                self._restore_config(saved)
+
+    def test_marker_that_is_not_an_object_is_ignored(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            try:
+                self._write_marker("[1, 2, 3]", work)
+                self.assertEqual(harvest_nudge.pending_message(rs.git_root(work)), "")
+                self.assertEqual(
+                    harvest_nudge.nudge({"source": "startup", "cwd": work}), ""
+                )
+            finally:
+                self._restore_config(saved)
+
+    def test_marker_without_a_reason_still_produces_a_message(self):
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            try:
+                self._write_marker({}, work)
+                msg = harvest_nudge.nudge({"source": "startup", "cwd": work})
+                self.assertIn("no reason recorded", msg)
+            finally:
+                self._restore_config(saved)
+
+    def test_pending_marker_naming_matches_mark_harvested(self):
+        # The hook deliberately does not import scripts/, so the marker name is
+        # duplicated on both sides. Pin the prefix AND the derivation: a rename or
+        # a re-keying on either side would otherwise orphan every marker — the
+        # hook would look for a file mark_harvested never writes, and the
+        # unfinished-harvest reminder would go permanently silent.
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import mark_harvested  # noqa: E402
+
+        self.assertEqual(harvest_nudge.PENDING_PREFIX, mark_harvested.PENDING_PREFIX)
+        with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
+            saved = self._with_config(cfg)
+            try:
+                root = rs.git_root(work)
+                self.assertEqual(
+                    harvest_nudge.pending_name(root),
+                    mark_harvested.pending_name(root),
+                )
+                # And the path the writer picks is the one the reader reads.
+                self.assertEqual(
+                    mark_harvested.pending_path(work),
+                    rs.trail_dir() / harvest_nudge.pending_name(root),
+                )
+            finally:
+                self._restore_config(saved)
+
     def test_bad_threshold_env_falls_back(self):
         import importlib
 

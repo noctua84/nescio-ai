@@ -73,6 +73,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 import record_stop as rs  # noqa: E402
 from _learning_common import parse_ledger  # noqa: E402
 
+# Path normalisation and repo attribution live in `_trail_scope`, so every tool
+# that has to decide which repo a trail belongs to buckets it identically. On the
+# harvest side the consumer is now `begin_harvest`, which records that decision in
+# `read.json`; `mark_harvested` no longer resolves scope at all — it stamps the
+# trails the manifest names. They are re-exported here because this module is
+# where they were introduced (#42) and callers — including this script's tests —
+# import them from it.
+from _trail_scope import (  # noqa: F401  (re-exported)
+    WORKTREE_MARKER,
+    posix_path,
+    resolve_repo_root,
+    strip_worktree,
+)
+
 REPO_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MEMORY_ROOT = REPO_DIR / "memory"
 
@@ -80,10 +94,6 @@ DEFAULT_MEMORY_ROOT = REPO_DIR / "memory"
 # rewritten on each run; everything outside is left byte-for-byte alone.
 GENERATED_BEGIN = "<!-- readiness:generated start -->"
 GENERATED_END = "<!-- readiness:generated end -->"
-
-# The path segment that identifies a Claude Code worktree checkout. Matched on
-# the posix-normalised path; the repository is everything before it.
-WORKTREE_MARKER = "/.claude/worktrees/"
 
 # Structure mirrors memory/repo/EXAMPLE/readiness.md minus its example-only
 # blockquote. Used only when an existing memory/repo/<name>/ dir has no
@@ -127,83 +137,6 @@ INSUFFICIENT_OUTCOME = (
 
 
 # ── path + attribution ─────────────────────────────────────────────────────
-
-def posix_path(raw) -> str:
-    """Normalise a recorded path to posix separators, without trailing slash.
-
-    Git emits forward slashes on every platform; `pathlib` emits backslashes on
-    Windows. Legacy records carry whichever convention applied when they were
-    written, so every comparison and every grouping key runs through here first —
-    otherwise one repository splits into two buckets.
-    """
-    s = str(raw or "").replace("\\", "/").strip()
-    while len(s) > 1 and s.endswith("/"):
-        s = s[:-1]
-    return s
-
-
-def strip_worktree(path_posix: str) -> str | None:
-    """Repository prefix of a `<repo>/.claude/worktrees/<name>` path, else None.
-
-    Purely textual, so it recovers the repository identity of worktrees that have
-    since been deleted from disk. The *first* occurrence is used: a nested
-    worktree-of-a-worktree still resolves to the outermost repository.
-    """
-    idx = path_posix.find(WORKTREE_MARKER)
-    if idx <= 0:
-        return None
-    # Require a non-empty worktree name after the marker — `<repo>/.claude/
-    # worktrees` alone is the container directory, not a checkout.
-    if len(path_posix) <= idx + len(WORKTREE_MARKER):
-        return None
-    return path_posix[:idx]
-
-
-def _live_repo_root(path_posix: str) -> str | None:
-    """Resolve an on-disk path to its owning repository via git, or None.
-
-    Delegates to `record_stop.git_roots`, which already encodes the
-    submodule/`--separate-git-dir` caveats; anything it cannot resolve (it falls
-    back to the input) yields None so the caller keeps its own fallback.
-    """
-    if not Path(path_posix).is_dir():
-        return None
-    repo = posix_path(rs.git_roots(path_posix)[1])
-    return repo or None
-
-
-def resolve_repo_root(
-    record: dict,
-    *,
-    resolve_live: bool = True,
-    cache: dict[str, str] | None = None,
-) -> str:
-    """Durable repository root for one trail record. See the module docstring.
-
-    `cache` is keyed on the posix `git_root` so the optional live git resolution
-    costs at most one subprocess per distinct path across a whole run.
-    """
-    repo_root = posix_path(record.get("repo_root"))
-    if repo_root:
-        return repo_root
-
-    git_root = posix_path(record.get("git_root"))
-    if not git_root:
-        return ""
-
-    stripped = strip_worktree(git_root)
-    if stripped:
-        return stripped
-
-    if not resolve_live:
-        return git_root
-    if cache is not None and git_root in cache:
-        return cache[git_root]
-    resolved = _live_repo_root(git_root) or git_root
-    if cache is not None:
-        cache[git_root] = resolved
-    return resolved
-
 
 def repo_name(repo_root_posix: str) -> str:
     """Basename of a repository root — the `memory/repo/<name>/` key.
