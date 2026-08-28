@@ -47,6 +47,17 @@ the CLI. `fetch_issue_state` is the single seam every network call goes through 
 every check takes already-fetched state as a parameter, which is what keeps the
 test suite hermetic.
 
+**One check looks at `README.md` instead — and its scope is narrow.**
+`check_readme` asserts that the `## Roadmap` section of `README.md` links to
+`ROADMAP.md` and lists no individual issue numbers. That is the *whole* claim.
+It does not stop the duplication class in general: enumerable issue state can
+still relocate to another README section, to `CONTRIBUTING.md`, to `docs_site/`,
+or to a wiki, and none of those would be seen here. It also makes no claim about
+whether the section's prose is *accurate* — "is this paragraph still a fair
+characterisation" needs judgement no string match has, and stays a human
+responsibility. What it buys is that the one place the summary already lives
+cannot quietly grow a second copy of the issue list.
+
 **The four reconciliation directions are deliberately asymmetric.** Let L be the
 open issues labelled `roadmap` and R the primary references in this file:
 
@@ -63,7 +74,7 @@ is one line in this file, in the same commit-space as the check.
 Usage:
     python scripts/check_roadmap_drift.py --offline      # no network, ever
     python scripts/check_roadmap_drift.py --json         # machine-readable
-    python scripts/check_roadmap_drift.py --roadmap PATH
+    python scripts/check_roadmap_drift.py --roadmap PATH --readme PATH
 """
 
 from __future__ import annotations
@@ -80,6 +91,7 @@ from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ROADMAP = REPO_DIR / "ROADMAP.md"
+DEFAULT_README = REPO_DIR / "README.md"
 
 # The repository whose issues `ROADMAP.md` may cite. A link pointing anywhere
 # else is drift, not a reference.
@@ -451,8 +463,129 @@ def check_tag_vocabulary(entries: list[Entry]) -> list[Finding]:
     ]
 
 
+# ── the README guard ───────────────────────────────────────────────────────
+# Offline like the three above, but it reads a *different file*, so it takes
+# `readme_text` rather than `entries` and is called on its own (see `main`).
+
+# The one section of the one file this guard covers. Both are named as constants
+# so the narrowness is visible at a glance rather than buried in a regex.
+README_SECTION = "Roadmap"
+README_CHECK = "readme-scope"
+
+# The named escape. A maintainer with a real reason to cite one issue from that
+# section adds this line to it; the alternative is patching this script, which
+# turns a legitimate exception into a reason to delete the check.
+README_ALLOW_MARKER = "<!-- roadmap-check: allow -->"
+
+# "Enumerable issue state" means a link that names an *individual* issue number.
+# The bare `https://github.com/noctua84/nescio-ai/issues` link the section
+# already carries has no `/N`, so it is a pointer at the tracker rather than a
+# copy of anything in it — exactly what belongs there, and the trailing `\d+` is
+# what keeps it legal.
+#
+# Deliberately not anchored to this repo's host: an enumerated issue list is a
+# second copy that drifts whichever tracker it names, and the escape marker is
+# there for the case where one is wanted anyway.
+_README_ISSUE_RE = re.compile(r"issues/(\d+)")
+
+# A markdown link whose target is ROADMAP.md. Matching the link *target* rather
+# than the bare string means a passing mention of the filename in prose does not
+# satisfy the check.
+_README_ROADMAP_LINK_RE = re.compile(r"\]\([^)]*ROADMAP\.md[^)]*\)")
+
+
+def check_readme(readme_text: str) -> list[Finding]:
+    """`README.md`'s `## Roadmap` section stays a pointer, not a second copy.
+
+    Two assertions over that section and nothing else: it links to `ROADMAP.md`,
+    and it names no individual issue numbers.
+
+    **Scope, stated accurately.** This guards *one section of one file*. It is
+    not a guard against the duplication class in general — the same state can
+    relocate to another README section, to `CONTRIBUTING.md`, to `docs_site/`,
+    or to a wiki, and this check would see none of it. Nor does it say anything
+    about whether the prose there is *true*; #60 asked for that and the answer
+    was that verifying "earned per-repo autonomy is parked" against a milestone
+    means string-matching prose against headings, which fails the moment someone
+    rewords a sentence correctly. That stays a human judgement, named here as a
+    limitation rather than quietly dropped.
+
+    Why the check is inverted this way at all: README's summary is prose with no
+    issue numbers in it, so there is nothing to reconcile mechanically. What is
+    worth preventing is the summary *acquiring* numbers — which is how #60's
+    "the same drift just relocates" would actually happen.
+
+    A section containing `README_ALLOW_MARKER` suppresses the issue-reference
+    finding. It does **not** suppress the missing-link finding: an exception for
+    citing an issue is a plausible editorial need, whereas a roadmap section that
+    does not link the roadmap is not something anyone needs an opt-out from.
+
+    A README with no `## Roadmap` section at all is reported rather than passed
+    silently. A guard that quietly stops guarding when its subject is renamed is
+    the same silence #60 was filed about.
+    """
+    section: list[tuple[int, str]] = []
+    found = False
+    inside = False
+    for line_no, line in enumerate(readme_text.splitlines(), start=1):
+        heading = _SECTION_RE.match(line)
+        if heading is not None:
+            inside = _section_title(heading.group(1)) == README_SECTION
+            found = found or inside
+            continue
+        if inside:
+            section.append((line_no, line))
+
+    if not found:
+        return [
+            Finding(
+                README_CHECK,
+                f"README has no `## {README_SECTION}` section — this guard has "
+                "nothing to police. Restore the section, or point --readme at "
+                "the file that carries it.",
+            )
+        ]
+
+    findings = []
+    if not any(_README_ROADMAP_LINK_RE.search(line) for _, line in section):
+        findings.append(
+            Finding(
+                README_CHECK,
+                f"README's `## {README_SECTION}` section does not link to "
+                "ROADMAP.md — the summary has to point at the file it "
+                "summarises, or the two stop being the same subject.",
+            )
+        )
+
+    if any(README_ALLOW_MARKER in line for _, line in section):
+        return findings
+
+    for line_no, line in section:
+        for match in _README_ISSUE_RE.finditer(line):
+            findings.append(
+                Finding(
+                    README_CHECK,
+                    f"README line {line_no}: the `## {README_SECTION}` section "
+                    f"references issue {match.group(1)}. That summary must stay "
+                    "prose-level — enumerated issue state here becomes a third "
+                    "copy that drifts (#60). Move it to ROADMAP.md, or add "
+                    f"`{README_ALLOW_MARKER}` to this section if the duplication "
+                    "is deliberate.",
+                )
+            )
+    return findings
+
+
 # Name → check. The names are what the report prints as PASS/FAIL, and what a
 # reader greps for when a build goes red.
+#
+# `check_readme` is deliberately NOT in this table. Every entry here is a
+# function of the parsed `ROADMAP.md` entries; `check_readme` is a function of a
+# different file's raw text. Widening the table to a uniform context object, or
+# giving `check_readme` an `entries` parameter it never reads, would buy one
+# fewer call site at the cost of making all four signatures dishonest about what
+# they consume. It gets its own call site in `main()` instead — three lines, and
+# the seam each check actually depends on stays visible in its signature.
 OFFLINE_CHECKS = (
     ("unique-references", check_unique_references),
     ("link-wellformed", check_link_wellformed),
@@ -949,6 +1082,7 @@ def _summarise(entries: list[Entry]) -> str:
 
 def render_report(
     roadmap: Path,
+    readme: Path,
     entries: list[Entry],
     notes: list[str],
     results: list[tuple[str, list[Finding]]],
@@ -961,6 +1095,7 @@ def render_report(
     )
     lines = [
         f"roadmap:  {roadmap}",
+        f"readme:   {readme}",
         f"entries:  {_summarise(entries)}",
         f"tags:     {tags}",
         "",
@@ -1004,6 +1139,11 @@ def main(argv=None) -> int:
         help="path to ROADMAP.md (default: this repo's ROADMAP.md)",
     )
     ap.add_argument(
+        "--readme",
+        default=str(DEFAULT_README),
+        help="path to README.md (default: this repo's README.md)",
+    )
+    ap.add_argument(
         "--offline",
         action="store_true",
         help="run only the checks that need no network; never exits 2",
@@ -1032,10 +1172,12 @@ def main(argv=None) -> int:
             pass
 
     roadmap = Path(args.roadmap)
+    readme = Path(args.readme)
     try:
         text = roadmap.read_text(encoding="utf-8")
+        readme_text = readme.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"error: could not read {roadmap}: {exc}", file=sys.stderr)
+        print(f"error: could not read {exc.filename or roadmap}: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
     entries, notes = parse_roadmap(text)
@@ -1044,6 +1186,11 @@ def main(argv=None) -> int:
     # never suppresses what could be determined without one — the report says
     # what it knows before it says what it could not find out.
     results = run_offline_checks(entries)
+    # The README guard's own call site — it reads a different file, so it is not
+    # in `OFFLINE_CHECKS`; see the comment on that table. It is offline in every
+    # other respect and belongs in the same batch, which is why `--offline`
+    # reports four checks rather than three.
+    results.append((README_CHECK, check_readme(readme_text)))
 
     # R7: `--offline` skips the fetch entirely, so it can never exit 2. This is
     # what a contributor with no `gh` and no token runs locally, and what the
@@ -1080,6 +1227,7 @@ def main(argv=None) -> int:
             json.dumps(
                 {
                     "roadmap": roadmap.as_posix(),
+                    "readme": readme.as_posix(),
                     "offline": bool(args.offline),
                     "exit": rc,
                     "fetch_reason": fetch_reason,
@@ -1109,7 +1257,7 @@ def main(argv=None) -> int:
         )
     else:
         for line in render_report(
-            roadmap, entries, notes, results, fetch_reason, bool(args.offline)
+            roadmap, readme, entries, notes, results, fetch_reason, bool(args.offline)
         ):
             print(line)
 

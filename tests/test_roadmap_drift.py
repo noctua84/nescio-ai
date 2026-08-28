@@ -505,6 +505,224 @@ class OfflineCheckTest(unittest.TestCase):
         self.assertEqual([name for name, _ in crd.OFFLINE_CHECKS], names)
 
 
+# ── the README guard ───────────────────────────────────────────────────────
+# `check_readme` takes README text rather than parsed ROADMAP entries, so it is
+# not in `OFFLINE_CHECKS` and has its own call site in `main()`. These tests
+# exercise it at both depths: the function directly, and through `--readme`.
+
+
+def _readme(section_body: str, *, heading: str = "## Roadmap") -> str:
+    """A minimal README with one `## Roadmap` section and neighbours either side.
+
+    The neighbours are not decoration — they are what proves the guard is scoped
+    to a section rather than to the file, which is the whole claim it makes.
+    """
+    return (
+        "# NescioAI\n\n"
+        "## Guarding against orphaned commits\n\n"
+        "Prose about a different subject.\n\n"
+        f"{heading}\n\n"
+        f"{section_body}\n\n"
+        "## Contributing\n\n"
+        "See [CONTRIBUTING.md](CONTRIBUTING.md).\n"
+    )
+
+
+_POINTER = (
+    "See [ROADMAP.md](ROADMAP.md) for where Nescio is headed. It's directional,\n"
+    "not dated; the [open issues](https://github.com/noctua84/nescio-ai/issues)\n"
+    "are the source of truth.\n"
+)
+
+_ISSUE_BULLET = (
+    "- [#99](https://github.com/noctua84/nescio-ai/issues/99) — a thing we plan.\n"
+)
+
+
+class ReadmeGuardTest(unittest.TestCase):
+    """One section of one file, and nothing more than that.
+
+    The guard exists because #60 asked for README's roadmap summary to be
+    covered too, "otherwise the same drift just relocates". Verifying the *prose*
+    was rejected — checking "earned per-repo autonomy is parked" against a
+    milestone means string-matching prose against headings, which fails the
+    moment someone rewords a sentence correctly. So the requirement is inverted:
+    the summary carries no issue numbers today, and the guard stops it acquiring
+    any.
+    """
+
+    def test_the_real_readme_passes(self):
+        """The reference state. If this fails, the repo has real drift."""
+        text = crd.DEFAULT_README.read_text(encoding="utf-8")
+        self.assertEqual([str(f) for f in crd.check_readme(text)], [])
+
+    def test_the_bare_issues_link_is_not_a_reference(self):
+        """`.../issues` with no `/N` is a pointer at the tracker, not a copy.
+
+        The real README's section carries exactly that link, so a guard that
+        matched it would be unsatisfiable without deleting a link that belongs.
+        """
+        findings = crd.check_readme(_readme(_POINTER))
+        self.assertEqual(findings, [])
+
+    def test_an_injected_issue_reference_fires(self):
+        findings = crd.check_readme(_readme(_POINTER + _ISSUE_BULLET))
+        (finding,) = findings
+        self.assertEqual(finding.check, crd.README_CHECK)
+        self.assertEqual(finding.severity, crd.SEVERITY_HARD)
+        self.assertIn("99", finding.message)
+        self.assertIn("#60", finding.message)
+        # The person who hits this learns the opt-out from the message itself,
+        # rather than by reading the script.
+        self.assertIn(crd.README_ALLOW_MARKER, finding.message)
+
+    def test_an_issue_reference_injected_into_the_real_readme_fires(self):
+        """The regression that matters: the actual file, minimally perturbed."""
+        text = crd.DEFAULT_README.read_text(encoding="utf-8")
+        injected = text.replace(
+            "## Roadmap\n", "## Roadmap\n\n" + _ISSUE_BULLET, 1
+        )
+        self.assertNotEqual(injected, text, "the `## Roadmap` heading moved")
+        (finding,) = crd.check_readme(injected)
+        self.assertEqual(finding.check, crd.README_CHECK)
+        self.assertIn("99", finding.message)
+
+    def test_the_allow_marker_suppresses_the_issue_finding(self):
+        body = _POINTER + _ISSUE_BULLET + f"\n{crd.README_ALLOW_MARKER}\n"
+        self.assertEqual(crd.check_readme(_readme(body)), [])
+
+    def test_the_allow_marker_only_covers_the_section_it_is_in(self):
+        """An opt-out in a neighbouring section must not license this one."""
+        text = _readme(_POINTER + _ISSUE_BULLET).replace(
+            "## Contributing\n",
+            f"## Contributing\n\n{crd.README_ALLOW_MARKER}\n",
+            1,
+        )
+        self.assertTrue(crd.check_readme(text))
+
+    def test_an_issue_reference_in_another_section_is_ignored(self):
+        """The guard is scoped to `## Roadmap`, and says so.
+
+        `README.md` genuinely links an issue elsewhere — the orphaned-commits
+        section cites noctua84/holo-mind#5 as a worked example — so a guard that
+        ranged over the whole file would fail on correct prose.
+        """
+        text = _readme(_POINTER).replace(
+            "Prose about a different subject.",
+            "See [#5](https://github.com/noctua84/holo-mind/issues/5).",
+            1,
+        )
+        self.assertEqual(crd.check_readme(text), [])
+
+    def test_a_section_that_does_not_link_the_roadmap_fires(self):
+        body = "Some prose that never points at the file it summarises.\n"
+        (finding,) = crd.check_readme(_readme(body))
+        self.assertEqual(finding.check, crd.README_CHECK)
+        self.assertIn("ROADMAP.md", finding.message)
+
+    def test_a_bare_mention_of_the_filename_is_not_a_link(self):
+        """`ROADMAP.md` in prose is not a link; the check wants a link target."""
+        body = "ROADMAP.md has the details.\n"
+        self.assertTrue(crd.check_readme(_readme(body)))
+
+    def test_the_allow_marker_does_not_suppress_the_missing_link(self):
+        """The escape is for citing an issue, not for unlinking the roadmap.
+
+        Citing one issue from the summary is a plausible editorial need. A
+        roadmap section that does not link the roadmap is not something anyone
+        needs an opt-out from, so the marker must not reach it.
+        """
+        body = f"Prose with no link.\n\n{crd.README_ALLOW_MARKER}\n"
+        (finding,) = crd.check_readme(_readme(body))
+        self.assertIn("does not link to", finding.message)
+
+    def test_a_missing_roadmap_section_is_reported_not_passed(self):
+        """A guard that quietly stops guarding is the silence #60 is about."""
+        text = _readme(_POINTER, heading="## Where this is going")
+        (finding,) = crd.check_readme(text)
+        self.assertEqual(finding.check, crd.README_CHECK)
+        self.assertIn("no `## Roadmap` section", finding.message)
+
+    def test_a_heading_with_a_trailing_em_dash_annotation_still_matches(self):
+        """`_section_title` strips the annotation, as it does for ROADMAP.md."""
+        text = _readme(_POINTER + _ISSUE_BULLET, heading="## Roadmap — the short form")
+        self.assertTrue(crd.check_readme(text))
+
+    def test_a_deeper_heading_stays_inside_the_section(self):
+        """`###` does not end the section, so it cannot be used to slip past."""
+        body = _POINTER + "\n### Near term\n\n" + _ISSUE_BULLET
+        self.assertTrue(crd.check_readme(_readme(body)))
+
+
+class ReadmeGuardWiringTest(unittest.TestCase):
+    """The guard is reachable from `main()` and counts toward the exit code.
+
+    R7 says `--offline` runs the offline checks — four of them once this guard
+    exists. A check that is implemented but never called is the failure this
+    class exists to catch.
+    """
+
+    def _write(self, text: str) -> str:
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = Path(d) / "README.md"
+        # LF explicitly: this repo has a tracked CRLF defect class (#84), and a
+        # fixture written with native endings would prove nothing about it.
+        path.write_text(text, encoding="utf-8", newline="\n")
+        return str(path)
+
+    def test_offline_reports_four_checks(self):
+        rc, out, err = _offline("clean.md")
+        self.assertEqual(rc, crd.EXIT_PASS, out + err)
+        names = [line.split()[1] for line in out.splitlines()
+                 if line.startswith(("PASS  ", "FAIL  ", "note  "))]
+        self.assertEqual(
+            names,
+            ["unique-references", "link-wellformed", "tag-vocabulary",
+             crd.README_CHECK],
+        )
+
+    def test_readme_drift_alone_exits_drift_offline(self):
+        readme = self._write(_readme(_POINTER + _ISSUE_BULLET))
+        rc, out, err = _offline("clean.md", "--readme", readme)
+        self.assertEqual(rc, crd.EXIT_DRIFT, out + err)
+        self.assertIn(f"FAIL  {crd.README_CHECK}", out)
+
+    def test_the_allow_marker_clears_it_through_main(self):
+        readme = self._write(
+            _readme(_POINTER + _ISSUE_BULLET + f"\n{crd.README_ALLOW_MARKER}\n")
+        )
+        rc, out, err = _offline("clean.md", "--readme", readme)
+        self.assertEqual(rc, crd.EXIT_PASS, out + err)
+        self.assertIn(f"PASS  {crd.README_CHECK}", out)
+
+    def test_an_unreadable_readme_exits_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            rc, out, err = _run_main(
+                ["--offline", "--roadmap", str(crd.DEFAULT_ROADMAP),
+                 "--readme", str(Path(d) / "no-such-file.md")]
+            )
+        self.assertEqual(rc, crd.EXIT_ERROR, out + err)
+        self.assertIn("could not read", err)
+        self.assertIn("no-such-file.md", err)
+
+    def test_json_carries_the_readme_path_and_finding(self):
+        readme = self._write(_readme(_POINTER + _ISSUE_BULLET))
+        rc, out, _ = _offline("clean.md", "--readme", readme, "--json")
+        payload = json.loads(out)
+        self.assertEqual(rc, crd.EXIT_DRIFT)
+        self.assertEqual(payload["readme"], Path(readme).as_posix())
+        (finding,) = payload["findings"]
+        self.assertEqual(finding["check"], crd.README_CHECK)
+        self.assertEqual(finding["severity"], crd.SEVERITY_HARD)
+
+    def test_the_guard_does_not_touch_the_network_seam(self):
+        readme = self._write(_readme(_POINTER + _ISSUE_BULLET))
+        with mock.patch.object(crd, "fetch_issue_state", _exploding_fetch):
+            rc, out, err = _offline("clean.md", "--readme", readme)
+        self.assertEqual(rc, crd.EXIT_DRIFT, out + err)
+
+
 # ── exit convention ────────────────────────────────────────────────────────
 
 class ExitConventionTest(unittest.TestCase):
