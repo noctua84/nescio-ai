@@ -178,26 +178,6 @@ class InvalidSourceTest(unittest.TestCase):
             self.assertFalse((repo / "memory" / "feedback" / "sample-learning.md").exists())
 
 
-class CapWarningTest(unittest.TestCase):
-    def test_warns_past_max_ledger_lines(self):
-        with tempfile.TemporaryDirectory() as d:
-            repo = Path(d)
-            ledger = _seed_repo(repo)
-            # Pad the ledger past the cap with pre-existing entries.
-            padding = "\n".join(
-                f"- 2026-01-01 | feedback/old-{i}.md | {i:012x} | promoted: old-{i}"
-                for i in range(lc.MAX_LEDGER_LINES + 1)
-            )
-            ledger.write_text(LEDGER_SEED + padding + "\n", encoding="utf-8")
-
-            rc, summary = pl.promote([_nom()], repo_dir=repo)
-            self.assertEqual(rc, 0)
-            self.assertTrue(
-                any(str(lc.MAX_LEDGER_LINES) in s and "⚠" in s for s in summary),
-                summary,
-            )
-
-
 class TargetContainmentTest(unittest.TestCase):
     def _ledger_unchanged_and_no_escape(self, repo, ledger, before):
         # rc 1, ledger untouched, nothing written outside memory/.
@@ -759,12 +739,17 @@ class ConsoleEncodingTest(unittest.TestCase):
     saw a non-zero exit for a run that fully succeeded.
     """
 
-    # A summary shaped like the real one, carrying both offending glyphs.
+    # A summary shaped like the real one, carrying both offending glyphs. The ⚠
+    # line is the receipt-failure warning promote() emits at the end of a
+    # succeeded-but-unrecorded run — the surviving non-ASCII warning now that the
+    # ledger-cap warning is gone.
     GLYPH_SUMMARY = [
         "wrote     feedback/sample.md — abc123abc123 (empirical)",
         "reindexed memory/feedback/MEMORY.md → 3 notes",
         "promoted 1, skipped 0",
-        f"\n⚠  learning-log.md is 999 lines (> {lc.MAX_LEDGER_LINES}). Compact it.",
+        "⚠  receipt not written to eval/learnings/20260101-000000/receipt.json: "
+        "[Errno 13] Permission denied — the promote succeeded; only the audit "
+        "record is missing.",
     ]
 
     def _run_main(self, manifest: Path):
@@ -797,7 +782,8 @@ class ConsoleEncodingTest(unittest.TestCase):
             # Both glyphs actually reached the stream — not dropped, not replaced.
             self.assertIn("⚠", out)
             self.assertIn("→", out)
-            self.assertIn(str(lc.MAX_LEDGER_LINES), out)
+            # And the whole warning line came through, not just its glyph.
+            self.assertIn("receipt not written to", out)
 
 
 if __name__ == "__main__":

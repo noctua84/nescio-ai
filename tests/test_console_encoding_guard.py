@@ -63,7 +63,9 @@ class MarkAdoptedGuardTest(unittest.TestCase):
         )
         self.assertEqual(rc, 1)
         self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
-        # The ⚠ the ledger-cap warning uses is now encodable on this stream.
+        # The run, archive and ledger paths this script echoes are rooted in the
+        # user's home and checkout and may be non-ASCII; so are the em dashes in
+        # its error strings. They are all encodable on this stream now.
         stream.write("⚠\n")
 
 
