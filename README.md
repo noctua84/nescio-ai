@@ -257,6 +257,40 @@ there is no delivery vehicle — and setting `core.hooksPath` globally would hij
 every repo on the machine and silently disable any repo's own `.git/hooks`, which
 the framework's non-destructive charter rules out.
 
+## Checking ROADMAP.md against GitHub
+
+`ROADMAP.md` duplicates state GitHub owns — which issues are open, and which
+milestone each belongs to — and it has drifted before. `check_roadmap_drift.py`
+reconciles the two. It **never writes**: the bullets there are hand-written
+editorial prose, deliberately shorter and clearer than the issue titles they
+track, so the script reports and you decide.
+
+```bash
+# structure only — no network, no `gh`, no token
+PYTHONPATH=scripts python scripts/check_roadmap_drift.py --offline
+
+# the same, plus the live reconciliation against the issue tracker
+PYTHONPATH=scripts python scripts/check_roadmap_drift.py
+```
+
+`--offline` runs the four checks that need nothing but the two files in this
+repo: reference uniqueness, link well-formedness, the milestone tag vocabulary,
+and that this README's roadmap summary has not acquired issue numbers of its
+own. It is what to run without `gh`, and it never exits 2. The plain invocation
+adds five reconciliation checks against GitHub.
+
+Exit 0 is clean; 1 means the file and GitHub disagree; 2 means the check could
+not run at all — `gh` missing, unauthenticated, or the API unreachable — which
+is deliberately not the same answer as "clean", and the reason is named on
+stderr rather than left as a traceback.
+
+**Advisories print without failing.** An issue referenced in `ROADMAP.md` that
+does not carry the `roadmap` label is reported with the exact `gh issue edit`
+command that fixes it, and the run still exits 0: applying a label is GitHub
+metadata no commit in this repo can carry, so failing there would block someone
+who has no way to clear it. What earns a line in the first place is in
+[CONTRIBUTING.md](CONTRIBUTING.md#what-goes-on-the-roadmap).
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for where Nescio is headed. Near-term work is the

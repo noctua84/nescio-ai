@@ -1,0 +1,87 @@
+name: Feature request
+description: Suggest an agent, skill, or capability
+title: ""
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### What earns a roadmap line
+
+        `ROADMAP.md` lists **planned features** — capabilities the project intends to
+        have. An issue gets a line when a **maintainer** applies the `roadmap` label,
+        which happens at triage, not at filing. Contributors cannot apply it themselves,
+        and nothing you write here grants or forfeits it.
+
+        **Gets a line:** a new capability, skill, agent, or subsystem; a deliberate
+        change to how an existing capability is designed; an evaluative spike whose
+        outcome is a capability decision. Work in the *Parked* milestone still gets a
+        line — `deferred` means held, not abandoned, and the two labels coexist.
+        *Example: #29, an OpenAI Codex CLI adapter — a capability the project does not
+        have yet.*
+
+        **Does not get a line:** bugs and crashes; CI, release, and packaging plumbing;
+        documentation debt; housekeeping and audits. These are tracked as issues and
+        shipped normally — the roadmap is about direction, not about the backlog.
+        *Example: #71, a cp1252 crash in `promote_learnings.py` — a defect in something
+        that already ships.*
+
+        **To be roadmap-ready an issue needs:** a title that reads as a capability (not a
+        symptom); the problem or use case in one paragraph; the proposed shape; and what
+        you considered instead. If a maintainer cannot write a one-line roadmap bullet
+        from your issue, it is not ready for one.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this?
+      description: >
+        Your honest read. A maintainer confirms or corrects it at triage; this
+        answer is a starting point, not a claim on the roadmap.
+      options:
+        - A new capability (agent, skill, subsystem, or command)
+        - An improvement to something that already ships
+        - A defect or chore in something that already ships
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: >
+        One paragraph. What are you trying to do, and what stops you today?
+        Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed idea
+      description: The shape of the change — what would exist that does not exist now.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >
+        What else you tried or weighed, and why it did not fit. "Nothing yet" is
+        an honest answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: roadmap-case
+    attributes:
+      label: Is this a planned capability? (optional)
+      description: >
+        If you think this belongs on ROADMAP.md, make the case in a sentence or
+        two — what capability the project would gain. The `roadmap` label is
+        applied by a maintainer at triage and cannot be requested; this field
+        only gives them the argument to weigh.
+    validations:
+      required: false

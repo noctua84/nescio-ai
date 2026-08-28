@@ -12,6 +12,17 @@ on tooling that isn't built yet, or a taste call to revisit later), so check the
 issue before assuming which. Held is **not** neglected. Untagged items aren't
 milestoned yet.
 
+This file lists **planned features**, not the backlog. An item appears here
+because a maintainer applied the `roadmap` label to its issue — bugs, CI and
+release plumbing, docs debt, and housekeeping are tracked as issues and shipped
+normally, without a line. The full criteria are in
+[CONTRIBUTING.md](CONTRIBUTING.md#what-goes-on-the-roadmap).
+
+This file is machine-checked against GitHub by
+`scripts/check_roadmap_drift.py`, which reports labelled work that is missing
+here and entries whose issue is closed. It only ever reports — the prose below
+is hand-written and nothing rewrites it.
+
 ## Shipped
 
 Capabilities, not releases — this section is deliberately coarse so it doesn't
