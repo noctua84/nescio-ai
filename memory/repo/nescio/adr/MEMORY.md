@@ -1,0 +1,2 @@
+- [nescio-adr-0001-no-agent-frameworks](0001-no-agent-frameworks-in-nescio.md) — Nescio's runtime install path stays dependency-free and framework-free; agent frameworks and harness experimentation live in a separate repo, not here.
+- [nescio-adr-0002-defer-semantic-retrieval](0002-defer-semantic-retrieval-for-memory.md) — The learning loop keeps curated-index retrieval; no vector database or graph framework, because the corpus is empty and the binding constraint is the write path, not retrieval.
