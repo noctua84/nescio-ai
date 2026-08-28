@@ -13,6 +13,19 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _write_bytes(path: Path, data: bytes) -> None:
+    """Write exact bytes.
+
+    Line-ending behaviour is the thing under test in `LineEndingTest`, and
+    `_write` above cannot express it: `Path.write_text` opens in text mode with
+    `newline=None`, which rewrites every `\\n` to `os.linesep` — so the same
+    call produces LF on Linux and CRLF on Windows. Every EOL-sensitive fixture
+    goes through here so the tests assert the same thing on every platform.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
 def _make_checkout(root: Path) -> None:
     """A minimal tree that passes the Nescio-checkout sanity check."""
     _write(root / "install.py", "# installer\n")
@@ -144,6 +157,112 @@ class RenderDiffTest(unittest.TestCase):
         added, updated, deleted = sfu.plan_sync(self.up, self.dst)
         out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
         self.assertEqual(out, "")
+
+
+class LineEndingTest(unittest.TestCase):
+    """A CRLF downstream tree vs an LF upstream must not read as 29 changes.
+
+    Downstream instances are private forks that may carry no `.gitattributes`,
+    so Git for Windows' `core.autocrlf=true` leaves their working tree in CRLF
+    while this repo pins itself to LF. Byte comparison turned that into phantom
+    "updated" entries; these tests pin the text-aware behaviour that replaced it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        _make_checkout(self.up)
+        _make_checkout(self.dst)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_crlf_dest_with_identical_text_is_not_updated(self):
+        _write_bytes(self.up / "scripts" / "tool.py", b"import os\nprint(os)\n")
+        _write_bytes(self.dst / "scripts" / "tool.py", b"import os\r\nprint(os)\r\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual((added, updated, deleted), ([], [], []))
+
+    def test_crlf_dest_identical_text_is_left_byte_for_byte_untouched(self):
+        # The point of the fix: a newline-only difference must not cause a copy,
+        # so the downstream tree stops churning on every sync.
+        original = b"import os\r\nprint(os)\r\n"
+        _write_bytes(self.up / "scripts" / "tool.py", b"import os\nprint(os)\n")
+        _write_bytes(self.dst / "scripts" / "tool.py", original)
+
+        sfu.apply_sync(self.up, self.dst)
+
+        self.assertEqual((self.dst / "scripts" / "tool.py").read_bytes(), original)
+
+    def test_crlf_dest_with_real_change_is_still_updated_and_applied(self):
+        _write_bytes(self.up / "scripts" / "tool.py", b"import os\nprint(os)\n")
+        _write_bytes(self.dst / "scripts" / "tool.py", b"import os\r\nprint(sys)\r\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual([Path(x).as_posix() for x in updated], ["scripts/tool.py"])
+
+        sfu.apply_sync(self.up, self.dst)
+        self.assertEqual(
+            (self.dst / "scripts" / "tool.py").read_bytes(), b"import os\nprint(os)\n"
+        )
+
+    def test_lone_cr_dest_with_identical_text_is_not_updated(self):
+        # Old-Mac EOLs: `\r` alone must normalise the same way `\r\n` does.
+        _write_bytes(self.up / "scripts" / "tool.py", b"alpha\nbeta\n")
+        _write_bytes(self.dst / "scripts" / "tool.py", b"alpha\rbeta\r")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual((added, updated, deleted), ([], [], []))
+
+    def test_binary_differing_only_in_crlf_bytes_is_still_updated(self):
+        # Byte semantics are preserved for binary: `.gitattributes` marks the
+        # brand assets binary precisely so they compare byte-for-byte, and a
+        # `0d 0a` inside a payload is a real difference, not an EOL convention.
+        _write_bytes(self.up / "skills" / "brand" / "logo.png", b"\x89PNG\x00\n\x00\xff")
+        _write_bytes(self.dst / "skills" / "brand" / "logo.png", b"\x89PNG\x00\r\n\x00\xff")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual([Path(x).as_posix() for x in updated], ["skills/brand/logo.png"])
+
+    def test_undecodable_dest_is_reported_as_updated_without_raising(self):
+        # Valid UTF-8 upstream, latin-1 downstream: must fall back to byte
+        # semantics (i.e. report it) rather than let UnicodeDecodeError escape.
+        _write_bytes(self.up / "scripts" / "tool.py", "héllo\n".encode("utf-8"))
+        _write_bytes(self.dst / "scripts" / "tool.py", "héllo\n".encode("latin-1"))
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual([Path(x).as_posix() for x in updated], ["scripts/tool.py"])
+
+    def test_undecodable_upstream_is_reported_as_updated_without_raising(self):
+        _write_bytes(self.up / "scripts" / "tool.py", "héllo\n".encode("latin-1"))
+        _write_bytes(self.dst / "scripts" / "tool.py", "héllo\n".encode("utf-8"))
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        self.assertEqual([Path(x).as_posix() for x in updated], ["scripts/tool.py"])
+
+    def test_render_diff_on_crlf_dest_shows_only_the_changed_line(self):
+        # A retained `\r` on every dest line would make difflib mark the whole
+        # file changed, drowning the one real edit.
+        _write_bytes(
+            self.up / "scripts" / "tool.py",
+            b"one\ntwo\nthree NEW\nfour\nfive\n",
+        )
+        _write_bytes(
+            self.dst / "scripts" / "tool.py",
+            b"one\r\ntwo\r\nthree OLD\r\nfour\r\nfive\r\n",
+        )
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        out = sfu.render_diff(self.up, self.dst, added, updated, deleted)
+
+        body = [ln for ln in out.splitlines() if not ln.startswith(("---", "+++"))]
+        removed = [ln for ln in body if ln.startswith("-")]
+        inserted = [ln for ln in body if ln.startswith("+")]
+        self.assertEqual(removed, ["-three OLD"], out)
+        self.assertEqual(inserted, ["+three NEW"], out)
 
 
 class MainCliTest(unittest.TestCase):
