@@ -42,10 +42,23 @@ caller can tell "the file is wrong" from "the check could not run":
   1  a hard check reported drift
   2  could not check — the reconciliation half could not reach GitHub
 
-This module holds the parser, the offline checks, and the CLI. The network half
-(`fetch_issue_state` and the five reconciliation checks) is a later task; the
-stub below is the single seam every network call goes through, which is what
-keeps the test suite hermetic.
+This module holds the parser, the offline checks, the reconciliation checks, and
+the CLI. `fetch_issue_state` is the single seam every network call goes through —
+every check takes already-fetched state as a parameter, which is what keeps the
+test suite hermetic.
+
+**The four reconciliation directions are deliberately asymmetric.** Let L be the
+open issues labelled `roadmap` and R the primary references in this file:
+
+  D1  n ∈ L, n ∉ R                    → drift (exit 1)
+  D2  n ∈ R, not an open issue        → drift (exit 1)
+  D3  n ∈ R, open, unlabelled         → ADVISORY (exit 0), printed
+  D4  n ∉ L, n ∉ R                    → silent; a non-event, by design
+
+D3 is advisory because **its remedy is not in this repository.** No commit and no
+pull request can apply a GitHub label, so a red build here would block a
+contributor who has no way to clear it. D1 and D2 are hard because their remedy
+is one line in this file, in the same commit-space as the check.
 
 Usage:
     python scripts/check_roadmap_drift.py --offline      # no network, ever
@@ -58,8 +71,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
-from dataclasses import dataclass
+import time
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
@@ -114,6 +130,27 @@ EXIT_ERROR = 2
 # wrong person. Advisories print loudly and never change the exit code.
 SEVERITY_HARD = "hard"
 SEVERITY_ADVISORY = "advisory"
+
+# R3: every `gh` invocation is bounded, so this can never hang a CI job.
+GH_TIMEOUT = 30
+
+# R4: one retry, after a short sleep, absorbs the common transient 502 without
+# masking a real outage. A rate limit is *not* retried — retrying makes it worse.
+# Module-level so a test can shrink it rather than sleep for real.
+RETRY_SLEEP_SECONDS = 5.0
+
+# R12: pagination is explicit and bounded. 20 pages × 100 is far more headroom
+# than this repo will ever need, and it means a pathological API response cannot
+# spin the loop forever.
+PER_PAGE = 100
+MAX_PAGES = 20
+
+# D2 resolves each unknown reference with its own API call, to tell "closed" from
+# "never existed / is a PR". That is one request per number, so it is bounded: a
+# file that has gone badly stale (or a malicious edit adding 500 bogus links)
+# must not turn one check into a request storm. Past the bound the numbers are
+# still reported — just without the closed-vs-missing detail.
+MAX_INDIVIDUAL_RESOLUTIONS = 20
 
 # The narrow [#N](.../issues/N) anchor is LOAD-BEARING, not incidental. ROADMAP.md
 # has historically contained bare "#N" in prose — before commit 5281661 amended
@@ -193,6 +230,49 @@ class Finding:
 
     def __str__(self) -> str:
         return self.message
+
+
+@dataclass(frozen=True)
+class Issue:
+    """One open issue, projected down to the three fields this script reasons about.
+
+    Pull requests never become an `Issue` — they are filtered out at the fetch,
+    which is the #60 gotcha made structural rather than remembered.
+    """
+
+    number: int
+    milestone: str | None
+    labels: tuple[str, ...]
+
+    @property
+    def is_roadmap(self) -> bool:
+        return ROADMAP_LABEL in self.labels
+
+
+@dataclass(frozen=True)
+class IssueState:
+    """Everything the reconciliation checks are allowed to know about GitHub.
+
+    Built once by `fetch_issue_state` and passed to every check, so the checks
+    themselves are pure functions over injected data — that is the seam the
+    hermetic tests inject at.
+
+    `issues` holds only *open, non-PR* issues, keyed by number. `milestones` is
+    the open milestone titles. `resolved` answers "what is this number, then?"
+    for references absent from `issues`: ``"closed"``, ``"missing"`` (no such
+    number, or it is a pull request), or ``"open"`` (raced with the list call).
+    `unresolved` names references deliberately left un-looked-up because
+    `MAX_INDIVIDUAL_RESOLUTIONS` was exceeded — reported, but without detail.
+    """
+
+    issues: dict[int, Issue] = field(default_factory=dict)
+    milestones: tuple[str, ...] = ()
+    resolved: dict[int, str] = field(default_factory=dict)
+    unresolved: tuple[int, ...] = ()
+
+    def labelled(self) -> set[int]:
+        """The allow-list: open issues a maintainer has declared to be planned work."""
+        return {n for n, issue in self.issues.items() if issue.is_roadmap}
 
 
 def _section_title(heading_text: str) -> str:
@@ -390,22 +470,468 @@ def run_offline_checks(entries: list[Entry]) -> list[tuple[str, list[Finding]]]:
 
 
 # ── the network seam ───────────────────────────────────────────────────────
+# Everything below this line and above the reconciliation checks is the only
+# code in this script that touches the network (R1). It never raises: every
+# failure becomes a `(None, reason)` return, because a checker that dies with a
+# traceback teaches a reader nothing about whether the roadmap is correct.
+
+# This narrow projection IS the privacy control. This repo is public and CI logs
+# are public; widening to --jq '.' "just to debug" would dump every open issue
+# body into a public log. Debug by printing the projected dicts, never the raw
+# API payload.
+#
+# `select(.pull_request | not)` is mandatory, not tidiness: the milestones API's
+# `open_issues` field counts pull requests, so anything derived from an unfiltered
+# list reports false drift the moment a PR is assigned to a milestone (#60 names
+# this gotcha explicitly). Per-milestone facts here are derived from this
+# filtered list only — the API's own count is never read.
+#
+# `count` is the RAW page length, deliberately captured *before* the filter.
+# Verified against this repo at per_page=20: page 1 held 20 rows of which 18
+# survived the PR filter. Terminating the page loop on the *filtered* length
+# would have stopped after page 1 and silently lost the remaining 13 issues.
+_ISSUES_PROJECTION = (
+    "{count: length, rows: [.[] | select(.pull_request | not) "
+    "| {number, milestone: (.milestone.title // null), labels: [.labels[].name]}]}"
+)
+
+_MILESTONES_PROJECTION = "{count: length, rows: [.[] | {number, title}]}"
+
+# What one number turns out to be, when it is not in the open-issue list.
+_RESOLVE_PROJECTION = '{number, state, is_pr: (has("pull_request"))}'
 
 
-def fetch_issue_state(repo: str = REPO) -> tuple[object | None, str | None]:
-    """The one and only place this script may touch the network.
+def _run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run `gh <args>` capturing text output; bounded by `GH_TIMEOUT` (R3).
+
+    Mirrors `_hygiene_common.run`: it does not raise on a non-zero exit, because
+    every caller here branches on `returncode` to tell "GitHub answered no" from
+    "GitHub could not be asked". A missing `gh` binary still raises `OSError`,
+    and `subprocess.TimeoutExpired` still propagates — both are caught by
+    `fetch_issue_state`, which is the one place that can report them usefully.
+
+    This is the single subprocess seam. Tests patch *this* function, never
+    `subprocess` globally.
+    """
+    return subprocess.run(
+        ["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT
+    )
+
+
+def _is_rate_limited(proc: subprocess.CompletedProcess[str]) -> bool:
+    """Whether a failed `gh api` call failed because of the rate limit.
+
+    Checked so R4's retry can be skipped: retrying a rate limit spends another
+    request against the budget that is already exhausted, making the situation
+    strictly worse and delaying the honest "could not check" by five seconds.
+    """
+    return "rate limit" in (proc.stderr + proc.stdout).lower()
+
+
+def _gh_api(path: str, jq: str) -> tuple[object | None, str | None]:
+    """One `gh api` call, with R4's single retry. Returns `(parsed, reason)`.
+
+    A non-zero exit is retried once after `RETRY_SLEEP_SECONDS` — enough to
+    absorb the transient 502 that GitHub emits under load, not enough to mask a
+    real outage. A rate limit short-circuits that retry (see `_is_rate_limited`).
+    """
+    attempts = 2
+    for attempt in range(attempts):
+        proc = _run_gh(["api", path, "--jq", jq])
+        if proc.returncode == 0:
+            break
+        detail = (proc.stderr.strip() or proc.stdout.strip() or "no detail").splitlines()[0]
+        if _is_rate_limited(proc):
+            return None, f"api error (rate limited): {detail}"
+        if attempt + 1 < attempts:
+            time.sleep(RETRY_SLEEP_SECONDS)
+            continue
+        return None, f"api error: {detail}"
+
+    try:
+        return json.loads(proc.stdout), None
+    except json.JSONDecodeError as exc:
+        # Reached if gh ever emits something other than one JSON document. The
+        # explicit page loop below exists precisely so this stays unreachable —
+        # see its comment on `--paginate`.
+        return None, f"malformed api response for {path}: {exc}"
+
+
+def _gh_pages(path: str, jq: str) -> tuple[list[dict] | None, str | None]:
+    """Accumulate every page of `path` into one list. Returns `(rows, reason)`.
+
+    **Do not replace this with `--paginate`.** Verified against this repo at
+    per_page=20: `gh api … --paginate --jq '[…]'` emits **one JSON array per
+    page** — two separate `[…]` documents on stdout — so `json.loads` raises and
+    the failure is laundered into a false "could not check". It is silent at 31
+    issues and breaks at 101. `--slurp` is not the fix either: gh 2.87.3 rejects
+    it outright with *"the `--slurp` option is not supported with `--jq` or
+    `--template`"*. Both were tried; this loop is what remains.
+
+    Termination is on the raw page count, never on `len(rows)` — the projection
+    filters pull requests out, so a full page can yield a short row list.
+    """
+    accumulated: list[dict] = []
+    # Do NOT "simplify" this loop into `gh api --paginate`: it emits one JSON
+    # array per page, so `json.loads` raises "Extra data" and a working fetch is
+    # laundered into a false "could not check". `--slurp` does not rescue it —
+    # gh 2.87.3 rejects `--slurp` combined with `--jq`. Both were reproduced
+    # against this repo; the loop is what survived. See this function's docstring.
+    for page in range(1, MAX_PAGES + 1):
+        sep = "&" if "?" in path else "?"
+        payload, reason = _gh_api(f"{path}{sep}per_page={PER_PAGE}&page={page}", jq)
+        if reason is not None:
+            return None, reason
+        if not isinstance(payload, dict) or "rows" not in payload:
+            return None, f"unexpected api response shape for {path}"
+        accumulated.extend(payload["rows"])
+        if int(payload.get("count", 0)) < PER_PAGE:
+            return accumulated, None
+    return None, f"too many pages for {path} (stopped at {MAX_PAGES})"
+
+
+def _resolve_reference(repo: str, number: int) -> tuple[str | None, str | None]:
+    """What number `number` actually is. Returns `(verdict, reason)`.
+
+    Verdict is ``"closed"``, ``"missing"`` (no such number, or it is a pull
+    request), or ``"open"``. A 404 is a legitimate *answer* here — "there is no
+    such issue" is exactly what D2 wants to report — so it is translated to
+    ``"missing"`` rather than treated as a fetch failure.
+    """
+    proc_payload, reason = _gh_api(f"repos/{repo}/issues/{number}", _RESOLVE_PROJECTION)
+    if reason is not None:
+        if "404" in reason or "not found" in reason.lower():
+            return "missing", None
+        return None, reason
+    if not isinstance(proc_payload, dict):
+        return None, f"unexpected api response shape for issue {number}"
+    # A pull request answers /issues/N happily (verified: #83 is a merged PR and
+    # resolves here), so `is_pr` is the discriminator, not the HTTP status.
+    if proc_payload.get("is_pr"):
+        return "missing", None
+    return ("closed" if proc_payload.get("state") == "closed" else "open"), None
+
+
+def fetch_issue_state(
+    repo: str = REPO, referenced: Iterable[int] = ()
+) -> tuple[IssueState | None, str | None]:
+    """The one and only place this script may touch the network (R1).
 
     Returns ``(state, None)`` on success and ``(None, reason)`` on any failure —
-    it must never raise. Every reconciliation check takes already-fetched state
-    as a parameter, which is what makes the test suite hermetic: there is no call
-    to guard, because this function is the seam.
+    **it never raises** (R2). Every reconciliation check takes the returned state
+    as a parameter, which is what makes the test suite hermetic: there is no
+    live call to guard, because this function is the seam.
 
-    **Not implemented yet.** The `gh` fetch, the pull-request filter, explicit
-    pagination, and the degradation contract are a later task. Until then this
-    returns the honest answer — "could not check" — rather than an empty state
-    that would look like "nothing to reconcile" and quietly pass.
+    `referenced` is the set of numbers `ROADMAP.md` cites. Numbers absent from
+    the open-issue list are resolved individually so D2 can tell "closed" from
+    "never existed", bounded by `MAX_INDIVIDUAL_RESOLUTIONS`. It is a parameter
+    rather than a second network entry point precisely so R1 keeps holding.
+
+    Failure reasons are phrased for R10 — the caller prints them verbatim after
+    "could not check — ", so each must read as a cause, never as "failed".
     """
-    return None, "not implemented"
+    try:
+        # `gh auth status` exits 0 exactly when a usable authenticated session
+        # exists, per `_hygiene_common.gh_available`. Split into two reasons
+        # here because "install gh" and "run gh auth login" are different fixes.
+        auth = _run_gh(["auth", "status"])
+    except OSError:
+        return None, "gh unavailable (the GitHub CLI is not installed or not on PATH)"
+    except subprocess.TimeoutExpired:
+        return None, f"gh auth status timed out after {GH_TIMEOUT}s"
+    if auth.returncode != 0:
+        return None, "not authenticated (run `gh auth login`, or set GH_TOKEN)"
+
+    try:
+        rows, reason = _gh_pages(f"repos/{repo}/issues?state=open", _ISSUES_PROJECTION)
+        if reason is not None:
+            return None, reason
+
+        issues: dict[int, Issue] = {}
+        for row in rows or []:
+            number = int(row["number"])
+            issues[number] = Issue(
+                number=number,
+                milestone=row.get("milestone"),
+                labels=tuple(row.get("labels") or ()),
+            )
+
+        milestone_rows, reason = _gh_pages(
+            f"repos/{repo}/milestones?state=open", _MILESTONES_PROJECTION
+        )
+        if reason is not None:
+            return None, reason
+        milestones = tuple(row["title"] for row in milestone_rows or [])
+
+        unknown = sorted(set(referenced) - set(issues))
+        resolved: dict[int, str] = {}
+        unresolved: tuple[int, ...] = ()
+        if len(unknown) > MAX_INDIVIDUAL_RESOLUTIONS:
+            unresolved = tuple(unknown)
+        else:
+            for number in unknown:
+                verdict, reason = _resolve_reference(repo, number)
+                if reason is not None:
+                    return None, reason
+                resolved[number] = verdict
+    except OSError:
+        return None, "gh unavailable (the GitHub CLI is not installed or not on PATH)"
+    except subprocess.TimeoutExpired:
+        return None, f"gh timed out after {GH_TIMEOUT}s"
+
+    return (
+        IssueState(
+            issues=issues,
+            milestones=milestones,
+            resolved=resolved,
+            unresolved=unresolved,
+        ),
+        None,
+    )
+
+
+# ── reconciliation checks ──────────────────────────────────────────────────
+# Each takes `(entries, state)` and returns findings. None of them touch the
+# network — they read the `IssueState` the seam above produced, which is what
+# lets the tests drive every branch from a literal dict.
+
+
+def check_labelled_present(entries: list[Entry], state: IssueState) -> list[Finding]:
+    """D1 (hard): every open issue labelled `roadmap` appears in the file.
+
+    Hard because the maintainer made an explicit, machine-readable declaration
+    and the file contradicts it — zero policy judgement, and the remedy is one
+    line in this repo. This is the failure mode the audit actually found:
+    omission, not tag rot.
+    """
+    referenced = {entry.number for entry in entries}
+    return [
+        Finding(
+            "labelled-present",
+            f"labelled `{ROADMAP_LABEL}` but not on the roadmap: #{number} — "
+            "add a bullet, or drop the label.",
+        )
+        for number in sorted(state.labelled() - referenced)
+    ]
+
+
+def check_reference_resolves(entries: list[Entry], state: IssueState) -> list[Finding]:
+    """D2 (hard): every primary reference resolves to an open issue.
+
+    The file asserts *planned future work* that GitHub says is finished,
+    abandoned, or never existed. This is the one direction that depends on issue
+    **state** rather than on metadata someone has to remember to apply, so it
+    stays meaningful even if the labelling policy is later dropped.
+
+    Closed is reported separately from missing because they are different
+    mistakes with different fixes — and because a merged pull request answers
+    the issues endpoint (#83 is one), so "not an issue" must not read as "gone".
+    """
+    findings = []
+    seen: set[int] = set()
+    for entry in sorted(entries, key=lambda e: e.line_no):
+        if entry.number in state.issues or entry.number in seen:
+            continue
+        seen.add(entry.number)
+        if entry.number in state.unresolved:
+            continue
+        verdict = state.resolved.get(entry.number)
+        if verdict == "open":
+            continue
+        if verdict == "closed":
+            findings.append(
+                Finding(
+                    "reference-resolves",
+                    f"line {entry.line_no}: referenced but closed: "
+                    f"#{entry.number} — move to Shipped or remove.",
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    "reference-resolves",
+                    f"line {entry.line_no}: referenced but not an open issue: "
+                    f"#{entry.number} (not found, or is a pull request).",
+                )
+            )
+
+    if state.unresolved:
+        numbers = ", ".join(f"#{n}" for n in state.unresolved)
+        findings.append(
+            Finding(
+                "reference-resolves",
+                f"{len(state.unresolved)} references are not open issues and were "
+                f"not resolved individually (over the {MAX_INDIVIDUAL_RESOLUTIONS}"
+                f"-request bound): {numbers}.",
+            )
+        )
+    return findings
+
+
+def check_reference_labelled(entries: list[Entry], state: IssueState) -> list[Finding]:
+    """D3 (ADVISORY — never affects the exit code): a reference lacking the label.
+
+    **The severity here is the design, not an oversight, and promoting it to a
+    hard failure would be a regression.** Nothing in this direction is
+    necessarily wrong: the file may be right and the label merely un-applied.
+    Critically, **the remedy is not in this repository** — applying a label is a
+    GitHub metadata change that no commit can make and no pull request can
+    carry, so a red build would block someone with no way to clear it. It is
+    also the only direction that fires en masse during the label migration.
+    Report it loudly, name the exact command, and exit 0. See the plan's
+    "Direction semantics" before changing this.
+    """
+    findings = []
+    for number in sorted({e.number for e in entries}):
+        issue = state.issues.get(number)
+        if issue is None or issue.is_roadmap:
+            continue
+        findings.append(
+            Finding(
+                "reference-labelled",
+                f"on the roadmap but not labelled: #{number} — "
+                f"`gh issue edit {number} --add-label {ROADMAP_LABEL}` "
+                "(advisory; the remedy is GitHub metadata, which no commit can carry).",
+                severity=SEVERITY_ADVISORY,
+            )
+        )
+    return findings
+
+
+def check_tag_agreement(entries: list[Entry], state: IssueState) -> list[Finding]:
+    """The tag on a bullet agrees with the issue's milestone, both directions.
+
+    Scoped to **roadmap-labelled issues only**: an unlabelled issue's milestone
+    is none of this check's business, since the allow-list says it need not be
+    in the file at all.
+
+    Heading entries are exempt from the tag rule — the two epics are
+    unmilestoned and their headings carry no tag slot — but they still count for
+    D1 and D2, so an epic cannot silently rot.
+
+    A milestone with no `TAG_TO_MILESTONE` mapping is left alone here and
+    reported once by `check_milestone_vocabulary` instead; reporting it in both
+    places would make one new milestone produce a finding per issue in it.
+    """
+    milestone_to_tag = {
+        milestone: tag for tag, milestone in TAG_TO_MILESTONE.items()
+    }
+    findings = []
+    for entry in sorted(entries, key=lambda e: e.line_no):
+        if entry.kind == "heading":
+            continue
+        issue = state.issues.get(entry.number)
+        if issue is None or not issue.is_roadmap:
+            continue
+
+        if issue.milestone is None:
+            if entry.tag is not None:
+                findings.append(
+                    Finding(
+                        "tag-agreement",
+                        f"line {entry.line_no}: #{entry.number} is tagged "
+                        f"`{entry.tag}` but belongs to no milestone — drop the "
+                        "tag, or assign the milestone on GitHub.",
+                    )
+                )
+            continue
+
+        expected = milestone_to_tag.get(issue.milestone)
+        if expected is None:
+            continue  # check_milestone_vocabulary reports this, once.
+        if entry.tag is None:
+            findings.append(
+                Finding(
+                    "tag-agreement",
+                    f"line {entry.line_no}: #{entry.number} is in milestone "
+                    f"{issue.milestone!r} but carries no tag — add `{expected}`.",
+                )
+            )
+        elif entry.tag != expected:
+            findings.append(
+                Finding(
+                    "tag-agreement",
+                    f"line {entry.line_no}: #{entry.number} is tagged "
+                    f"`{entry.tag}` but its milestone is {issue.milestone!r} — "
+                    f"expected `{expected}`.",
+                )
+            )
+    return findings
+
+
+def check_milestone_vocabulary(
+    entries: list[Entry], state: IssueState
+) -> list[Finding]:
+    """`TAG_TO_MILESTONE` still describes the milestones GitHub actually has.
+
+    This is what keeps the hardcoded table honest, in both directions: a new
+    milestone holding roadmap-labelled work has no tag to express it, and a
+    renamed milestone leaves a table value pointing at nothing. Without this the
+    table would quietly become fiction and `check_tag_agreement` would keep
+    passing while checking the wrong thing.
+
+    Restricted to milestones holding **labelled** issues, so a milestone used
+    only for maintenance work does not demand a roadmap tag it will never need.
+    `entries` is unused — the signature is uniform so `NETWORK_CHECKS` can be a
+    plain table.
+    """
+    del entries  # uniform signature; this check reasons about GitHub alone.
+
+    findings = []
+    tagged_milestones = set(TAG_TO_MILESTONE.values())
+
+    holding = sorted(
+        {
+            issue.milestone
+            for issue in state.issues.values()
+            if issue.is_roadmap and issue.milestone is not None
+        }
+    )
+    for milestone in holding:
+        if milestone not in tagged_milestones:
+            findings.append(
+                Finding(
+                    "milestone-vocabulary",
+                    f"milestone {milestone!r} holds roadmap-labelled issues but "
+                    "has no tag in TAG_TO_MILESTONE — add one, or the roadmap "
+                    "cannot express where that work belongs.",
+                )
+            )
+
+    for tag, milestone in TAG_TO_MILESTONE.items():
+        if milestone not in state.milestones:
+            findings.append(
+                Finding(
+                    "milestone-vocabulary",
+                    f"tag `{tag}` maps to milestone {milestone!r}, which is not "
+                    "an open milestone on GitHub — it was renamed, closed, or "
+                    "deleted; update TAG_TO_MILESTONE.",
+                )
+            )
+    return findings
+
+
+# Name → check, in report order. Mirrors `OFFLINE_CHECKS`; the names are what
+# the report prints as PASS/FAIL and what a reader greps for.
+NETWORK_CHECKS = (
+    ("labelled-present", check_labelled_present),
+    ("reference-resolves", check_reference_resolves),
+    ("reference-labelled", check_reference_labelled),
+    ("tag-agreement", check_tag_agreement),
+    ("milestone-vocabulary", check_milestone_vocabulary),
+)
+
+
+def run_network_checks(
+    entries: list[Entry], state: IssueState
+) -> list[tuple[str, list[Finding]]]:
+    """Run every reconciliation check and return `(name, findings)` in report order.
+
+    All of them run; none short-circuits, for the same reason `run_offline_checks`
+    does not — a report that stops at the first failure makes a reviewer fix one
+    thing, push, and wait to discover the next.
+    """
+    return [(name, check(entries, state)) for name, check in NETWORK_CHECKS]
 
 
 # ── reporting ──────────────────────────────────────────────────────────────
@@ -495,10 +1021,15 @@ def main(argv=None) -> int:
     # this repo has already shipped that bug once (#55, and #71 is the same class
     # still open). Guarded, because a redirected StringIO in tests has no
     # `reconfigure`.
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
-    except (AttributeError, ValueError):
-        pass
+    # stderr gets the same treatment: R10's "could not check — <reason>" line
+    # interpolates `gh`'s own stderr, which is not guaranteed to be ASCII, and a
+    # UnicodeEncodeError raised while reporting a failure would replace a useful
+    # diagnosis with a traceback about printing it.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
 
     roadmap = Path(args.roadmap)
     try:
@@ -514,12 +1045,22 @@ def main(argv=None) -> int:
     # what it knows before it says what it could not find out.
     results = run_offline_checks(entries)
 
+    # R7: `--offline` skips the fetch entirely, so it can never exit 2. This is
+    # what a contributor with no `gh` and no token runs locally, and what the
+    # `pull_request` trigger runs in CI.
     fetch_reason: str | None = None
     if not args.offline:
-        _state, fetch_reason = fetch_issue_state()
-        # The reconciliation checks consume `_state` here once they exist. While
-        # `fetch_issue_state` is a stub they cannot run, and a fetch that
-        # returned nothing is reported as "could not check", never as "clean".
+        # The referenced set is handed to the seam so D2 can resolve the numbers
+        # GitHub's open list does not explain — keeping `fetch_issue_state` the
+        # only function in this script that touches the network (R1).
+        state, fetch_reason = fetch_issue_state(
+            referenced={entry.number for entry in entries}
+        )
+        # A fetch that returned nothing is reported as "could not check", never
+        # as "clean": running the reconciliation checks against an empty state
+        # would print five reassuring PASS lines that mean nothing at all.
+        if state is not None:
+            results.extend(run_network_checks(entries, state))
 
     findings = [f for _, fs in results for f in fs]
     hard = [f for f in findings if f.severity == SEVERITY_HARD]
