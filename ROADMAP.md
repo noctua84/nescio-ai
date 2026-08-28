@@ -6,39 +6,53 @@ the [open issues](https://github.com/noctua84/nescio-ai/issues) are always the
 source of truth.
 
 Tags map an item to a [milestone](https://github.com/noctua84/nescio-ai/milestones):
-`1.1` Loop integrity, `1.2` Readiness signal, `1.3` Cross-repo knowledge. `parked`
-means the *Parked* milestone — deliberately held, for one of three distinct reasons
-(blocked on evidence, blocked on tooling that isn't built yet, or a taste call to
-revisit later), so check the issue before assuming which. Held is **not** neglected.
-Untagged items aren't milestoned yet.
+`loop`, `readiness`, `cross-repo`. `parked` means the *Parked* milestone —
+deliberately held, for one of three distinct reasons (blocked on evidence, blocked
+on tooling that isn't built yet, or a taste call to revisit later), so check the
+issue before assuming which. Held is **not** neglected. Untagged items aren't
+milestoned yet.
 
-## Shipped in 1.0
+## Shipped
+
+Capabilities, not releases — this section is deliberately coarse so it doesn't
+need rewriting every time a version goes out.
 
 - The crew + lifecycle (triage → discover → analyze → plan → execute → verify → deliver).
 - Principled refusal and the pre-build `critic` red-team pass.
+- A dedicated implementer (`builder`) and the Delivery Boundary Check that routes
+  work to it, so deciding *what* to build stays separate from building it.
 - The learning loop's core: session-trail capture (Stop hook), `/harvest-memory`
   distillation, human-gated promotion into version-controlled `memory/`, and
   harvest-aware pruning so un-harvested learnings can't age out.
+- A write path through that loop you can actually trust: a harvest watermark, a
+  promotion receipt, and stamp rollback when a promotion doesn't land
+  ([ADR 0003](memory/repo/nescio/adr/0003-learning-loop-write-path-verified.md)).
 - Repo-readiness assessment (`assess_repo_readiness`) and the SessionStart harvest nudge.
+- Readiness computed deterministically from the learning trail
+  (`scripts/compute_readiness.py`) — a measured signal, not a self-report.
 - Overlay-sync for downstream instances (`sync_from_upstream`, with a `--diff` preview).
 - A dependency-free, cross-platform installer that deep-merges into your existing
   Claude config, adopts **just the parts you want** (`--settings agent,plugins`),
   and never destroys a working setup.
+- A documentation site (`docs_site/`, with the agent catalogue generated from
+  frontmatter) and a brand package (`brand/`).
+
+Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Learning loop & memory — [Epic #43](https://github.com/noctua84/nescio-ai/issues/43)
 
 The memory subsystem, end to end: capture → harvest → promote → generalize → measure.
 
-- `1.1` [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
-- `1.2` [#42](https://github.com/noctua84/nescio-ai/issues/42) — compute `readiness.md` deterministically from the learning-trail (2.1a)
-- `1.3` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
-- `1.3` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
-- `1.3` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
-- `1.2` [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
+- `loop` [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
+- `cross-repo` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
+- `cross-repo` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
+- `cross-repo` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
+- `readiness` [#35](https://github.com/noctua84/nescio-ai/issues/35) — confidence-decay & re-validation for stale promoted memory
 - `parked` [#36](https://github.com/noctua84/nescio-ai/issues/36) — diversity-weighted promotion + same-condition inversion
 - `parked` [#38](https://github.com/noctua84/nescio-ai/issues/38) — consolidation cadence: scheduled "sleep" reflection over memory
-- `1.2` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
-- `1.1` [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
+- `readiness` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
+- `readiness` [#70](https://github.com/noctua84/nescio-ai/issues/70) — derive a clean-vs-flagged session verdict from the transcript, replacing `readiness.md`'s insufficient-data state
+- `loop` [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
 - `parked` [#41](https://github.com/noctua84/nescio-ai/issues/41) — evaluate Obsidian as a read-only view over `memory/`
 
 ## Earned autonomy — [Epic #33](https://github.com/noctua84/nescio-ai/issues/33)
@@ -56,17 +70,14 @@ readiness signal the learning loop produces, and rolled out per-repo.
 
 ## Installer & onboarding
 
-- **A1 — per-part settings adoption** — merge just the parts you want. *(In review.)*
 - **A2 — section-level `CLAUDE.md` import** (`CLAUDE.d/`) — adopt individual instruction sections, not the whole brief. *(Planned; spec drafted.)*
 - **Layer B — LLM-assisted config reconciliation** — a post-install skill that reads your existing `settings.json`/`CLAUDE.md` and the framework's and proposes a *conscious merge*, flagging conflicts instead of clobbering. The differentiator. *(Planned; explored.)*
-- [#19](https://github.com/noctua84/nescio-ai/issues/19) — decide on the empty scaffolding dirs (adopt as a memory tier, or drop)
 
 ## Ergonomics & workflow
 
-- `1.1` [#54](https://github.com/noctua84/nescio-ai/issues/54) — guard against detached-HEAD commits in the subagent-driven workflow
-- `1.1` [#59](https://github.com/noctua84/nescio-ai/issues/59) — dispatch template: branch from the fetched remote ref (fast-follow to #54)
-- `1.1` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
-- `1.1` [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
+- `loop` [#59](https://github.com/noctua84/nescio-ai/issues/59) — dispatch template: branch from the fetched remote ref (the detached-HEAD guard itself has shipped; this is the remaining follow-up)
+- `loop` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
+- `loop` [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
 - [#58](https://github.com/noctua84/nescio-ai/issues/58) — a `postmortem` skill for multi-repo incident write-ups
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
