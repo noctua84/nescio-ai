@@ -49,8 +49,12 @@ docstring:
 note — it validates every required field and the `scope` bucket up front (a
 malformed nomination fails cleanly with no partial writes), rejects targets that
 escape `memory/`, applies the contradiction rule, stamps the provenance line, and
-records the promotion in the ledger `memory/learning-log.md` (keyed by a 12-hex
-content hash of the note body, for dedup across machines).
+records the promotion in the ledger `memory/learning-log.md`. The ledger key is a
+12-hex content hash of the *nomination's* `body` field as submitted — taken
+before the frontmatter and the provenance line are composed onto the file, and
+the staging directory it came from is gitignored and ephemeral. So the key is not
+a checksum of the note on disk and cannot be recomputed from anything in the
+repo; it exists to dedup identical re-nominations across machines.
 
 ## Store profiles
 

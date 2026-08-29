@@ -78,7 +78,6 @@ from pathlib import Path
 import wiki_index
 
 from _learning_common import (
-    MAX_LEDGER_LINES,
     REPO_DIR,
     VALID_SOURCES,
     content_hash12,
@@ -511,13 +510,6 @@ def promote(
                     f"the path if you want the record, not to unblock the stamp."
                 )
 
-    if not dry_run:
-        file_lines = len(ledger_path.read_text(encoding="utf-8").splitlines())
-        if file_lines > MAX_LEDGER_LINES:
-            summary.append(
-                f"\n⚠  {ledger_path.name} is {file_lines} lines (> {MAX_LEDGER_LINES}). "
-                f"Compact the oldest entries into a one-line summary to stay under the cap."
-            )
     return 0, summary
 
 
