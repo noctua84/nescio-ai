@@ -170,6 +170,105 @@ def _setup_crlf_prose_above_block(root):
         fh.write(wiki_index.render_block("- [stale](zz.md) — old").encode("utf-8"))
 
 
+# The prose sentence that quoted both markers inline and had the words between
+# them spliced away — silently, rc 0, no ⚠. Kept as a module constant so the
+# regression test and the `--check` sweep assert against the same bytes.
+_MARKER_PROSE = (
+    f"The generator owns the region between `{wiki_index.GENERATED_BEGIN}` and "
+    f"`{wiki_index.GENERATED_END}` - do not edit inside it.\n"
+)
+
+_MARKER_FENCE_EXAMPLE = (
+    "# Index\n\nOur convention:\n\n"
+    "```\n"
+    f"{wiki_index.GENERATED_BEGIN}\n"
+    "- [example](example.md) — this is documentation of the format\n"
+    f"{wiki_index.GENERATED_END}\n"
+    "```\n\nHand prose below.\n"
+)
+
+
+def _setup_inline_marker_prose(root):
+    _note(root, "a.md", "alpha", "first")
+    _write_bytes(_index(root), "# Index\n\n" + _MARKER_PROSE + "\nKeep this paragraph.\n")
+
+
+def _setup_fenced_marker_example(root):
+    _note(root, "a.md", "alpha", "first")
+    _write_bytes(_index(root), _MARKER_FENCE_EXAMPLE)
+
+
+def _setup_crlf_marked_file(root):
+    """A marked file written entirely CRLF — what a Windows editor re-saves."""
+    _note(root, "a.md", "alpha", "first")
+    _write_bytes(
+        _index(root),
+        "# Index\n\nprose\n\n"
+        + wiki_index.render_block("- [stale](zz.md) — old")
+        + "tail\n",
+        crlf=True,
+    )
+
+
+def _setup_curated_no_trailing_newline(root):
+    """`memory/repo/nescio/adr/MEMORY.md`'s shape on `main`: last byte not \\n."""
+    _note(root, "a.md", "alpha", "first")
+    _index(root).write_bytes(b"# Index\n\nHand-written orientation.")
+
+
+def _setup_fenced_link(root):
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(
+        _index(root),
+        "# Index\n\nExample of the format:\n\n"
+        "```markdown\n- [alpha](a.md) - first\n```\n",
+    )
+
+
+def _setup_commented_out_link(root):
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(_index(root), "# Index\n\n<!-- TODO: drop the old [alpha](a.md) note -->\n")
+
+
+def _setup_dot_slash_link(root):
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(_index(root), "# Index\n\nHand list:\n\n- [alpha](./a.md) — curated\n")
+
+
+def _setup_near_miss_targets(root):
+    """Targets that are substrings of each other in both directions."""
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "see aa.md for the pair")
+    _write_bytes(_index(root), "# Index\n\nSee [the pair](aa.md) for context.\n")
+
+
+def _setup_wrong_case_link(root):
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(_index(root), "# Index\n\n- [beta](B.md) — wrong case\n")
+
+
+def _setup_link_below_block(root):
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(
+        _index(root),
+        wiki_index.render_block("- [stale](zz.md) — old")
+        + "\n## Hand notes\n\n- [alpha](a.md) — hand annotated\n",
+    )
+
+
+def _setup_indented_near_generated_line(root):
+    _note(root, "a.md", "alpha", "first")
+    _note(root, "b.md", "beta", "second")
+    _write_bytes(
+        _index(root),
+        "- [alpha](a.md) — first\n  - [beta](b.md) — second\n",
+    )
+
+
 # Matrix row 20: every case 1-17 must be write-free under --check, malformed
 # included. (label, builder, expected rc).
 _CHECK_CASES = [
@@ -190,6 +289,14 @@ _CHECK_CASES = [
     ("duplicate end markers", _setup_duplicate_end_markers, 2),
     ("empty folder", _setup_empty_folder, 0),
     ("emptied folder", _setup_emptied_folder, 1),
+    ("inline marker prose", _setup_inline_marker_prose, 1),
+    ("fenced marker example", _setup_fenced_marker_example, 1),
+    ("crlf marked file", _setup_crlf_marked_file, 1),
+    ("curated, no trailing newline", _setup_curated_no_trailing_newline, 1),
+    ("fenced link", _setup_fenced_link, 1),
+    ("commented-out link", _setup_commented_out_link, 1),
+    ("link below block", _setup_link_below_block, 1),
+    ("indented near-generated line", _setup_indented_near_generated_line, 1),
 ]
 
 
@@ -262,6 +369,66 @@ class TestPreservationAroundBlock(unittest.TestCase):
             self.assertNotIn(b"zz.md", data)
 
 
+class TestMarkerRecognitionIsAnchored(unittest.TestCase):
+    """A marker counts only as a whole line, outside a fenced code block.
+
+    The unanchored `text.count` / `text.index` scan these replace classified any
+    file mentioning both marker strings as `ok` and spliced away everything
+    between the two mentions — rc 0, `wrote: … (regenerated block)`, no ⚠, and
+    stable on run 2, so the loss was permanent and never re-reported.
+    """
+
+    def test_markers_quoted_inline_in_prose_are_not_a_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_inline_marker_prose(root)
+            original = _index(root).read_bytes()
+            rc, summary = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            data = _index(root).read_bytes()
+            # The whole sentence, `` ` and ` `` included, survives byte-for-byte.
+            self.assertIn(_MARKER_PROSE.encode("utf-8"), data)
+            self.assertTrue(data.startswith(original), data)
+            self.assertIn(b"Keep this paragraph.\n", data)
+            # And the operator is told, where before there was no signal at all.
+            self.assertTrue([line for line in summary if "⚠ appended" in line], summary)
+
+    def test_fenced_marker_example_is_left_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_fenced_marker_example(root)
+            original = _index(root).read_bytes()
+            rc, summary = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            data = _index(root).read_bytes()
+            self.assertTrue(data.startswith(original), data)
+            self.assertIn(
+                "- [example](example.md) — this is documentation of the "
+                "format".encode("utf-8"),
+                data,
+            )
+            self.assertTrue([line for line in summary if "⚠ appended" in line], summary)
+
+    def test_marker_text_in_a_description_never_freezes_the_index(self):
+        # `build_index` interpolates frontmatter verbatim. Under the unanchored
+        # scan, run 1 wrote a bullet carrying an end marker and every run after
+        # returned rc 2 `(2 end markers); refusing to write` — the index frozen
+        # permanently, while the unattended promote still exited 0.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _note(root, "a.md", "alpha", f"see {wiki_index.GENERATED_END} here")
+            for run in range(1, 4):
+                with self.subTest(run=run):
+                    rc, summary = wiki_index.regenerate(root)
+                    self.assertEqual(rc, 0, summary)
+                    self.assertFalse(
+                        [line for line in summary if "malformed" in line], summary
+                    )
+            self.assertEqual(wiki_index.regenerate(root, check=True)[0], 0)
+            text = _index(root).read_text(encoding="utf-8", newline="")
+            self.assertIn(f"- [alpha](a.md) — see {wiki_index.GENERATED_END} here", text)
+
+
 class TestMarkerlessMigration(unittest.TestCase):
     """Matrix rows 3-6 — the line-identity predicate (D6)."""
 
@@ -329,6 +496,23 @@ class TestMarkerlessMigration(unittest.TestCase):
                     "- [ADR 0001](adr/0001-x.md) — a decision\n".encode("utf-8")
                 )
             )
+            self.assertIn(wiki_index.ALL_LINKED_BODY.encode("utf-8"), data)
+            self.assertTrue([line for line in summary if "⚠ appended" in line], summary)
+
+    def test_indented_near_generated_line_is_not_replaceable(self):
+        # The predicate's headline promise is *byte*-identity, not
+        # whitespace-insensitive identity. Relax it to `line.strip()` and this
+        # hand-indented bullet is treated as generated and its indentation is
+        # lost — with nothing going red.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_indented_near_generated_line(root)
+            original = _index(root).read_bytes()
+            rc, summary = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            data = _index(root).read_bytes()
+            self.assertTrue(data.startswith(original), data)
+            self.assertIn("  - [beta](b.md) — second\n".encode("utf-8"), data)
             self.assertIn(wiki_index.ALL_LINKED_BODY.encode("utf-8"), data)
             self.assertTrue([line for line in summary if "⚠ appended" in line], summary)
 
@@ -401,6 +585,94 @@ class TestDedupe(unittest.TestCase):
             self.assertNotIn("](a.md)", body)
             self.assertEqual(body.count("](b.md)"), 1)
             self.assertEqual(body.count("](c.md)"), 1)
+
+
+class TestDedupeMatching(unittest.TestCase):
+    """What counts as "already linked" — D13's matching rule, pinned.
+
+    `_block_body` is the text strictly between the markers, so an assertion
+    about the block cannot be satisfied by a link in the preserved region on
+    either side of it.
+    """
+
+    def _block_body(self, root):
+        text = _index(root).read_text(encoding="utf-8", newline="")
+        return text.split(wiki_index.GENERATED_BEGIN, 1)[1].split(
+            wiki_index.GENERATED_END, 1
+        )[0]
+
+    def test_dot_slash_prefixed_link_suppresses_the_note(self):
+        # D13 names this normalisation by hand: "after stripping a leading `./`".
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_dot_slash_link(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            body = self._block_body(root)
+            self.assertNotIn("](a.md)", body)
+            self.assertNotIn("](./a.md)", body)
+            self.assertIn("- [beta](b.md) — second", body)
+
+    def test_target_matching_is_exact_not_substring(self):
+        # `aa.md` contains `a.md`, and the emitted `b.md` bullet mentions
+        # `aa.md` in its description — so substring matching in either
+        # direction suppresses a real note. Exact target comparison keeps both.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_near_miss_targets(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            body = self._block_body(root)
+            self.assertIn("- [alpha](a.md) — first", body)
+            self.assertIn("- [beta](b.md) — see aa.md for the pair", body)
+
+    def test_target_matching_is_case_sensitive(self):
+        # A deliberate choice, and the safe direction: a case mismatch yields a
+        # duplicate bullet, never a note missing from the index.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_wrong_case_link(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            self.assertIn("- [beta](b.md) — second", self._block_body(root))
+
+    def test_link_below_the_block_suppresses_the_note(self):
+        # D14 says `preserved` is everything outside the markers. With the
+        # suffix dropped, this curated bullet stops suppressing `a.md` and the
+        # block re-lists a note the file already carries by hand.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_link_below_block(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            data = _index(root).read_bytes()
+            self.assertTrue(
+                data.endswith(
+                    "\n## Hand notes\n\n- [alpha](a.md) — hand annotated\n".encode("utf-8")
+                ),
+                data,
+            )
+            body = self._block_body(root)
+            self.assertNotIn("](a.md)", body)
+            self.assertIn("- [beta](b.md) — second", body)
+
+    def test_fenced_example_link_does_not_suppress_the_note(self):
+        # An illustrative link in a fenced example is not a link the file makes.
+        # Suppressing on it drops a real note from the index with no signal, and
+        # `wiki_lint._memory_referenced` reads the same text, so it will not
+        # flag the orphan either.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_fenced_link(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            body = self._block_body(root)
+            self.assertIn("- [alpha](a.md) — first", body)
+            self.assertIn("- [beta](b.md) — second", body)
+
+    def test_commented_out_link_does_not_suppress_the_note(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_commented_out_link(root)
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+            body = self._block_body(root)
+            self.assertIn("- [alpha](a.md) — first", body)
+            self.assertIn("- [beta](b.md) — second", body)
 
 
 class TestMalformedMarkers(unittest.TestCase):
@@ -507,6 +779,39 @@ class TestIdempotency(unittest.TestCase):
     def test_idempotent_append_partial_overlap(self):
         self._assert_idempotent(_setup_append_partial_overlap)
 
+    def test_idempotent_inline_marker_prose(self):
+        self._assert_idempotent(_setup_inline_marker_prose)
+
+    def test_idempotent_fenced_marker_example(self):
+        self._assert_idempotent(_setup_fenced_marker_example)
+
+    def test_idempotent_fenced_link(self):
+        self._assert_idempotent(_setup_fenced_link)
+
+    def test_idempotent_commented_out_link(self):
+        self._assert_idempotent(_setup_commented_out_link)
+
+    def test_idempotent_curated_no_trailing_newline(self):
+        self._assert_idempotent(_setup_curated_no_trailing_newline)
+
+    def test_idempotent_crlf_marked_file(self):
+        self._assert_idempotent(_setup_crlf_marked_file)
+
+    def test_idempotent_dot_slash_link(self):
+        self._assert_idempotent(_setup_dot_slash_link)
+
+    def test_idempotent_near_miss_targets(self):
+        self._assert_idempotent(_setup_near_miss_targets)
+
+    def test_idempotent_wrong_case_link(self):
+        self._assert_idempotent(_setup_wrong_case_link)
+
+    def test_idempotent_link_below_block(self):
+        self._assert_idempotent(_setup_link_below_block)
+
+    def test_idempotent_indented_near_generated_line(self):
+        self._assert_idempotent(_setup_indented_near_generated_line)
+
 
 class TestLineEndings(unittest.TestCase):
     """Matrix row 19 — D10. CRLF on disk stays CRLF where it was preserved."""
@@ -538,6 +843,42 @@ class TestLineEndings(unittest.TestCase):
             rc3, _ = wiki_index.regenerate(root)
             self.assertEqual(rc3, 0)
             self.assertEqual(_index(root).read_bytes(), data)
+
+
+    def test_fully_crlf_marked_file_splices_without_a_stray_seam(self):
+        # The end marker's own `\r\n` belongs to the block, not to the preserved
+        # suffix. Leave it behind and `tail` gains a blank line ahead of it.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_crlf_marked_file(root)
+            rc, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            expected = (
+                b"# Index\r\n\r\nprose\r\n\r\n"
+                + wiki_index.render_block("- [alpha](a.md) — first").encode("utf-8")
+                + b"tail\r\n"
+            )
+            self.assertEqual(_index(root).read_bytes(), expected)
+            self.assertEqual(wiki_index.regenerate(root, check=True)[0], 0)
+
+
+class TestAppendSeam(unittest.TestCase):
+    """The shape `memory/repo/nescio/adr/MEMORY.md` had on `main`: no final \\n."""
+
+    def test_file_without_trailing_newline_gains_one_before_the_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_curated_no_trailing_newline(root)
+            original = _index(root).read_bytes()
+            self.assertFalse(original.endswith(b"\n"))
+            rc, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            expected = (
+                original
+                + b"\n\n"
+                + wiki_index.render_block("- [alpha](a.md) — first").encode("utf-8")
+            )
+            self.assertEqual(_index(root).read_bytes(), expected)
 
 
 class TestCheckNeverWrites(unittest.TestCase):

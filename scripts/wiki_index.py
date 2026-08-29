@@ -8,6 +8,13 @@ line per note directly in the target folder (non-recursive), sorted by filename.
 Link text is the note's frontmatter `name`; a note wanting a different index
 label should set `name` accordingly.
 
+Marker recognition is **line-anchored and fence-aware**. A marker counts only
+when it is the whole content of its line (leading/trailing spaces and tabs
+aside) and that line is not inside a fenced code block. A `MEMORY.md` may
+therefore document the convention — quote both markers in a sentence, or show
+the block in a ```-fenced example — without the generator treating the quoted
+text as its own block and deleting everything between the two mentions.
+
 Adopting a marker-less file (issue #102). A `MEMORY.md` that predates the
 markers is replaced by the block **only** when every non-blank line in it is
 byte-identical to a line this run would emit (see `_is_safely_replaceable`).
@@ -22,7 +29,9 @@ does not double it. This applies on every path, always.
 Malformed markers. When the block's extent is unknowable — a begin without an
 end, an end without a begin, reversed markers, or duplicates — the file is left
 untouched and the run exits 2. Appending would duplicate the block on every
-subsequent run; truncating could delete prose. A human resolves it.
+subsequent run; truncating could delete prose. A human resolves it. `compose()`
+is the single classification authority: it is the only place that decides to
+refuse, and `regenerate()` derives its rc 2 from `compose()` returning `None`.
 
 Exit codes:
     0  up-to-date, written, or skipped (no notes and no index file)
@@ -65,6 +74,115 @@ ALL_LINKED_BODY = "_(every note in this folder is already linked above)_"
 # follow-up issue, and this PR leaves `_wiki_common.py` and `wiki_lint.py`
 # untouched. Consolidate the two when D3 lands.
 _LINKED_TARGET_RE = re.compile(r"\]\(([^)]+\.md)\)")
+
+# A marker counts only as a **whole line** — spaces and tabs around it, nothing
+# else on it. Built from the constants above so the two can never drift apart.
+#
+# The first version of this fix scanned for the markers as bare substrings
+# anywhere in the file. A curated `MEMORY.md` that merely *mentions* both
+# markers in one sentence — the shape `memory/CONVENTIONS.md` teaches downstream
+# users to write — then classified `ok`, and the words between the two mentions
+# were spliced away silently, at rc 0, with no ⚠. That is issue #102's own
+# failure class re-entering through its fix, so recognition is anchored.
+_MARKER_LINE_RE = re.compile(
+    r"^[ \t]*(?:(?P<start>{})|(?P<end>{}))[ \t]*$".format(
+        re.escape(GENERATED_BEGIN), re.escape(GENERATED_END)
+    )
+)
+
+# An opening or closing code fence: three or more backticks or tildes, indented
+# or not, plus whatever follows on the line (an info string, or — for a closing
+# fence — nothing). Hand-rolled rather than parsed: ADR 0001 is stdlib-only, and
+# fence state is the only markdown context these two scans need.
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+
+
+def _split_lines(text: str) -> list[tuple[int, int, str]]:
+    """`[(start, stop, line)]`, where `stop` is past the line's terminator.
+
+    `str.splitlines(keepends=True)` splits on `\\n`, `\\r\\n` and `\\r`, and
+    keeping the ends makes the accumulated offsets exact — so a span derived
+    from them is byte-faithful under every line ending, with no per-ending
+    arithmetic at the call site.
+    """
+    out: list[tuple[int, int, str]] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        out.append((pos, pos + len(line), line))
+        pos += len(line)
+    return out
+
+
+def _fenced_line_indices(lines: list[tuple[int, int, str]]) -> set[int]:
+    """Indices of the lines inside a **closed** fenced code block, fences included.
+
+    An unclosed fence is deliberately *not* treated as opening a region.
+    CommonMark runs it to the end of the document; doing that here would hide a
+    real trailing block from `_classify_markers` on every run, so the file would
+    classify `none`, take the append path, and grow a fresh block every time —
+    the duplicate-forever bug D7 exists to prevent. Between "an unterminated
+    fence hides the block forever" and "an unterminated fence is not a fence",
+    only the second is non-destructive.
+    """
+    fenced: set[int] = set()
+    open_at: int | None = None
+    open_char = ""
+    open_run = 0
+    for i, (_, _, raw) in enumerate(lines):
+        m = _FENCE_RE.match(raw.rstrip("\r\n"))
+        if not m:
+            continue
+        char, run, rest = m.group(1)[0], len(m.group(1)), m.group(2)
+        if open_at is None:
+            open_at, open_char, open_run = i, char, run
+        elif char == open_char and run >= open_run and not rest.strip():
+            fenced.update(range(open_at, i + 1))
+            open_at = None
+    return fenced
+
+
+def _marker_lines(text: str) -> list[tuple[str, int, int]]:
+    """`[(kind, start, stop)]` for every marker line, in document order.
+
+    `kind` is `start` or `end`; `start`/`stop` bound the whole line **including
+    its terminator**. Lines inside a fenced code block are skipped, so a fenced
+    example documenting the block shape is not mistaken for the block itself.
+    HTML comments are deliberately *not* skipped — the markers are HTML
+    comments, so skipping those would blind this scan to its own subject.
+    """
+    lines = _split_lines(text)
+    fenced = _fenced_line_indices(lines)
+    out: list[tuple[str, int, int]] = []
+    for i, (start, stop, raw) in enumerate(lines):
+        if i in fenced:
+            continue
+        m = _MARKER_LINE_RE.match(raw.rstrip("\r\n"))
+        if m:
+            out.append(("start" if m.group("start") else "end", start, stop))
+    return out
+
+
+def _strip_html_comments(text: str) -> str:
+    """`text` with every `<!-- … -->` replaced by a single space.
+
+    An unterminated `<!--` blanks the rest of the text, the way a browser reads
+    it. For the one caller (`_linked_targets`) that direction fails toward a
+    duplicate bullet — noisy, non-destructive — rather than toward a real note
+    silently missing from the index.
+    """
+    out: list[str] = []
+    pos = 0
+    while True:
+        begin = text.find("<!--", pos)
+        if begin < 0:
+            out.append(text[pos:])
+            return "".join(out)
+        out.append(text[pos:begin])
+        end = text.find("-->", begin + 4)
+        if end < 0:
+            return "".join(out)
+        out.append(" ")
+        pos = end + 3
 
 _CHECK_DETAIL = {
     "created": "no index file; run without --check to create one",
@@ -115,7 +233,7 @@ def render_block(body: str) -> str:
 def _classify_markers(text: str) -> tuple[str, str]:
     """Classify a file's markers as `none` / `ok` / `malformed` (D7).
 
-    Counts first, and only takes positions once the counts prove there is
+    Counts first, and only compares positions once the counts prove there is
     exactly one of each. `compute_readiness.compose()` (:388-398) tests marker
     *presence* and splices with `.index()`, so a begin marker with no end falls
     to its append branch and duplicates the block on every run. Refusing is the
@@ -123,21 +241,26 @@ def _classify_markers(text: str) -> tuple[str, str]:
     block's extent is unknowable — appending duplicates, truncating at EOF may
     delete prose — so a human resolves it.
 
+    Counting and position-finding both go through `_marker_lines`, so the two
+    can never disagree about what is a marker — a disagreement would mean
+    classifying `ok` on one span and splicing another.
+
     Returns (kind, reason); `reason` is "" unless the kind is `malformed`.
     """
-    begins = text.count(GENERATED_BEGIN)
-    ends = text.count(GENERATED_END)
-    if begins == 0 and ends == 0:
+    markers = _marker_lines(text)
+    begins = [m for m in markers if m[0] == "start"]
+    ends = [m for m in markers if m[0] == "end"]
+    if not begins and not ends:
         return "none", ""
-    if begins > 1:
-        return "malformed", f"{begins} begin markers"
-    if ends > 1:
-        return "malformed", f"{ends} end markers"
-    if ends == 0:
+    if len(begins) > 1:
+        return "malformed", f"{len(begins)} begin markers"
+    if len(ends) > 1:
+        return "malformed", f"{len(ends)} end markers"
+    if not ends:
         return "malformed", "begin marker without an end marker"
-    if begins == 0:
+    if not begins:
         return "malformed", "end marker without a begin marker"
-    if text.index(GENERATED_END) < text.index(GENERATED_BEGIN):
+    if ends[0][1] < begins[0][1]:
         return "malformed", "end marker before begin marker"
     return "ok", ""
 
@@ -145,14 +268,13 @@ def _classify_markers(text: str) -> tuple[str, str]:
 def _block_span(text: str) -> tuple[int, int]:
     """(start, stop) of the owned block, including its own trailing newline.
 
-    Only valid once `_classify_markers` has returned `ok`.
+    Only valid once `_classify_markers` has returned `ok`. The bounds are whole
+    marker *lines*, so the end marker's terminator — `\\n`, `\\r\\n` or a lone
+    `\\r` — is consumed by construction rather than by per-ending arithmetic.
     """
-    start = text.index(GENERATED_BEGIN)
-    stop = text.index(GENERATED_END) + len(GENERATED_END)
-    if text[stop:stop + 2] == "\r\n":
-        stop += 2
-    elif text[stop:stop + 1] == "\n":
-        stop += 1
+    markers = _marker_lines(text)
+    start = next(m for m in markers if m[0] == "start")[1]
+    stop = next(m for m in markers if m[0] == "end")[2]
     return start, stop
 
 
@@ -214,11 +336,38 @@ def _is_safely_replaceable(existing_text: str, emitted_lines: set[str]) -> bool:
     )
 
 
+def _link_scan_text(text: str) -> str:
+    """`text` with fenced code blocks and HTML comments blanked out.
+
+    Fenced lines keep only their terminator and comments collapse to a space, so
+    offsets shift but line structure does not — this feeds a regex, nothing that
+    reports positions.
+    """
+    lines = _split_lines(text)
+    fenced = _fenced_line_indices(lines)
+    kept = [
+        raw[len(raw.rstrip("\r\n")):] if i in fenced else raw
+        for i, (_, _, raw) in enumerate(lines)
+    ]
+    return _strip_html_comments("".join(kept))
+
+
 def _linked_targets(text: str) -> set[str]:
-    """Every `.md` link target in `text`, with a leading `./` stripped."""
+    """Every `.md` link target in `text`, with a leading `./` stripped.
+
+    Matches inside a fenced code block or an HTML comment do not count. D13
+    accepts a spurious hit on the grounds that it "omits a bullet for a note the
+    file demonstrably already links" — and the plan's Open Question 1 extends
+    that to a prose mention, since the file does link it. Neither holds for an
+    illustrative link in a fenced example or a commented-out
+    `<!-- TODO: drop the old [alpha](a.md) note -->`: there the file does not
+    link the note at all, so suppressing it makes the index lie by omission.
+    `wiki_lint._memory_referenced` (`wiki_lint.py:39-46`) is fooled by the same
+    text, so nothing else would surface the resulting orphan either.
+    """
     return {
         m.group(1)[2:] if m.group(1).startswith("./") else m.group(1)
-        for m in _LINKED_TARGET_RE.finditer(text)
+        for m in _LINKED_TARGET_RE.finditer(_link_scan_text(text))
     }
 
 
@@ -236,10 +385,12 @@ def dedupe_body(lines: list[str], preserved: str) -> list[str]:
     take the splice path, put the full note list back, and the doubling would
     return.
 
-    Matching is exact string comparison on the link target. Both failure
-    directions are safe: a miss produces a duplicate bullet (noisy,
-    non-destructive), and a spurious hit omits a bullet for a note the file
-    demonstrably already links.
+    Matching is exact string comparison on the link target — case-sensitive, and
+    after stripping a leading `./`. Both failure directions are safe: a miss
+    produces a duplicate bullet (noisy, non-destructive), and a spurious hit
+    omits a bullet for a note the file demonstrably already links. Links inside
+    fenced code or HTML comments are not links the file makes, and do not count
+    — see `_linked_targets`.
     """
     already = _linked_targets(preserved)
     if not already:
@@ -282,9 +433,10 @@ def compose(
 def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
     """Bring `dir_path/MEMORY.md`'s generated block up to date.
 
-    Returns (rc, summary_lines). Never raises on a malformed file — it returns
-    rc 2 and a `⚠` summary line, so `promote_learnings.py`'s unattended call
-    site surfaces the condition instead of swallowing an exception.
+    Returns (rc, summary_lines). Never raises on a malformed file — `compose`
+    returns `None`, this returns rc 2 and a `⚠` summary line, so
+    `promote_learnings.py`'s unattended call site surfaces the condition instead
+    of swallowing an exception.
     """
     index_path = dir_path / "MEMORY.md"
     emitted_lines = [line for line in build_index(dir_path).splitlines() if line.strip()]
@@ -302,12 +454,12 @@ def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
     if not emitted_lines and existing is None:
         return 0, [f"skipped (no notes): {index_path}"]
 
-    kind, reason = _classify_markers(existing or "")
-    if kind == "malformed":
-        return 2, [
-            f"⚠ malformed index markers: {index_path} ({reason}); refusing to write"
-        ]
-
+    # `compose` is the single classification authority — the malformed refusal
+    # lives there and nowhere else (see the `new_text is None` branch below).
+    # This call reads the classification only to pick which text the run will
+    # preserve; it makes no decision to refuse, so the two cannot desynchronise
+    # into "classified ok here, refused there".
+    kind, _ = _classify_markers(existing or "")
     replaceable = existing is None or _is_safely_replaceable(existing, set(emitted_lines))
 
     # D14: `preserved` is everything the run will keep, on every path.
@@ -315,9 +467,11 @@ def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
         preserved = ""
     elif kind == "ok":
         preserved = outside_block(existing)
-    elif replaceable:
+    elif kind == "none" and replaceable:
         preserved = ""  # the whole file is about to be replaced by the block
     else:
+        # Curated marker-less content, or a malformed file whose body `compose`
+        # is about to discard along with everything else it composed.
         preserved = existing
 
     if not emitted_lines:
@@ -327,7 +481,7 @@ def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
         body = "\n".join(kept) if kept else ALL_LINKED_BODY
 
     new_text, disposition = compose(existing, render_block(body), replaceable=replaceable)
-    if new_text is None:  # defensive — the malformed case is caught above
+    if new_text is None:  # D7: the one and only refusal path
         return 2, [
             f"⚠ malformed index markers: {index_path} "
             f"({disposition.partition(':')[2]}); refusing to write"
