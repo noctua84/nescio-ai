@@ -38,12 +38,21 @@ class TestRegenerate(unittest.TestCase):
             _note(root, "a.md", "alpha", "first")
             rc, _ = wiki_index.regenerate(root)
             self.assertEqual(rc, 0)
-            self.assertEqual(
-                (root / "MEMORY.md").read_text(encoding="utf-8"),
-                "- [alpha](a.md) — first\n",
-            )
+            index = root / "MEMORY.md"
+            # The generated bullet now lives inside the owned block rather than
+            # being the whole file, so assert containment plus both markers.
+            written = index.read_text(encoding="utf-8", newline="")
+            self.assertIn("- [alpha](a.md) — first", written)
+            self.assertIn(wiki_index.GENERATED_BEGIN, written)
+            self.assertIn(wiki_index.GENERATED_END, written)
             rc2, _ = wiki_index.regenerate(root, check=True)
             self.assertEqual(rc2, 0)
+            # Idempotency on bytes — a read_text comparison would normalise away
+            # a CRLF regression (#83/#84).
+            before = index.read_bytes()
+            rc3, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc3, 0)
+            self.assertEqual(index.read_bytes(), before)
 
 
 if __name__ == "__main__":
