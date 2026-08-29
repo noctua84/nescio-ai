@@ -1,2 +1,2 @@
-- [overview](overview.md) — EXAMPLE repo note; shows the per-repo memory format
+- [overview](overview.md) — EXAMPLE repo memory note — copy the pattern into memory/repo/<your-repo>/ and delete EXAMPLE/
 - [readiness](readiness.md) — EXAMPLE readiness summary (the autonomy-dial input)
