@@ -15,7 +15,7 @@ the setup can absorb — and learn from — what was here before it was managed.
 |----------|------|----------|
 | `eval/adopt/<ts>/` | **Inbox** — discovered, needs evaluation | no (gitignored) |
 | `eval/adopted/<ts>/` | **Archive** — processed runs | no (gitignored) |
-| `memory/adoption-log.md` | **Ledger** — what was adopted, when, and its disposition (≤150 lines) | **yes** |
+| `memory/adoption-log.md` | **Ledger** — what was adopted, when, and its disposition | **yes** |
 
 The ledger is the dedup source: it's keyed by a short content hash, so a scan on
 any machine skips sources already recorded terminal (`integrated` / `no-change` /
@@ -73,7 +73,6 @@ python scripts/mark_adopted.py <ts> --status integrated --note "what you did"
 (deliberately discarded) — all terminal — or `pending` (leave for later; it will
 re-surface on the next scan). Use `--note` for a one-line disposition; hand-edit
 `memory/adoption-log.md` afterwards if individual items need different notes.
-Keep the ledger under 150 lines — compact oldest entries when the script warns.
 
 ## Step 5 — Re-run the installer
 

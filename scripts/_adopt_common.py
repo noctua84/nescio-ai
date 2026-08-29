@@ -3,7 +3,7 @@
 Two-stage flow:
   eval/adopt/<ts>/    inbox   — discovered, needs evaluation (gitignored)
   eval/adopted/<ts>/  archive — processed runs (gitignored)
-  memory/adoption-log.md       tracked ledger (<=150 lines) — the dedup source
+  memory/adoption-log.md       tracked ledger — the dedup source
 
 The ledger is keyed by a short content hash so scans skip what's already been
 processed, across machines, without tracking the raw eval/ trees.
@@ -19,8 +19,6 @@ EVAL = REPO_DIR / "eval"
 ADOPT = EVAL / "adopt"
 ADOPTED = EVAL / "adopted"
 LEDGER = REPO_DIR / "memory" / "adoption-log.md"
-
-MAX_LEDGER_LINES = 150
 
 # Statuses that mean "done — don't re-evaluate". `pending` is deliberately NOT
 # terminal: pending items re-surface into eval/adopt/ on the next scan (also on
