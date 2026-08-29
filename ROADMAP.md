@@ -47,6 +47,8 @@ need rewriting every time a version goes out.
   and never destroys a working setup.
 - A documentation site (`docs_site/`, with the agent catalogue generated from
   frontmatter) and a brand package (`brand/`).
+- A roadmap that checks itself — `scripts/check_roadmap_drift.py` runs in CI and
+  reports drift against open issues and milestones without ever rewriting the prose.
 
 Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
@@ -88,7 +90,6 @@ readiness signal the learning loop produces, and rolled out per-repo.
 
 - `loop` [#59](https://github.com/noctua84/nescio-ai/issues/59) — dispatch template: branch from the fetched remote ref (the detached-HEAD guard itself has shipped; this is the remaining follow-up)
 - `loop` [#52](https://github.com/noctua84/nescio-ai/issues/52) — review pipeline: parity check vs downstream + close the `claude-code-action` freshness gap
-- `loop` [#60](https://github.com/noctua84/nescio-ai/issues/60) — automatic drift check: reconcile this file against open issues + milestones
 - [#58](https://github.com/noctua84/nescio-ai/issues/58) — a `postmortem` skill for multi-repo incident write-ups
 - [#20](https://github.com/noctua84/nescio-ai/issues/20) — heavyweight `/pr-review` multi-agent fan-out (opt-in)
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
