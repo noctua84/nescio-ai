@@ -182,12 +182,21 @@ def _is_safely_replaceable(existing_text: str, emitted_lines: set[str]) -> bool:
     it is "is this **the** line I would generate". Hence set membership against
     the emitted lines, byte-for-byte.
 
-    Line identity is also the *only* thing that saves a file with no prose at
-    all. In `ai-os#138`, `repo/soulsgate-payment/MEMORY.md` was pure bullets —
-    no headings, no orientation text, nothing a prose check could catch. It
-    survives here solely because its bullets link `adr/….md` targets that a
-    non-recursive walk of the folder never emits, so at least one line fails
-    membership and the file takes the append path.
+    `ai-os#138`'s `repo/soulsgate-payment/MEMORY.md` is a genuine regression
+    guard, and line identity does reject it. It was pure bullets — no headings,
+    no orientation text, nothing a *prose* check could catch — and it survives
+    here because its bullets link `adr/….md` targets that a non-recursive walk
+    of the folder never emits, so at least one line fails membership and the
+    file takes the append path.
+
+    It is **not**, however, what makes the case for line identity. Mutation
+    testing showed the rejected shape+containment predicate rejects that file
+    too, and for the same reason: containment catches `adr/0001-x.md` unaided.
+    The `START HERE` line above is the one shape that actually discriminates
+    between the two predicates — there the target *is* emitted, so containment
+    passes and only byte-identity notices the human's annotation. Keep both
+    cases covered, but do not cite `soulsgate-payment` as the argument for line
+    identity over containment; it does not distinguish them.
 
     **Accepted, stated loss: hand-curated ordering is not preserved.** This is a
     set test, so a file whose lines are all generated lines but deliberately
