@@ -21,12 +21,22 @@ from __future__ import annotations
 THEMES = ("functional", "philosophers")
 
 # functional (default)  <->  philosopher
+#
+# Spelled out literally in tests/test_apply_theme.py:ThemeNamePinTest. That is
+# the only assertion in the suite with an oracle *outside* this file, so it is
+# the only thing standing between a typo here and a silently renamed crew —
+# every other roster assertion derives both sides from this list and stays green
+# over any self-consistent misspelling. Edit one, edit the other.
 PAIRS = [
     ("planner", "plato"),
     ("advisor", "aristotle"),
     ("reviewer", "pyrrho"),
     ("critic", "socrates"),
     ("builder", "archimedes"),
+    ("test-writer", "euclid"),
+    ("qa-guard", "cato"),
+    ("doc-researcher", "callimachus"),
+    ("doc-writer", "cicero"),
 ]
 
 # The builder's cost tiers: `builder-simple.md` / `builder-standard.md`.
@@ -43,20 +53,24 @@ PAIRS = [
 # (An earlier rationale claimed a PAIRS entry would double-map. It would not —
 # `_transform` applies its rules sequentially, so the extra rule is a dead
 # no-op. Coupling is the real reason; do not restate the double-mapping one.)
+#
+# Note the hazard this comment describes is *specific to a name with tiers*, not
+# to hyphens as such. Four PAIRS entries are themselves hyphenated
+# (`test-writer`, `qa-guard`, `doc-researcher`, `doc-writer`) and need no entry
+# here: no other agent name contains one of them as a `\b`-delimited substring,
+# so `\btest-writer\b` and friends match only their own name. `builder` is the
+# sole term that matches inside *another* roster name, and TIERED_AGENTS is what
+# keeps the corresponding files renamed alongside the text rewrite.
 TIER_VARIANTS = ("simple", "standard")
 TIERED_AGENTS = tuple(f"builder-{variant}" for variant in TIER_VARIANTS)
 
 # Agents whose names are identical under every theme — the theme script never
 # touches their files or their `name:` frontmatter.
 THEME_INVARIANT_ROSTER = {
-    "doc-researcher",
-    "doc-writer",
     "explore",
     "librarian",
     "orchestrator",
-    "qa-guard",
     "scout",
-    "test-writer",
     "validator",
     "vision",
 }
@@ -121,7 +135,7 @@ def expected_roster(theme: str) -> set[str]:
 def renamed_agents(theme: str) -> list[tuple[str, str]]:
     """(src, dst) filename stems the theme script renames when switching to `theme`.
 
-    The seven files the theme touches: the five PAIRS plus the two builder
+    The eleven files the theme touches: the nine PAIRS plus the two builder
     tiers. Derived from `themed_name`, so the two directions cannot drift.
     """
     if theme not in THEMES:

@@ -154,18 +154,27 @@ refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 ## Optional: the philosopher theme
 
 The agent names above are functional on purpose. If you'd like personality, an
-optional theme renames the thinker/advisor agents after Graeco-Roman philosophers
-(`planner`→`plato`, `advisor`→`aristotle`, `reviewer`→`pyrrho`, `critic`→
-`socrates`, `builder`→`archimedes`) — tracing the Socrates → Plato → Aristotle
-lineage, plus Pyrrho the skeptic, plus Archimedes the engineer and craftsman
-(not part of that lineage, which is fitting for the agent that builds rather
-than reasons). The two builder cost tiers follow `builder`, so seven files are
-renamed in all: `builder-simple.md`→`archimedes-simple.md` and
+optional theme renames the thinker, builder and craft agents after Graeco-Roman
+philosophers:
+
+| functional | philosopher | why |
+| --- | --- | --- |
+| `planner` | `plato` | the Socrates → Plato → Aristotle lineage |
+| `advisor` | `aristotle` | " |
+| `critic` | `socrates` | " |
+| `reviewer` | `pyrrho` | the skeptic |
+| `builder` | `archimedes` | the engineer and craftsman — deliberately outside that lineage, which suits the agent that builds rather than reasons |
+| `test-writer` | `euclid` | proofs, laid out step by step |
+| `qa-guard` | `cato` | the censor, who checked what others shipped |
+| `doc-researcher` | `callimachus` | catalogued the library of Alexandria |
+| `doc-writer` | `cicero` | the prose stylist |
+
+The two builder cost tiers follow `builder`, so eleven files are renamed in all:
+the nine pairs above plus `builder-simple.md`→`archimedes-simple.md` and
 `builder-standard.md`→`archimedes-standard.md`.
 
 The remaining agents — `orchestrator`, `scout`, `validator`, `librarian`,
-`explore`, `vision`, `test-writer`, `qa-guard`, `doc-researcher`, `doc-writer` —
-keep their functional names under both themes.
+`explore`, `vision` — keep their functional names under both themes.
 
 Apply it with `python scripts/apply_theme.py philosophers` (and
 `python scripts/apply_theme.py functional` to revert). It renames the agent files,

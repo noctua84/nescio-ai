@@ -51,8 +51,8 @@ def _expected_renames(target: str) -> list[tuple[str, str]]:
     """(src, dst) filenames apply_theme renames when switching to `target`.
 
     Derived from `_crew_common.renamed_agents` — the same list the script drives
-    its rename loop from — so this covers all seven files. Deriving it from
-    `PAIRS` alone named only five: the two builder tiers were renamed by the
+    its rename loop from — so this covers all eleven files. Deriving it from
+    `PAIRS` alone would miss the two builder tiers: they are renamed by the
     script but asserted by nothing, so the dry-run report could stop mentioning
     them without a test noticing.
     """
@@ -289,6 +289,54 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
         self.assertEqual(_tree_snapshot(self.agents_dir), self.original)
 
 
+class ThemeNamePinTest(unittest.TestCase):
+    """The rename table, spelled out — the suite's only external oracle.
+
+    Every other roster assertion in this repo derives *both* sides from
+    ``_crew_common.PAIRS``: the round trip, the dry-run report, the roster
+    expectation, the write-policy names. That makes them all blind to the same
+    class of defect — a wrong name. Rewriting ``PAIRS`` so ``builder`` mapped to
+    ``"WRONGNAME"`` passed the entire suite, green, because every expectation
+    dutifully recomputed itself from the typo.
+
+    So the duplication below is deliberate and is the whole point. This is the
+    one place where the expected mapping is written independently of the code
+    under test, which makes it the one place a misspelt philosopher, a dropped
+    pair, or an accidental remap can go red. Do not "DRY this up" by deriving it
+    from ``_crew_common`` — that deletes the test while leaving it passing.
+
+    Changing a crew name is therefore a two-file edit on purpose: the constant
+    and this pin. The second edit is the moment someone has to look at the name
+    and agree to it.
+    """
+
+    EXPECTED_PAIRS = {
+        "planner": "plato",
+        "advisor": "aristotle",
+        "reviewer": "pyrrho",
+        "critic": "socrates",
+        "builder": "archimedes",
+        "test-writer": "euclid",
+        "qa-guard": "cato",
+        "doc-researcher": "callimachus",
+        "doc-writer": "cicero",
+    }
+
+    def test_pairs_are_exactly_the_agreed_names(self):
+        self.assertEqual(dict(_crew_common.PAIRS), self.EXPECTED_PAIRS)
+
+    def test_pairs_has_no_duplicate_functional_names(self):
+        """`dict(PAIRS)` would hide a duplicated key by keeping only the last.
+
+        The assertion above compares dicts, so two entries for the same
+        functional name collapse silently and the extra rule stays live in
+        `_mappings`. Checked on the list, where the duplicate is still visible.
+        """
+        functional = [f for f, _ in _crew_common.PAIRS]
+        self.assertEqual(len(functional), len(set(functional)))
+        self.assertEqual(len(functional), len(self.EXPECTED_PAIRS))
+
+
 class ThemeMappingSafetyTest(unittest.TestCase):
     """Properties of the rename table itself, independent of any agent file."""
 
@@ -348,10 +396,17 @@ class ThemeCasingCoverageTest(unittest.TestCase):
         this fails if a charter grows a new casing **or** if a casing rule is
         removed from the script.
 
-        Known gap, deliberately not asserted: **intercaps** (``QA-guard``,
-        ``docWriter``). No term in ``PAIRS`` is spelled that way today, so
-        there is nothing to catch; it becomes live if a mixed-case agent name
-        is ever added to ``PAIRS``, and would need a variant rule of its own.
+        Live hazard, caught here rather than prevented: **intercaps**
+        (``QA-guard``, ``Doc-Writer``, ``docWriter``). ``_mappings`` emits only
+        lower / ``.capitalize()`` / ``.upper()``, and ``.capitalize()``
+        lowercases the tail — so ``qa-guard`` yields ``Qa-guard`` and never
+        ``QA-guard``. Four hyphenated names are mapped terms now
+        (``test-writer``, ``qa-guard``, ``doc-researcher``, ``doc-writer``) and
+        every one of them has an intercaps spelling a human would plausibly
+        reach for. None appears in ``agents/`` today, which is a fact about the
+        charters and not a property of the script — so this scan is what keeps
+        it true. A red here means a charter grew such a spelling: the fix is a
+        fourth variant rule in ``_mappings``, not a reword of the charter.
         """
         terms = {name for pair in apply_theme.PAIRS for name in pair}
         covered = {frm for theme in apply_theme.THEMES

@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Apply or revert the optional Graeco-Roman philosopher theme for the crew.
 
-The default agent names are functional (planner / advisor / reviewer / critic
-/ builder). This renames those agents to philosophers (and back) — the agent
-files, their ``name:`` frontmatter, and every cross-reference in the crew
-(charters + the orchestrator's ``subagent_type`` dispatches). Seven files are
-renamed: the five word pairs plus the builder's two cost tiers
-(``builder-simple`` / ``builder-standard``). The remaining agents
-(orchestrator, scout, validator, librarian, explore, vision, test-writer,
-qa-guard, doc-researcher, doc-writer) are already functional and are left
-untouched.
+The default agent names are functional (planner / advisor / reviewer / critic /
+builder / test-writer / qa-guard / doc-researcher / doc-writer). This renames
+those agents to philosophers (and back) — the agent files, their ``name:``
+frontmatter, and every cross-reference in the crew (charters + the
+orchestrator's ``subagent_type`` dispatches). Eleven files are renamed: the nine
+word pairs plus the builder's two cost tiers (``builder-simple`` /
+``builder-standard``). The remaining agents (orchestrator, scout, validator,
+librarian, explore, vision) are already functional and are left untouched.
 
     python scripts/apply_theme.py philosophers   # planner->plato, advisor->aristotle,
                                                   #  reviewer->pyrrho, critic->socrates,
-                                                  #  builder->archimedes
+                                                  #  builder->archimedes,
+                                                  #  test-writer->euclid, qa-guard->cato,
+                                                  #  doc-researcher->callimachus,
+                                                  #  doc-writer->cicero
                                                   #  (+ builder-simple/-standard)
     python scripts/apply_theme.py functional      # revert to the default names
     python scripts/apply_theme.py --dry-run philosophers
@@ -117,10 +119,15 @@ def _mappings(target: str) -> list[tuple[str, str]]:
       restores byte-for-byte over a broken intermediate state.
 
     Still uncovered: **intercaps** — a term written ``QA-guard`` or ``docWriter``
-    matches no rule here. Harmless today, since no such spelling exists for any
-    term in ``PAIRS``; it becomes live the moment a mixed-case agent name (e.g.
-    ``qa-guard``) is mapped to a philosopher. ``ThemeCasingCoverageTest`` in
-    tests/test_apply_theme.py is the guard that will notice.
+    matches no rule here, because ``.capitalize()`` lowercases the tail
+    (``qa-guard`` -> ``Qa-guard``, never ``QA-guard``). This *is* live now:
+    ``qa-guard``, ``test-writer``, ``doc-researcher`` and ``doc-writer`` are
+    mapped terms, and each has an intercaps spelling a human would plausibly
+    write. It stays safe only because no charter actually spells them that way —
+    checked, not assumed. ``ThemeCasingCoverageTest`` in tests/test_apply_theme.py
+    is the guard: it scans the real ``agents/`` tree and fails on the first
+    charter that grows such a spelling. A red there is a request for a fourth
+    variant rule, not for a rewording of the charter.
     """
     base = [(f, p) for f, p in PAIRS] if target == "philosophers" else [(p, f) for f, p in PAIRS]
     out: list[tuple[str, str]] = []
@@ -214,7 +221,7 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
             else:
                 md.write_text(new, encoding="utf-8", newline="")
 
-    # 2) rename the seven agent files (five pairs + the two builder tiers).
+    # 2) rename the eleven agent files (nine pairs + the two builder tiers).
     #
     # The tiers must be renamed here as well as rewritten above: `-` is a
     # non-word character, so the `\bbuilder\b` rule already rewrote
@@ -226,7 +233,7 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
         if not src.exists():
             # On a repair pass most sources are legitimately gone — the earlier
             # run already renamed them, which is why only the stragglers remain.
-            # Warning on those would put five "expected X not found" lines on
+            # Warning on those would put nine "expected X not found" lines on
             # stderr for every successful repair. A pair with *neither* file
             # present is still a real gap, and still warns.
             if not (repairing and dst.exists()):

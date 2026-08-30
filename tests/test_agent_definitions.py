@@ -249,6 +249,39 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
             "adding a writer is an architectural decision — say why in the commit message",
         )
 
+    def test_the_writer_partition_is_pinned(self):
+        """*Which* writers are bounded, not just how many writers there are.
+
+        The count above pins the union and nothing else, so moving a name across
+        the boundary keeps it green: drop `test-writer` from BOUNDED_WRITERS and
+        add it to CODE_WRITERS and the union is still six, while an agent whose
+        charter says it may touch tests only has just been granted unbounded
+        write access to production code. That is the more dangerous of the two
+        edits and was the one nothing was watching.
+
+        The names are functional, not themed. BOUNDED_WRITERS is a policy
+        constant keyed on the functional roster — `_themed` is applied at the
+        point files are looked up (see `test_bounded_writers_declare_their_
+        boundary`), never to the constant itself — so a literal is correct here
+        under either theme.
+
+        Same contract as the count: a red is not an invitation to update the
+        literal. It means someone changed what an agent is permitted to touch.
+        """
+        self.assertEqual(
+            BOUNDED_WRITERS, {"test-writer", "doc-writer"},
+            "a writer moved across the tests-only/docs-only boundary — the union count "
+            "cannot see this, so say why in the commit message",
+        )
+        self.assertEqual(
+            CODE_WRITERS, {"builder", "builder-standard", "builder-simple", "qa-guard"},
+            "an agent gained or lost unbounded write access to production code",
+        )
+        self.assertEqual(
+            CODE_WRITERS & BOUNDED_WRITERS, set(),
+            "a writer cannot be both bounded and unbounded — the union count hides the overlap",
+        )
+
     def test_bounded_writers_declare_their_boundary(self):
         """Each bounded writer's charter body states its file boundary.
 
