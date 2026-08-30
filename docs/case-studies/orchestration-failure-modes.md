@@ -184,6 +184,35 @@ overlapping runs, then a third. Each produced the identical "broken harness"
 signature. Cleaning up, confirming zero processes, and running *once* passed in
 279 seconds.
 
+### The mechanism, named plainly: impatience
+
+It is worth being specific about *how* the orchestrator kept doing this, because
+"be careful with shared state" is too vague to act on and did not stop it happening
+four times.
+
+The pattern was identical each time. The orchestrator dispatched an agent to do a
+piece of work, the work included a five-minute verification run — and rather than
+wait, the orchestrator ran **the same verification itself, in parallel**, to find out
+sooner. Its own run swept the agent's database container mid-flight. The fourth
+occurrence destroyed a run belonging to an agent that had, moments earlier, correctly
+diagnosed exactly this hazard and declined to re-run in case the interfering process
+was still live. It was: it was the orchestrator.
+
+There is an irony worth keeping. An orchestrator exists to delegate, and this one
+could not tolerate the latency of its own delegation. It re-did the work it had just
+handed out, and in doing so destroyed the result. The agents were more patient than
+the thing coordinating them.
+
+The general form is not really about containers:
+
+> **An orchestrator that duplicates a dispatched agent's work while waiting for it
+> is not saving time. It is racing itself for a shared resource — and it holds the
+> one view of the system in which that race is invisible.**
+
+The fix is procedural, not technical: before touching any shared resource, establish
+what else is currently using it — and treat *waiting for a dispatched agent* as the
+default, not as dead time to fill.
+
 ---
 
 ## What this says about the setup
