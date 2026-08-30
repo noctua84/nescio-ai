@@ -118,9 +118,13 @@ and changes nothing if it can't.
 | `doc-researcher` | Maps the existing docs — coverage, gaps, update targets; writes nothing. |
 | `doc-writer` | Writes docs from `doc-researcher`'s findings; may not touch implementation files. |
 
-Six agents write files: `builder` and its two tiers plus `qa-guard` write
-production code; `test-writer` and `doc-writer` write only within their declared
-file boundaries. The rest are read-only.
+Nine agents can write files, in two tiers. Six may also *edit* existing ones:
+`builder` and its two tiers plus `qa-guard` change production code, while
+`test-writer` and `doc-writer` are held to their declared file boundaries by
+their charters — frontmatter has no path-scoped form, so the boundary is prose,
+not enforcement. Three more may create files but not edit any: `orchestrator`,
+`planner` (work plans under `.sisyphus/`) and `reviewer` (its audit report). The
+remaining eight are read-only.
 
 ## Skills
 

@@ -163,18 +163,24 @@ class TestRoster(TestFrontmatterMixin, unittest.TestCase):
 
 class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
     def test_name_matches_filename(self):
-        for path in _agent_files():
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
             with self.subTest(agent=path.stem):
                 self.assertEqual(self._frontmatter(path).get("name"), path.stem)
 
     def test_model_is_allowed(self):
-        for path in _agent_files():
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
             with self.subTest(agent=path.stem):
                 model = self._frontmatter(path).get("model")
                 self.assertIn(model, ALLOWED_MODELS, f"{path.name}: unexpected model {model!r}")
 
     def test_description_is_substantive(self):
-        for path in _agent_files():
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
             with self.subTest(agent=path.stem):
                 description = self._frontmatter(path).get("description", "")
                 self.assertGreaterEqual(
@@ -263,6 +269,7 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         file) have real boundaries of the same kind, unchecked here because
         this invariant is Edit-centric. That gap is acknowledged, not hidden.
         """
+        self.assertTrue(BOUNDED_WRITERS, "no bounded writers — nothing asserted")
         for name in BOUNDED_WRITERS:
             path = AGENTS_DIR / f"{_themed(name)}.md"
             with self.subTest(agent=path.stem):
