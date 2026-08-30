@@ -1,9 +1,20 @@
 # .github/workflows/tests.yml
 name: tests
 
+# The `schedule` and `workflow_dispatch` triggers exist for the `roadmap` job
+# below -- it is the only job that needs them. `tests` and `lockfile` will fire
+# on the weekly cron too; that is accepted rather than worked around. They are
+# cheap, and a weekly independent confirmation that the suite still passes
+# against a fresh runner image is a feature, not noise. Deliberately NOT done:
+# narrowing `push:` to `branches: [main]`, which would silently change when
+# `tests` and `lockfile` run. The main-only condition lives on the one job that
+# wants it, as a job-level `if:`.
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # weekly Monday; offset minute avoids the top-of-hour queue
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -30,3 +41,60 @@ jobs:
           python-version: "3.13"
       - run: pip install uv
       - run: uv lock --check
+
+  # `ROADMAP.md` duplicates state GitHub owns -- which issues are open, and which
+  # milestone each belongs to -- with nothing detecting divergence. It drifted
+  # three times over 68 commits: two issues closed but still listed, seven open
+  # issues never added (#60). Nothing in the repository fails when that happens,
+  # because the drift is caused by issue open/close events on GitHub's side, not
+  # by any commit. This job is what turns that silent drift into a loud failure.
+  #
+  # The offline half of the same check -- the parse, the shape and the
+  # duplicate-reference checks, which ARE diff-caused -- already runs on every
+  # push and pull request inside the `tests` job, via tests/test_roadmap_drift.py.
+  # This job adds only the half that needs the network.
+  #
+  # TRIGGERS: push-to-main, the weekly cron, and manual dispatch -- NOT
+  # `pull_request`. The drift this catches comes from issue open/close events,
+  # which produce no PR at all, so a PR run would catch none of it while
+  # inheriting all of its false positives. This repo's PRs close issues
+  # out-of-band (#89, #91, #93 and #94 use no closing keywords), so every such
+  # close would otherwise red the next unrelated PR. The cron is the only trigger
+  # that fires on an issue event with no push behind it, and is therefore the
+  # highest-value one here.
+  #
+  # PRECONDITION: this job must NOT be added to main's required status checks.
+  # Protection currently requires only ["tests"]. This job exits 2 ("could not
+  # check") on a `gh` outage or a rate limit and that is deliberate -- a check
+  # that silently disables itself is exactly the defect #60 was filed about -- but
+  # it is only safe while a red here does not block merges. If you make it
+  # required, change the exit-2 handling first. Do not do both.
+  #
+  # NOTE: GitHub auto-disables cron workflows after 60 days of repository
+  # inactivity. If the weekly run stops appearing, that is why, and
+  # `workflow_dispatch` is how it gets re-armed.
+  roadmap:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    # Read-only, and no more. This job never opens a PR or applies a label; it
+    # only reports. The script's narrow `--jq` projection is the privacy control
+    # that goes with `issues: read`: it pulls number, milestone title and label
+    # names and nothing else. This repo is public and so are its CI logs --
+    # widening that projection would dump every open issue body into one.
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Exit 1 (drift) and exit 2 (could not check) both fail this job on
+      # purpose. Do not soften either with an error-swallowing step option --
+      # a check that goes quiet is the defect, not the cure.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: PYTHONPATH=scripts python scripts/check_roadmap_drift.py

@@ -33,6 +33,7 @@ Output directory, highest precedence first:
      to this file, not the current working directory.
 """
 import argparse
+import math
 import os
 import re
 import sys
@@ -114,6 +115,63 @@ def text(x, y, s, size=15, fill=NODE_LABEL, weight="400", anchor="middle",
             f'{esc(s)}</text>')
 
 
+# --- Text fitting ---------------------------------------------------------
+#
+# `wrap` counts characters; boxes are measured in pixels. Every call site used
+# to carry a hand-tuned character count that did not derive from the box it
+# wrapped into — so narrowing a column silently pushed text out through the
+# card's right edge, with nothing in the tests to catch it. `chars_wide` closes
+# that: ask for the box's usable width in pixels and get the character budget
+# back, so the two can no longer drift apart.
+#
+# EM_PER_CHAR is a *budget*, not an average — a line of exactly N characters
+# must fit in N * EM_PER_CHAR * size pixels whatever it says. Measured advance
+# widths for the prose in this artwork, at 2048 upem:
+#
+#   Nescio Sans / Carlito 1.104   0.406-0.441 em/char   (avg lowercase 0.456)
+#   Calibri                       metrically identical to Carlito
+#   Arial / Helvetica             0.441 em/char         (avg lowercase 0.490)
+#
+# Arial is the widest face in FONT_SANS and the one a reader without the
+# webfont most likely lands on, so it sets the floor. 0.5 em/char clears its
+# bare-lowercase average — the worst case for text with no spaces to dilute it
+# — which makes the budget sound for any string, not just the ones here today.
+EM_PER_CHAR = 0.5
+
+# Insets from a box's edge to its text. Cards centre their text and so spend
+# the pad twice; the note box sets ragged-right from a +20 left margin and must
+# still reserve the same gutter on the right, or the longest line touches the
+# stroke.
+CARD_PAD = 16
+NOTE_PAD = 20
+
+
+def chars_wide(px, size):
+    """Characters of `size`px sans that fit in `px` of usable width."""
+    return max(1, int(px / (size * EM_PER_CHAR)))
+
+
+def px_wide(s, size):
+    """Width budget for `s` at `size`px — the inverse of `chars_wide`."""
+    return len(s) * size * EM_PER_CHAR
+
+
+def centre_width(authored, scale, *lines):
+    """Scale an authored box width, but never below the text it has to hold.
+
+    `lines` are `(string, size)` pairs. The floor is the widest of them on the
+    EM_PER_CHAR budget plus a `CARD_PAD` gutter either side — the same budget
+    the wrap widths use, so a box and its contents can never be sized by two
+    different rules.
+
+    The ratio serves the composition; it does not get to clip a label, and
+    shrinking type to make a target fit is not on the table. Where the two
+    disagree the text wins and the box is held wider than the ratio asks.
+    """
+    floor = max(px_wide(s, size) for s, size in lines) + 2 * CARD_PAD
+    return max(round(authored * scale), math.ceil(floor))
+
+
 def wrap(s, width):
     words, lines, cur = s.split(), [], ""
     for w in words:
@@ -135,7 +193,7 @@ def box(x, y, w, h, fill=NODE_FILL, stroke=NODE_STROKE, r=8, sw=1.2, dash=None):
 
 
 def agent_card(x, y, w, name, role, accent=False):
-    lines = wrap(role, 38)
+    lines = wrap(role, chars_wide(w - 2 * CARD_PAD, 12.5))
     h = 40 + len(lines) * 17 + 8
     out = [box(x, y, w, h, fill=ACCENT_FILL if accent else NODE_FILL,
                stroke=ACCENT if accent else NODE_STROKE)]
@@ -189,10 +247,33 @@ def defs():
 # --------------------------------------------------------------------------
 
 def diagram_crew():
-    W, H = 1400, 810
+    # 1000px, down from 1400. The docs article column is 938px at a 1440
+    # viewport and 1032px at 1920, so the old canvas overhung the text column
+    # by half again and no amount of CSS could seat it — two attempts at
+    # break-outs and scroll-wraps failed before the width itself was named as
+    # the bug. 1000 sits one notch above the 1440 column so the wrapper still
+    # scrolls a little there, and inside it at 1920; scaling to fit was never
+    # on the table, because 12px labels do not survive it.
+    W, H = 1000, 810
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
          f'viewBox="0 0 {W} {H}">', style(), defs()]
     cx = W / 2
+
+    # The three-column block of cards, stated here because the centre stack is
+    # sized against it and gets drawn first. 3 x 280 + 2 x 44 = 928, leaving
+    # 36px either side. The gap stays at 44: it separates groups, and shrinking
+    # it with the columns would blur the three-band reading the section labels
+    # set up.
+    ncols, col_w, gap = 3, 280, 44
+    col_block = ncols * col_w + (ncols - 1) * gap
+
+    # The centre stack — request pill, orchestrator, gate band — was authored
+    # against the 1228px block of the old 1400px canvas, so it scales by the
+    # ratio of the two blocks and keeps the proportion it was drawn in. Holding
+    # those boxes at their old pixel widths while the columns narrowed was the
+    # visible cost of the reflow: the gate band went from 70% of the block to
+    # 93% and the middle read far too heavy.
+    centre_scale = col_block / (ncols * 380 + (ncols - 1) * gap)
 
     s.append(text(60, 52, "The crew", size=25, weight="700", fill=NODE_LABEL, anchor="start"))
     s.append(text(60, 76, "One orchestrator, nine specialists. Delegation goes down; "
@@ -200,35 +281,44 @@ def diagram_crew():
                   size=14.5, fill=BODY, anchor="start"))
 
     # Request
-    s.append(box(cx - 90, 108, 180, 40, r=20))
-    s.append(text(cx, 133, "your request", size=14.5, fill=BODY))
+    pill_label = "your request"
+    pw = centre_width(180, centre_scale, (pill_label, 14.5))
+    s.append(box(cx - pw / 2, 108, pw, 40, r=20))
+    s.append(text(cx, 133, pill_label, size=14.5, fill=BODY))
     s.append(arrow(cx, 148, cx, 176))
 
-    # Orchestrator
-    ow, oh = 470, 84
+    # Orchestrator. The flow line is the widest string in the whole centre
+    # stack and holds this box above the ratio's target — see `centre_width`.
+    orch_sub = "coordinates the lifecycle · never writes production code"
+    orch_flow = "triage → discover → analyze → plan → execute → verify → deliver"
+    ow, oh = centre_width(470, centre_scale, (orch_sub, 13), (orch_flow, 12)), 84
     s.append(box(cx - ow / 2, 178, ow, oh, fill=ACCENT_FILL, stroke=ACCENT, sw=1.8))
     s.append(text(cx, 208, "orchestrator", size=19, weight="700", fill=ACCENT, family=MONO))
-    s.append(text(cx, 231, "coordinates the lifecycle · never writes production code",
-                  size=13, fill=BODY))
-    s.append(text(cx, 250, "triage → discover → analyze → plan → execute → verify → deliver",
-                  size=12, fill=MUTED))
+    s.append(text(cx, 231, orch_sub, size=13, fill=BODY))
+    s.append(text(cx, 250, orch_flow, size=12, fill=MUTED))
 
     # Gate band
     gy = 300
-    s.append(box(cx - 430, gy, 860, 52, fill=NODE_FILL, stroke=ACCENT, dash="5 4", r=10))
+    gate_line = ("judge a result before relaying it — never launder a "
+                 "low-trust answer")
+    gw = centre_width(860, centre_scale, (gate_line, 13))
+    s.append(box(cx - gw / 2, gy, gw, 52, fill=NODE_FILL, stroke=ACCENT, dash="5 4", r=10))
     s.append(text(cx, gy + 22, "ROUTING QUALITY GATE", size=12, weight="700",
                   fill=ACCENT, spacing="1.4"))
-    s.append(text(cx, gy + 40, "judge a result before relaying it — never launder a "
-                  "low-trust answer", size=13, fill=BODY))
+    s.append(text(cx, gy + 40, gate_line, size=13, fill=BODY))
 
-    # down / up arrows through the gate
-    s.append(arrow(cx - 150, 262, cx - 150, gy - 6))
-    s.append(arrow(cx - 150, gy + 58, cx - 150, 404))
-    s.append(text(cx - 168, gy - 14, "delegate", size=11.5, fill=MUTED, anchor="end"))
+    # Down / up arrows through the gate. The offsets ride the same ratio as the
+    # boxes, so the pair stays inside the band and keeps landing on the
+    # orchestrator's lower edge instead of drifting off its corners.
+    arm = round(150 * centre_scale)
+    label_arm = round(168 * centre_scale)
+    s.append(arrow(cx - arm, 262, cx - arm, gy - 6))
+    s.append(arrow(cx - arm, gy + 58, cx - arm, 404))
+    s.append(text(cx - label_arm, gy - 14, "delegate", size=11.5, fill=MUTED, anchor="end"))
 
-    s.append(arrow(cx + 150, 404, cx + 150, gy + 58, color=ACCENT_CONNECTOR, head="accent"))
-    s.append(arrow(cx + 150, gy - 6, cx + 150, 262, color=ACCENT_CONNECTOR, head="accent"))
-    s.append(text(cx + 168, gy - 14, "results", size=11.5, fill=ACCENT, anchor="start"))
+    s.append(arrow(cx + arm, 404, cx + arm, gy + 58, color=ACCENT_CONNECTOR, head="accent"))
+    s.append(arrow(cx + arm, gy - 6, cx + arm, 262, color=ACCENT_CONNECTOR, head="accent"))
+    s.append(text(cx + label_arm, gy - 14, "results", size=11.5, fill=ACCENT, anchor="start"))
 
     # Groups
     groups = [
@@ -249,9 +339,10 @@ def diagram_crew():
         ]),
     ]
 
-    col_w, gap = 380, 44
-    total = len(groups) * col_w + (len(groups) - 1) * gap
-    x0 = (W - total) / 2
+    # `col_w` / `gap` / `col_block` are set at the top of this function — the
+    # centre stack is sized against the block and is drawn before we get here.
+    assert len(groups) == ncols, "col_block no longer describes these columns"
+    x0 = (W - col_block) / 2
     ytop = 432
     col_bottom = ytop
 
@@ -272,23 +363,24 @@ def diagram_crew():
     # Note tucked under the sparse VERIFY column
     nx = x0 + 2 * (col_w + gap)
     ny = ytop + 16 + 84
+    note_chars = chars_wide(col_w - 2 * NOTE_PAD, 12.5)
     note = wrap("scout, validator and critic produce no work of their own. They exist "
                 "to interrogate the request and the plan before anyone acts on either "
                 "— the same ratio any functioning team spends on design review and QA.",
-                40)
+                note_chars)
     tail = wrap("Neither is a blocker by disposition: the critic may conclude the plan "
-                "holds, and the validator approves when in doubt.", 40)
+                "holds, and the validator approves when in doubt.", note_chars)
     nh = 44 + len(note) * 18 + 14 + len(tail) * 18 + 16
     s.append(box(nx, ny, col_w, nh, fill=NODE_FILL, stroke=NODE_STROKE, dash="4 4"))
-    s.append(text(nx + 20, ny + 30, "Why three are highlighted", size=13.5,
+    s.append(text(nx + NOTE_PAD, ny + 30, "Why three are highlighted", size=13.5,
                   weight="700", fill=NODE_LABEL, anchor="start"))
     yy = ny + 54
     for l in note:
-        s.append(text(nx + 20, yy, l, size=12.5, fill=BODY, anchor="start"))
+        s.append(text(nx + NOTE_PAD, yy, l, size=12.5, fill=BODY, anchor="start"))
         yy += 18
     yy += 14
     for l in tail:
-        s.append(text(nx + 20, yy, l, size=12.5, fill=MUTED, anchor="start"))
+        s.append(text(nx + NOTE_PAD, yy, l, size=12.5, fill=MUTED, anchor="start"))
         yy += 18
     col_bottom = max(col_bottom, ny + nh + 12)
 
@@ -304,7 +396,11 @@ def diagram_crew():
 # --------------------------------------------------------------------------
 
 def diagram_loop():
-    W, H = 1400, 800
+    # Same 1000px canvas as the crew — the two hang one above the other on the
+    # homepage and a width mismatch reads as a mistake. The old 1400 was mostly
+    # air: drawn content stopped at x=1250, so 150px of the overhang bought
+    # nothing at all.
+    W, H = 1000, 800
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
          f'viewBox="0 0 {W} {H}">', style(), defs()]
 
@@ -314,16 +410,22 @@ def diagram_loop():
                   "work, curated on purpose and loaded on demand.",
                   size=14.5, fill=BODY, anchor="start"))
 
+    # The boxes keep their 300px width — the cycle's four labels are sized for
+    # it and the readiness box downstream is positioned off it. Only the side
+    # margin gives, 150 -> 90, which is what pulls the right column in from
+    # 1250 to 910 and leaves the annotation beside it room inside the canvas.
     bw, bh = 300, 132
-    left, right = 150, W - 150 - bw
+    margin = 90
+    left, right = margin, W - margin - bw
     top, bottom = 150, 460
 
     # 1 — session
     s.append(box(left, top, bw, bh, fill=ACCENT_FILL, stroke=ACCENT, sw=1.8))
     s.append(text(left + bw / 2, top + 30, "1 · session", size=16.5, weight="700",
                   fill=ACCENT, family=MONO))
+    body_chars = chars_wide(bw - 2 * CARD_PAD, 13)
     for i, l in enumerate(wrap("The crew works a task through the lifecycle. "
-                               "Triage decides which phases run at all.", 40)):
+                               "Triage decides which phases run at all.", body_chars)):
         s.append(text(left + bw / 2, top + 54 + i * 17, l, size=13, fill=BODY))
     s.append(text(left + bw / 2, top + 112, "memory is read here, on demand",
                   size=12, fill=ACCENT))
@@ -333,7 +435,7 @@ def diagram_loop():
     s.append(text(right + bw / 2, top + 30, "2 · activity trail", size=16.5,
                   weight="700", fill=NODE_LABEL, family=MONO))
     for i, l in enumerate(wrap("A Stop hook records what actually happened, "
-                               "locally, when the session ends.", 40)):
+                               "locally, when the session ends.", body_chars)):
         s.append(text(right + bw / 2, top + 54 + i * 17, l, size=13, fill=BODY))
     s.append(text(right + bw / 2, top + 112, "raw, uncurated", size=12, fill=MUTED))
 
@@ -369,14 +471,19 @@ def diagram_loop():
     s.append(text(left + bw / 2 - 14, (top + bh + bottom) / 2, "loaded on demand",
                   size=12, fill=ACCENT, anchor="end"))
 
-    # readiness branch
+    # readiness branch. Its width is derived, not authored: the right edge sits
+    # flush with the cycle's right column so the deferred annotation reads as
+    # tucked under the loop. The old fixed 420 was slack at 1400 and overhung
+    # that column by 40px at 1000 — the sort of drift a hardcoded width invites.
     ry = bottom + bh + 60
-    s.append(arrow(left + bw + 60, bottom + bh - 10, left + bw + 130, ry + 20,
+    rx = left + bw + 140
+    rw = right + bw - rx
+    s.append(arrow(left + bw + 60, bottom + bh - 10, rx - 10, ry + 20,
                    color=DEFERRED, head="future", dash="5 4"))
-    s.append(box(left + bw + 140, ry, 420, 74, stroke=DEFERRED, dash="5 4"))
-    s.append(text(left + bw + 350, ry + 28, "readiness.md → autonomy dial",
+    s.append(box(rx, ry, rw, 74, stroke=DEFERRED, dash="5 4"))
+    s.append(text(rx + rw / 2, ry + 28, "readiness.md → autonomy dial",
                   size=15, weight="700", fill=DEFERRED, family=MONO))
-    s.append(text(left + bw + 350, ry + 50, "per-repo session outcomes. Planned, not shipped.",
+    s.append(text(rx + rw / 2, ry + 50, "per-repo session outcomes. Planned, not shipped.",
                   size=12.5, fill=MUTED))
 
     s.append("</svg>")

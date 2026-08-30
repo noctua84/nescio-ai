@@ -25,7 +25,7 @@ import shutil
 import sys
 from datetime import datetime
 
-from _adopt_common import ADOPT, ADOPTED, LEDGER, MAX_LEDGER_LINES, TERMINAL
+from _adopt_common import ADOPT, ADOPTED, LEDGER, TERMINAL
 
 
 def main() -> int:
@@ -37,9 +37,15 @@ def main() -> int:
     ap.add_argument("--note", default="", help="short note appended to each ledger line")
     args = ap.parse_args()
 
-    # The ledger-cap warning uses a ⚠ glyph; a legacy Windows console defaults to
-    # cp1252 and would raise UnicodeEncodeError on it. Reconfigure to UTF-8
-    # when possible (guarded — a redirected StringIO in tests has no reconfigure).
+    # Every message below echoes something this script does not control: the run
+    # folder under eval/adopt/, the archive destination under eval/adopted/, the
+    # ledger path — all rooted in the user's home and checkout, which may hold
+    # non-ASCII characters — plus the em dashes in the error strings. A legacy
+    # Windows console defaults to cp1252 and raises UnicodeEncodeError on any of
+    # them, which is how issue #55 turned a fully successful run into a non-zero
+    # exit *after* the archive move had already landed. Reconfigure to UTF-8 up
+    # front, before any print (guarded — a redirected StringIO in tests has no
+    # reconfigure).
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except (AttributeError, ValueError):
@@ -83,14 +89,9 @@ def main() -> int:
         shutil.rmtree(dest)
     shutil.move(str(src), str(dest))
 
-    total = sum(1 for ln in LEDGER.read_text(encoding="utf-8").splitlines() if ln.startswith("- "))
     print(f"Recorded {len(new_lines)} item(s) as '{args.status}'. Archived -> {dest}")
     if args.status in TERMINAL:
         print("These hashes will be skipped on future scans.")
-    file_lines = len(LEDGER.read_text(encoding="utf-8").splitlines())
-    if file_lines > MAX_LEDGER_LINES:
-        print(f"\n⚠  {LEDGER.name} is {file_lines} lines (> {MAX_LEDGER_LINES}). "
-              f"Compact the oldest entries into a one-line summary to stay under the cap.")
     return 0
 
 

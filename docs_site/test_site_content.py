@@ -21,12 +21,16 @@ What these guard, and why each one is worth a test:
     that reads as an arbitrary preference to anyone tidying the file later.
   * The 404 and footer copy is quoted verbatim from §7.
   * No external request may leave the built site (§3).
-  * The diagrams render at their natural size, in a column wide enough to be
-    worth reading, without ever making the page body scroll sideways or sliding
-    under the sidebars. DiagramLayoutTest pins that: no scale-to-fit, no
-    viewport units at all, no negative margins on the wrapper, and the
-    `hide: [navigation, toc]` front matter that gives the homepage the full
-    grid in the first place.
+  * The diagrams fit their column and open at natural size in a modal, without
+    ever making the page body scroll sideways or sliding under the sidebars.
+    DiagramLayoutTest pins that: the artwork fits, the modal is what keeps it
+    legible, no viewport units at all, and no negative margins on the wrapper.
+  * The homepage hides the table of contents but NOT the navigation rail.
+    Hiding the rail is a navigation regression that shipped once and is pinned
+    against here, not a layout preference.
+  * The modal is reachable by keyboard. DiagramModalTest pins the parts of that
+    which are easy to lose in a refactor: a real <button> from the hook, and the
+    dialog semantics, escape, focus trap and focus return in the script.
 """
 
 from __future__ import annotations
@@ -44,6 +48,8 @@ _REPO_ROOT = _DOCS_SITE.parent
 _INDEX = _DOCS_SITE / "docs" / "index.md"
 _DIAGRAMS = _DOCS_SITE / "docs" / "assets" / "diagrams"
 _CSS = _DOCS_SITE / "docs" / "assets" / "css" / "nescio.css"
+_JS = _DOCS_SITE / "docs" / "assets" / "js" / "diagram-lightbox.js"
+_MKDOCS_YML = _DOCS_SITE / "mkdocs.yml"
 _OVERRIDES = _DOCS_SITE / "overrides"
 
 #: design-system.md §7, verbatim. Whitespace is normalised before comparing so
@@ -162,37 +168,54 @@ class DiagramSourcesTest(unittest.TestCase):
 class DiagramLayoutTest(unittest.TestCase):
     """How the inlined artwork is sized — nescio.css §3, "Wide diagrams".
 
-    The artwork is 1400px and a 68ch column is 551px, so inside the column 61%
-    of every diagram is off-screen. Scaling to fit is NOT the alternative:
-    1400px squeezed into 551px puts the smallest labels at ~4.5px. The width
-    comes from the page instead — docs/index.md hides both rails, so the
-    homepage article spans the full 61rem grid (~1170px, ~84% of the artwork)
-    and the wrapper scrolls the rest.
+    THE "NEVER SCALE THE ARTWORK" RULE WAS RETIRED, DELIBERATELY. Read this
+    before "restoring" it.
 
-    This replaced a break-out that pulled the wrapper out over both rails with
-    negative margins and a 100vw bleed. Measured at 1440x900 that put 63 SVG
-    elements under a sticky sidebar; the opaque-scrollwrap mitigation covered
-    12-15% of the collision and punched a hole through the artwork where it did.
-    The tests below pin the replacement: no scale-to-fit, no viewport units, no
-    negative margins, and the front matter that makes the room.
-    """
+    The artwork used to be authored at 1400px — wider than any column here — so
+    it rendered at natural size and scrolled inside its wrapper, and this class
+    asserted exactly that: `max-width: none` on the svg, with `max-width: 100%`
+    called out by name as the tempting one-line fix that makes the diagram fit
+    and simultaneously unreadable. That reasoning held only while there was
+    nowhere else to see the diagram.
+
+    Two things changed it. The artwork is now authored on a 1000px canvas
+    (brand/make_diagrams.py, widths derived rather than hardcoded), so it very
+    nearly fits as drawn; and it is wrapped in a real <button> that opens the
+    same tokenised SVG at natural size, panning, in the modal that
+    docs/assets/js/diagram-lightbox.js builds. Legibility moved one click away
+    rather than being traded off, so fitting the column — which costs the reader
+    nothing and removes a scrollbar most readers never found — became the better
+    default. The old assertions were not weakened; they were replaced by the new
+    contract, and DiagramModalTest pins the half that pays for it.
+
+    What did NOT change: the wrapper stays inside its column, and no viewport
+    unit appears anywhere in the sheet. Before either rule existed, a break-out
+    pulled the wrapper over both rails with negative margins and a viewport-
+    derived bleed; measured at 1440x900 that put 63 SVG elements under a sticky
+    sidebar, and the opaque-scrollwrap mitigation covered 12-15% of the
+    collision while punching a hole through the artwork where it did. Those
+    tests stand.
+        """
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.css = _CSS.read_text(encoding="utf-8")
         cls.bare = _strip_css_comments(cls.css)
         cls.wrapper = _rule(cls.css, ".md-typeset .nescio-diagram")
-        cls.artwork = _rule(cls.css, ".md-typeset .nescio-diagram > svg")
+        cls.artwork = _rule(cls.css, ".md-typeset .nescio-diagram__trigger > svg")
+        cls.stage = _rule(cls.css, ".nescio-lightbox__stage")
 
-    def test_artwork_keeps_its_natural_width(self) -> None:
-        # The whole point. `max-width: 100%` here is the tempting one-line
-        # "fix" that makes the diagram fit and simultaneously unreadable.
-        self.assertIn("max-width: none", self.artwork)
+    def test_artwork_fits_its_column(self) -> None:
+        # The new contract. `max-width: none` here is what put two thirds of
+        # every diagram outside the visible box behind a scrollbar; the full
+        # picture belongs on the page and the full SIZE belongs in the modal.
+        self.assertIn("max-width: 100%", self.artwork)
+        self.assertIn("height: auto", self.artwork)
         self.assertNotRegex(
-            self.artwork, r"max-width:\s*(100%|\d)",
-            "the artwork is being scaled to fit. At 1400px authored width its "
-            "smallest labels are 11.5px; in a 551px column that is ~4.5px. "
-            "Scroll a legible diagram instead.",
+            self.artwork, r"max-width:\s*none",
+            "the artwork is back at its natural width, so it overflows its "
+            "column again. Fitting is the deliberate default -- the modal in "
+            "diagram-lightbox.js is what keeps the labels legible.",
         )
         self.assertNotRegex(
             self.artwork, r"(?<!max-)\bwidth:", "do not pin the artwork's width "
@@ -200,23 +223,64 @@ class DiagramLayoutTest(unittest.TestCase):
             "brand/make_diagrams.py owns that number.",
         )
 
-    def test_wrapper_scrolls_and_centres(self) -> None:
-        self.assertIn("overflow-x: auto", self.wrapper)
-        # Wider than the box -> scrolls from the left edge; narrower -> centred.
+    def test_wrapper_no_longer_needs_to_scroll(self) -> None:
+        # A box whose content can never exceed it cannot scroll, so the
+        # scrollbar gutter and overflow on the wrapper would be dead weight
+        # that only ever reserves space nothing uses.
+        self.assertNotIn("overflow", self.wrapper)
+        # Centred if the canvas is ever narrower than the column.
         self.assertIn("margin-inline: auto", self.artwork)
 
-    def test_wrapper_shows_that_it_scrolls(self) -> None:
-        # The affordance must follow the scheme toggle like the artwork does, so
-        # it is built from §2 tokens rather than literal hexes, and it is masked
-        # by `local`-attached covers when there is nothing left to scroll to.
-        self.assertIn("background-attachment: local, local, scroll, scroll", self.wrapper)
-        self.assertIn("var(--md-default-bg-color)", self.wrapper)
-        self.assertIn("var(--md-default-fg-color--lightest)", self.wrapper)
+    def test_the_scroll_affordance_moved_to_the_modal(self) -> None:
+        """The affordance was not deleted; it went where scrolling still happens.
+
+        The layered-gradient technique is only meaningful on a box that can
+        overflow. Inline, that is now nothing; in the modal, it is the stage,
+        which holds the artwork at natural size and pans. Same technique, same
+        §2 tokens, so it follows the scheme toggle with the artwork -- a literal
+        hex here would strand the affordance in one scheme.
+        """
+        self.assertIn("background-attachment: local, local, scroll, scroll", self.stage)
+        self.assertIn("overflow: auto", self.stage)
+        self.assertIn("var(--md-default-bg-color)", self.stage)
+        self.assertIn("var(--md-default-fg-color--lightest)", self.stage)
         self.assertNotRegex(
-            self.wrapper, r"#[0-9a-fA-F]{3,6}",
+            self.stage, r"#[0-9a-fA-F]{3,6}",
             "the scroll affordance carries a literal hex; it would not repaint "
             "on the scheme toggle. Use a §2 token.",
         )
+
+    def test_modal_chrome_carries_no_literal_hex(self) -> None:
+        """Every modal rule, not just the stage.
+
+        The modal frames artwork that repaints on the scheme toggle. A hardcoded
+        border or ground would sit there unchanged around it -- the exact defect
+        the hex check on the diagram rules was written to catch, one selector
+        over.
+        """
+        for selector in (
+            ".nescio-lightbox",
+            ".nescio-lightbox__pane",
+            ".nescio-lightbox__bar",
+            ".nescio-lightbox__title",
+            ".nescio-lightbox__close",
+            ".nescio-lightbox__stage",
+            ".md-typeset .nescio-diagram__trigger:focus-visible",
+        ):
+            with self.subTest(selector=selector):
+                self.assertNotRegex(_rule(self.css, selector), r"#[0-9a-fA-F]{3,6}")
+
+    def test_modal_is_a_fixed_overlay_not_a_viewport_sized_box(self) -> None:
+        """`position: fixed; inset: 0` instead of `100vw`/`100vh`.
+
+        A fixed box already takes its size from the viewport, and unlike a
+        viewport unit it excludes the classic scrollbar -- which is the whole
+        subject of test_no_viewport_units_anywhere below. This is the rule most
+        likely to grow a `100vh` in a hurry, so it is asserted directly.
+        """
+        overlay = _rule(self.css, ".nescio-lightbox")
+        self.assertIn("position: fixed", overlay)
+        self.assertIn("inset: 0", overlay)
 
     def test_no_viewport_units_anywhere(self) -> None:
         """The page body must never scroll sideways (§5).
@@ -266,20 +330,27 @@ class DiagramLayoutTest(unittest.TestCase):
             "content column rather than from the viewport.",
         )
 
-    def test_homepage_hides_both_rails(self) -> None:
-        """The front matter is what gives the diagrams room to not collide.
+    def test_homepage_hides_the_toc_but_keeps_the_nav_rail(self) -> None:
+        """`hide: toc` only. `hide: navigation` is a navigation regression.
 
-        The homepage is the only page carrying diagrams, and it is a landing
-        page whose every destination is already linked twice in the body (hero
-        buttons, then "Where to go next"). Hiding the navigation rail and the
-        table of contents there costs nothing and buys the article the full
-        61rem grid -- ~1170px of the 1400px artwork with zero overlap, against
-        97% visible *underneath* two sticky sidebars before. Re-enable either
-        rail on this page and the diagrams overflow into it again.
+        Hiding the TOC costs nothing: the homepage is a landing page with four
+        headings whose every destination is already linked twice in the body
+        (hero buttons, then "Where to go next").
+
+        Hiding `navigation` costs everything, and this is the guard against it
+        coming back. It does not merely drop the left rail. Measured on the
+        deployed site at desktop widths (>=76.25em) it ALSO makes Material set
+        the header hamburger, `.md-header__button[for="__drawer"]`, to
+        display:none and omit the footer prev/next block -- rail, hamburger and
+        prev/next gone at once, leaving the GitHub icon as the only persistent
+        link on the page. Mobile is unaffected, because the drawer CSS overrides
+        the `hidden` attribute below that breakpoint, which is exactly why the
+        regression shipped unnoticed. The diagrams are narrower with the rail
+        present and scroll more; that trade was made deliberately.
 
         MkDocs only parses a YAML block that starts at the very first byte, so
         this also pins the front matter to the top of the file: preceded by so
-        much as a blank line it is inert and the rails come back silently.
+        much as a blank line it is inert and the TOC comes back silently.
         """
         source = _INDEX.read_text(encoding="utf-8")
         self.assertTrue(
@@ -292,13 +363,20 @@ class DiagramLayoutTest(unittest.TestCase):
             front_matter, r"(?m)^hide:",
             "docs/index.md has front matter but no `hide:` key.",
         )
-        for rail in ("navigation", "toc"):
-            with self.subTest(rail=rail):
-                self.assertRegex(
-                    front_matter, rf"(?m)^\s*-\s*{rail}\s*$",
-                    f"the homepage must hide `{rail}` -- with that rail on, the "
-                    f"1400px diagrams slide underneath it.",
-                )
+        self.assertRegex(
+            front_matter, r"(?m)^\s*-\s*toc\s*$",
+            "the homepage must hide `toc` -- a four-entry table of contents on a "
+            "landing page whose links are already in the body twice.",
+        )
+        self.assertNotRegex(
+            front_matter, r"(?m)^\s*-\s*navigation\s*$",
+            "the homepage must NOT hide `navigation`. At >=76.25em that removes "
+            "the nav rail, the header hamburger and the footer prev/next block "
+            "simultaneously, leaving the GitHub icon as the only persistent link "
+            "on the page. Mobile still works, so this does not look broken until "
+            "someone opens the site on a laptop. Diagram width is not worth it -- "
+            "re-author the diagrams narrower instead.",
+        )
 
     def test_measure_cap_sits_on_the_article_blocks(self) -> None:
         """§5's ~68ch measure, on an article that is no longer capped itself.
@@ -306,9 +384,9 @@ class DiagramLayoutTest(unittest.TestCase):
         The article is uncapped so the diagram wrapper can use the whole content
         column: `width: auto` on a child can never exceed its containing block,
         and a capped article would pin the diagram to 68ch. The cap moves to the
-        article's blocks instead -- which is the ONLY thing holding prose to the
-        measure on the rail-less homepage, where the article spans the full
-        grid. --nescio-measure has to be a *registered* property for that to be
+        article's blocks instead -- which is then the ONLY thing holding prose to
+        the measure anywhere on the site. --nescio-measure has to be a
+        *registered* property for that to be
         equivalent: unregistered, `68ch` is substituted as a token stream and
         re-resolved against each block's own font, so `68ch` on an h1 comes out
         nearly twice the paragraph measure.
@@ -326,6 +404,130 @@ class DiagramLayoutTest(unittest.TestCase):
             "max-width: var(--nescio-measure)",
             _rule(self.css, ".md-content__inner.md-typeset > *"),
         )
+
+
+class DiagramModalTest(unittest.TestCase):
+    """The full-size view that pays for fitting the artwork to the column.
+
+    Fitting is only defensible because natural size is one activation away. If
+    the modal quietly stops working, the page keeps rendering shrunken diagrams
+    and nothing else in the build notices — which is what these guard.
+
+    The keyboard assertions are the ones worth writing down. The activator is a
+    real <button type="button"> rather than a <div> with a click handler, so it
+    is focusable and Enter/Space fire `click` with no keydown branch of our own;
+    a <div> would need tabindex, role and that branch, and would be one tidy-up
+    away from losing them silently. Escape, the focus trap, and returning focus
+    to the opener are the three things a hand-rolled dialog most often ships
+    without, and none of them show up in a screenshot.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.js = _JS.read_text(encoding="utf-8")
+        # The file is one long comment plus one IIFE; strip the comments so a
+        # rule cannot be satisfied by prose that merely mentions it.
+        cls.code = re.sub(r"/\*.*?\*/", " ", cls.js, flags=re.S)
+        cls.code = re.sub(r"(?m)//.*$", " ", cls.code)
+
+    def test_hook_wraps_the_artwork_in_a_real_button(self) -> None:
+        sys.path.insert(0, str(_DOCS_SITE / "hooks"))
+        try:
+            import inline_svg
+        finally:
+            sys.path.pop(0)
+
+        html = inline_svg.on_page_content("<!-- diagram: crew -->")
+        self.assertIn('<button type="button"', html)
+        self.assertIn(f'class="{inline_svg.TRIGGER_CLASS}"', html)
+        self.assertIn("<svg", html)
+        self.assertNotRegex(
+            html, r"<div[^>]*onclick", "the activator must be a <button>, not a "
+            "<div> with a click handler -- the button is focusable and "
+            "Enter/Space-activatable for free.",
+        )
+
+    def test_button_says_what_it_opens(self) -> None:
+        sys.path.insert(0, str(_DOCS_SITE / "hooks"))
+        try:
+            import inline_svg
+        finally:
+            sys.path.pop(0)
+
+        # The SVG has no <title>, so without an explicit label the button's
+        # accessible name would be every text node in the artwork, run together.
+        for marker, expected in (("crew", "the crew diagram"), ("loop", "the loop diagram")):
+            with self.subTest(marker=marker):
+                html = inline_svg.on_page_content(f"<!-- diagram: {marker} -->")
+                self.assertIn(f'aria-label="Open {expected} full size"', html)
+                self.assertIn(f'data-diagram-title="The {marker} diagram"', html)
+
+    def test_hook_title_accepts_every_marker_spelling(self) -> None:
+        sys.path.insert(0, str(_DOCS_SITE / "hooks"))
+        try:
+            import inline_svg
+        finally:
+            sys.path.pop(0)
+
+        for spelling in ("crew", "diagram-crew", "diagram-crew.svg", "crew.svg"):
+            with self.subTest(spelling=spelling):
+                self.assertEqual("The crew diagram", inline_svg._title(spelling))
+
+    def test_script_is_registered(self) -> None:
+        self.assertTrue(_JS.is_file(), "docs/assets/js/diagram-lightbox.js is missing")
+        config = _MKDOCS_YML.read_text(encoding="utf-8")
+        self.assertRegex(
+            config, r"(?m)^extra_javascript:",
+            "the modal script is not registered; extra_css above it is the "
+            "pattern to follow.",
+        )
+        self.assertIn("assets/js/diagram-lightbox.js", config)
+
+    def test_script_makes_no_external_request(self) -> None:
+        # §3 again: no CDN, no third-party request at runtime. A modal is the
+        # classic excuse to reach for a library.
+        self.assertIsNone(re.search(r"https?://", self.code))
+        for forbidden in ("import ", "require(", "fetch(", "XMLHttpRequest"):
+            with self.subTest(token=forbidden):
+                self.assertNotIn(forbidden, self.code)
+
+    def test_dialog_semantics(self) -> None:
+        self.assertIn('"role", "dialog"', self.code)
+        self.assertIn('"aria-modal", "true"', self.code)
+        self.assertIn("aria-labelledby", self.code)
+
+    def test_escape_closes(self) -> None:
+        self.assertRegex(self.code, r'key\s*===\s*"Escape"')
+
+    def test_focus_is_trapped_and_returned(self) -> None:
+        # Trapped: Tab is intercepted and wrapped inside the dialog.
+        self.assertRegex(self.code, r'key\s*!==\s*"Tab"')
+        self.assertIn("pane.contains(", self.code)
+        # Returned: without this, focus falls to <body> on close and a keyboard
+        # reader loses their place in the page.
+        self.assertIn("opener.focus()", self.code)
+
+    def test_backdrop_click_closes(self) -> None:
+        self.assertRegex(self.code, r"event\.target\s*===\s*overlay")
+
+    def test_background_scroll_is_locked(self) -> None:
+        # And the scrollbar it removes is compensated with the measured width --
+        # the one number CSS cannot see, which is why nescio.css needs no
+        # viewport unit for it.
+        self.assertIn('document.body.style.overflow = "hidden"', self.code)
+        self.assertIn("window.innerWidth - document.documentElement.clientWidth", self.code)
+
+    def test_modal_shows_the_tokenised_svg_itself(self) -> None:
+        """A clone of the inlined SVG, not a second copy of the artwork.
+
+        The --diagram-* tokens are declared on the element carrying
+        data-md-color-scheme, so a clone anywhere in the document inherits them
+        and the scheme toggle repaints page and modal together. An <img> or a
+        re-fetched file would break the toggle in the modal only -- invisible
+        until someone flips the theme with it open.
+        """
+        self.assertIn("cloneNode(true)", self.code)
+        self.assertNotIn("<img", self.code)
 
 
 class HeroTest(unittest.TestCase):
@@ -470,6 +672,20 @@ class BuiltSiteTest(unittest.TestCase):
                 "the inlined artwork carries no tokens -- a generated twin got "
                 "inlined instead of the tokenised source",
             )
+
+    def test_diagram_triggers_shipped_as_buttons(self) -> None:
+        # The hook can emit a perfect button and the site still ship without it
+        # if the marker ever stops being replaced. Read what actually built.
+        buttons = re.findall(r'<button type="button" class="nescio-diagram__trigger"[^>]*>', self.index)
+        self.assertEqual(2, len(buttons), "expected an activator on both diagrams")
+        for button in buttons:
+            with self.subTest(button=button):
+                self.assertRegex(button, r'aria-label="Open the \w+ diagram full size"')
+                self.assertRegex(button, r'data-diagram-title="The \w+ diagram"')
+
+    def test_modal_script_shipped_and_referenced(self) -> None:
+        self.assertTrue((self.site / "assets" / "js" / "diagram-lightbox.js").is_file())
+        self.assertIn("assets/js/diagram-lightbox.js", self.index)
 
     def test_no_image_elements_on_the_home_page(self) -> None:
         self.assertEqual([], re.findall(r"<img\b[^>]*>", self.index))

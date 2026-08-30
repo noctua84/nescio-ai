@@ -7,11 +7,37 @@ USAGE — put this on its own line in any Markdown page:
 
 The hook replaces that comment with
 
-    <div class="nescio-diagram">…the SVG file, byte for byte…</div>
+    <div class="nescio-diagram">
+      <button class="nescio-diagram__trigger" …>…the SVG, byte for byte…</button>
+    </div>
 
-The `<div>` is what docs/assets/css/nescio.css hangs `overflow-x: auto` on, so a
-wide diagram scrolls inside its own container and the page body never scrolls
+The `<div>` is the block docs/assets/css/nescio.css sizes: the artwork is capped
+to the content column so it never overflows and the page body never scrolls
 sideways (design-system.md §5).
+
+WHY THE ARTWORK SITS INSIDE A `<button>`
+----------------------------------------
+Fitting the diagram to the column costs legibility — the smallest labels land
+around 8px on a 1440px window. The compensation is a full-size view one click
+away, which docs/assets/js/diagram-lightbox.js opens. That view has to be
+reachable by keyboard, so the activator is a real `<button type="button">`: it
+is focusable, it is announced as a button, and Enter *and* Space fire `click`
+for free. A `<div>` with a click handler would need `tabindex`, `role` and a
+hand-written keydown branch to reach the same place, and would still be one
+refactor away from losing them.
+
+The button carries an `aria-label` naming what it opens ("Open the crew diagram
+full size") rather than relying on the SVG for its accessible name — the
+artwork has no `<title>` and its text nodes would otherwise be flattened into a
+paragraph-long button name.
+
+`data-diagram-title` is the human name of the artwork ("The crew diagram"). The
+script reuses it as the dialog's own label, so the two strings are derived here,
+once, instead of being half in Python and half in JavaScript.
+
+Nothing is HTML-escaped on the way in because `_MARKER` only admits
+`[A-Za-z0-9._-]`, so no attribute-breaking character can reach the template.
+Widen that character class and this needs escaping.
 
 WHY A HOOK AND NOT `pymdownx.snippets`
 --------------------------------------
@@ -85,6 +111,20 @@ SEARCH_DIRS = (
 _MARKER = re.compile(r"<!--\s*diagram:\s*([A-Za-z0-9._-]+)\s*-->")
 
 WRAPPER_CLASS = "nescio-diagram"
+TRIGGER_CLASS = "nescio-diagram__trigger"
+
+
+def _title(name: str) -> str:
+    """The human name of a diagram: `diagram-crew.svg` -> `The crew diagram`.
+
+    Accepts every spelling `_resolve` does, so the label never depends on which
+    form the page's marker happened to use.
+    """
+    stem = name[:-4] if name.lower().endswith(".svg") else name
+    if stem.startswith("diagram-"):
+        stem = stem[len("diagram-"):]
+    words = re.sub(r"[-_.]+", " ", stem).strip()
+    return f"The {words} diagram"
 
 
 def _resolve(name: str) -> Path:
@@ -114,7 +154,20 @@ def on_page_content(html: str, page=None, config=None, files=None, **kwargs) -> 
         return html
 
     def _replace(match: re.Match) -> str:
-        svg = _resolve(match.group(1)).read_text(encoding="utf-8").strip()
-        return f'<div class="{WRAPPER_CLASS}">\n{svg}\n</div>'
+        name = match.group(1)
+        svg = _resolve(name).read_text(encoding="utf-8").strip()
+        title = _title(name)
+        # `aria-hidden` is NOT set on the SVG: it is the button's only content,
+        # and hiding it would leave the button with no rendered subtree at all
+        # in some engines. The explicit aria-label already wins the name.
+        return (
+            f'<div class="{WRAPPER_CLASS}">\n'
+            f'<button type="button" class="{TRIGGER_CLASS}"'
+            f' data-diagram-title="{title}"'
+            f' aria-label="Open {title.lower()} full size">\n'
+            f"{svg}\n"
+            f"</button>\n"
+            f"</div>"
+        )
 
     return _MARKER.sub(_replace, html)

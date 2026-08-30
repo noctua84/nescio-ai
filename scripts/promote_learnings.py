@@ -12,7 +12,31 @@ adopt flow. Given a JSON manifest of nominations (see below), for each one it:
      source overwrites only if it is strictly higher priority, or equal priority
      AND a newer date (user override > empirical > agent inference);
   4. writes the note (YAML frontmatter + body + a `[Source: … — date]` line);
-  5. appends a ledger line so the promotion is skipped on future runs.
+  5. appends a ledger line so the promotion is skipped on future runs;
+  6. drops a `receipt.json` next to the manifest recording what this pass did.
+
+The `receipt.json` is an **audit record, not a gate**. It states what one promote
+pass did — which targets were written, how many were deduped, and when the file
+actually reached the disk — and it lands beside the manifest so the rest of the
+harvest flow can find it from the manifest path alone, with no extra bookkeeping
+to lose.
+
+It deliberately does **not** authorise `mark_harvested.py`'s watermark, and the
+reasoning is worth keeping because an earlier draft of this file asserted the
+opposite. A receipt is produced and consumed inside a single flow, so the most it
+can ever prove is *ordering* — that promote ran before mark — never diligence.
+And the only property a gate could actually test, ``promoted >= 1``, is satisfied
+completely by a pass that read 500 records and promoted one; it would meanwhile
+*refuse* the honest re-run whose nominations all dedup to `promoted: 0`. Scope
+and permission to stamp therefore come from `begin_harvest.py`'s `read.json`,
+which answers the per-trail question that is answerable — *was this trail read*.
+`mark_harvested.py` treats the receipt as advisory throughout: a missing,
+unreadable, unrecognised, or zero-promotion receipt warns, and it stamps anyway.
+
+What the receipt is genuinely good for is the condition under which it is
+written: only after the notes and the ledger have really landed on disk. A
+`--dry-run` leaves none, a failed validation leaves none, so its presence and its
+``written_at`` are a truthful after-the-fact account of a pass that wrote.
 
 Manifest = a JSON list of objects. All fields are required; the canonical schema
 is shared with `commands/harvest-memory.md` and `memory/CONVENTIONS.md`:
@@ -36,7 +60,9 @@ type. ``scope``'s bucket is validated against the canonical set; ``type`` is
 open-ended and only checked for presence.
 
 Usage:
+    # writes <manifest dir>/receipt.json on success; pass it to mark_harvested.py
     python scripts/promote_learnings.py nominations.json
+    # previews only — names the receipt path but writes no receipt
     python scripts/promote_learnings.py nominations.json --dry-run
 """
 
@@ -46,12 +72,12 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import wiki_index
 
 from _learning_common import (
-    MAX_LEDGER_LINES,
     REPO_DIR,
     VALID_SOURCES,
     content_hash12,
@@ -98,6 +124,14 @@ _SOURCE_RE = re.compile(
 # each promotion; everything outside (human edits, extra sections) is left alone.
 PROMOTED_BEGIN = "<!-- promoted:begin -->"
 PROMOTED_END = "<!-- promoted:end -->"
+
+# The promotion receipt. Filename is fixed and lives beside the manifest so the
+# next step in the harvest flow can find it from the manifest path alone, with no
+# extra bookkeeping to lose. ``RECEIPT_VERSION`` is bumped only on a breaking
+# schema change — `mark_harvested.py` will not guess at a version it does not
+# recognise; it says so and stamps on the manifest's authority instead.
+RECEIPT_NAME = "receipt.json"
+RECEIPT_VERSION = 1
 
 
 def render_frontmatter(nom: dict) -> str:
@@ -271,12 +305,57 @@ def _record_ledger(
     ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_receipt(
+    receipt_dir: Path,
+    *,
+    manifest: str,
+    promoted: int,
+    skipped: int,
+    targets: list[str],
+) -> Path:
+    """Write the promotion receipt into ``receipt_dir``. Returns its path.
+
+    Kept module-level and free of promote()'s state so the schema — the one thing
+    `mark_harvested.py` parses — can be unit-tested on its own, and so the single
+    place that decides the shape of a receipt is obvious to whoever changes it.
+
+    ``written_at`` is stamped here rather than passed in: the receipt is an audit
+    record, so its time must be the instant it actually hit the disk, not an
+    earlier moment the caller happened to have to hand. Raises ``OSError`` — the
+    caller decides whether that is fatal (it is not; the notes are already
+    written by then, and nothing downstream is gated on the receipt).
+    """
+    receipt_dir.mkdir(parents=True, exist_ok=True)
+    path = receipt_dir / RECEIPT_NAME
+    payload = {
+        "version": RECEIPT_VERSION,
+        "manifest": manifest,
+        "promoted": promoted,
+        "skipped": skipped,
+        "targets": targets,
+        "written_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def promote(
-    records: list[dict], repo_dir: Path = REPO_DIR, *, dry_run: bool = False
+    records: list[dict],
+    repo_dir: Path = REPO_DIR,
+    *,
+    dry_run: bool = False,
+    receipt_dir: Path | None = None,
+    manifest_arg: str | None = None,
 ) -> tuple[int, list[str]]:
     """Promote each nomination. Returns (rc, summary_lines).
 
     Path-parameterized on ``repo_dir`` so tests can drive a temp repo.
+
+    ``receipt_dir`` defaults to ``None`` — no receipt — so every existing caller
+    and test keeps working unchanged; only ``main()``, which knows where the
+    manifest came from, opts in. ``manifest_arg`` is the manifest path exactly as
+    the operator typed it, recorded verbatim so the receipt can be matched back
+    to the command that produced it.
     """
     memory_dir = repo_dir / "memory"
     ledger_path = memory_dir / "learning-log.md"
@@ -325,6 +404,9 @@ def promote(
 
     summary: list[str] = []
     promoted = skipped = 0
+    # Targets actually written or overwritten, in manifest order — the receipt's
+    # audit trail of what this pass put on disk (skips are counted, not listed).
+    promoted_targets: list[str] = []
     # In --dry-run nothing is appended, so parse_ledger can't see earlier
     # would-writes; track them here so the preview dedups within the manifest.
     would_write: set[str] = set()
@@ -370,6 +452,7 @@ def promote(
             touched_dirs.add(note_path.parent)
             summary.append(f"would {verb}  {nom['target']} — {h} ({source})")
             promoted += 1
+            promoted_targets.append(nom["target"])
             continue
 
         note_path.parent.mkdir(parents=True, exist_ok=True)
@@ -380,6 +463,7 @@ def promote(
             ledger_path, nom["target"], h, ledger_line, overwrite=(verb == "overwrite")
         )
         promoted += 1
+        promoted_targets.append(nom["target"])
         summary.append(f"{verb:<9} {nom['target']} — {h} ({source})")
 
     prefix = "[dry-run] " if dry_run else ""
@@ -397,13 +481,35 @@ def promote(
         except Exception as e:  # noqa: BLE001 — reindex is best-effort
             summary.append(f"⚠  reindex failed for {d}/MEMORY.md: {e}")
 
-    if not dry_run:
-        file_lines = len(ledger_path.read_text(encoding="utf-8").splitlines())
-        if file_lines > MAX_LEDGER_LINES:
-            summary.append(
-                f"\n⚠  {ledger_path.name} is {file_lines} lines (> {MAX_LEDGER_LINES}). "
-                f"Compact the oldest entries into a one-line summary to stay under the cap."
-            )
+    # The promotion receipt. A dry-run must never leave one behind — the receipt
+    # records writes that happened — so the preview only names where it would go.
+    # A receipt IS written when promoted == 0 but rc is 0 (everything deduped):
+    # "read it, promoted nothing new" is a real outcome of a real pass, and
+    # suppressing the record of it would hide the run rather than report it.
+    if receipt_dir is not None:
+        if dry_run:
+            summary.append(f"would write receipt {receipt_dir / RECEIPT_NAME}")
+        else:
+            # Notes and ledger are already on disk; a receipt we cannot write is
+            # a lost proof, not a failed promote. Warn and keep rc 0 — same
+            # best-effort discipline as the reindex above.
+            try:
+                receipt_path = write_receipt(
+                    receipt_dir,
+                    manifest=manifest_arg or "",
+                    promoted=promoted,
+                    skipped=skipped,
+                    targets=promoted_targets,
+                )
+                summary.append(f"receipt   {receipt_path}")
+            except OSError as e:
+                summary.append(
+                    f"⚠  receipt not written to {receipt_dir / RECEIPT_NAME}: {e} "
+                    f"— the promote succeeded; only the audit record is missing. "
+                    f"mark_harvested.py warns about that and stamps anyway, so fix "
+                    f"the path if you want the record, not to unblock the stamp."
+                )
+
     return 0, summary
 
 
@@ -436,7 +542,15 @@ def main() -> int:
         print(f"error: {manifest} must contain a JSON list of nominations.")
         return 1
 
-    rc, summary = promote(records, dry_run=args.dry_run)
+    # The receipt lands beside the manifest it consumed: the harvest flow stages
+    # each run under eval/learnings/<timestamp>/, so manifest and proof-of-promote
+    # stay in the same directory and cannot drift apart.
+    rc, summary = promote(
+        records,
+        dry_run=args.dry_run,
+        receipt_dir=manifest.parent,
+        manifest_arg=args.manifest,
+    )
     for line in summary:
         print(line)
     return rc

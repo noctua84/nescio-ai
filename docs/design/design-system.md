@@ -164,8 +164,9 @@ they land inside SVG `font-family="..."` attributes, where a double quote would
 close the attribute.)
 
 When the Plex migration lands it reruns the same subset recipe against the Plex
-sources, under the same OFL logic, and retunes the `wrap()` widths in
-`make_diagrams.py` — Plex Sans is wider than Carlito at the same size.
+sources, under the same OFL logic, and re-derives `EM_PER_CHAR` in
+`make_diagrams.py` — Plex Sans is wider than Carlito at the same size. That is
+now one constant, not a sweep of call sites; see §6.
 
 ### Roles
 
@@ -272,14 +273,23 @@ contradicts it.
 **Docs pages.** Three columns: left nav, article, right table of contents.
 Article measure capped at ~68ch. True of `/agents/` and `/skills/`.
 
-**The homepage is the exemption.** It is a single-column landing page —
-`index.md` hides both `navigation` and `toc`. Its navigation already lives in
-the hero as buttons, and it is the only page carrying diagrams, which need the
-full grid width. See §6.
+**The homepage is a partial exemption.** It keeps the navigation rail and hides
+only the table of contents — `index.md` carries `hide: [toc]`. The TOC goes
+because it is four entries on a landing page whose destinations are already
+linked twice in the body (hero buttons, then "Where to go next"). The rail
+stays because hiding it removes every desktop navigation affordance at once:
+at ≥76.25em Material drops the rail, the header hamburger and the footer
+prev/next block together, leaving the GitHub icon. That was shipped, measured
+and reverted. See §6.
 
 **Spacing.** Lay out sibling groups with flex/grid `gap`, never per-element
-margins. Wide content — tables, code, diagrams — gets its own
-`overflow-x: auto` container so the page body never scrolls sideways.
+margins. Wide content — tables, code — gets its own `overflow-x: auto`
+container so the page body never scrolls sideways.
+
+Diagrams no longer use that container. They are capped to the content column
+and cannot overflow it, so the only surface that scrolls sideways is the
+full-size modal (§6). The rule they still obey is the one behind the container:
+**the page body never scrolls sideways, at any width, modal open or closed.**
 
 ---
 
@@ -323,32 +333,130 @@ Generating the pair rather than hand-maintaining it is what stops them drifting.
 **Confirmed.** One tokenised source, inlined on the site, twins generated for
 GitHub.
 
-### Presentation: diagrams span a single-column homepage
+### Presentation: the artwork fits the column, a modal restores full size
 
 Diagrams carry the architecture explanation, so legibility outranks column
-alignment — but not at the cost of colliding with the chrome. Both diagrams
-live on the homepage and nowhere else, so the homepage stops being a
-three-column page: `index.md` carries `hide: [navigation, toc]`, and the
-diagram spans the full `.md-grid` at natural size. Prose keeps its 68ch
-measure, because the cap sits on the article's *blocks*, not the article.
+alignment — but not at the cost of colliding with the chrome, and not at the
+cost of navigation. Both diagrams live on the homepage and nowhere else. That
+page keeps its navigation rail, hides the table of contents, and renders each
+diagram **capped at 100% of the content column**. Clicking the artwork — or
+pressing Enter or Space on it, because the activator is a real `<button>` —
+opens the same SVG at natural size in a modal that pans.
 
-**This works only because the homepage hides both rails.** Re-enable
-`navigation` or `toc` on `index.md` and the diagrams overflow straight back
-into them. The front matter and the diagram width are one decision, not two —
-touch either and re-measure both.
+Prose keeps its 68ch measure, because the cap sits on the article's *blocks*,
+not the article — that is what lets the diagram use the whole column instead of
+551px.
 
-Nothing is lost by hiding them there. The hero already links Agents, Skills and
-Source as buttons, and "Where to go next" repeats the first two. The homepage
-TOC was four entries on a landing page.
+Measured on the built site with this arrangement:
 
-The price, stated plainly: `.md-grid` caps at `61rem`, and that cap is
-font-relative, so it grows as Material raises the root font-size at wider
-viewports. Measured, `.md-content__inner` is 1188px at 1440 (root 20px) and
-1307px at 1920 (root 22px) — **~85%** and **~93%** of the 1400px artwork,
-against 97% and ~97–98% under the old break-out. So the fix costs about twelve
-points at 1440 and only a few at 1920: it gets cheaper the wider the window.
-The wrapper keeps its `overflow-x: auto` and its scroll affordance — 1400 still
-exceeds the content column at every width, so it still scrolls, just far less.
+| Viewport | Root font | Nav rail | Content column | Rendered | Scale | Smallest label |
+|---|---|---|---|---|---|---|
+| 1920×1080 | 22px | x=282–548 | 1032px | 1000×834 | **1.00 — 1:1** | **11.5px** |
+| 1440×900 | 20px | x=103–345 | 938px | 938×782 | 0.938 | **10.8px** |
+| 375×812 | — | drawer | 343px | 343×286 | 0.343 | 3.9px inline — **1000px in the modal** |
+
+Zero shapes under a rail at any width. No horizontal page scroll at any width,
+modal open or closed. Text overflow was checked programmatically against real
+Carlito/Arial advance widths rather than by eye: worst case 0.79 of the
+available width, no overflow in any of the six generated files.
+
+### "Never scale the artwork" — retired, deliberately
+
+An earlier revision of this section carried that rule in capitals. It is gone,
+and why it is gone is worth more than the rule was.
+
+The rule was correct under the constraint it was written under. The inline
+diagram was the **only** place to see the diagram, so shrinking it to fit
+destroyed 11.5px labels with no recourse. Given that, "render at natural size
+and scroll the wrapper" was the better of two bad options, and the rule
+correctly forbade the worse one.
+
+The modal removed the constraint. There is now somewhere else to see the
+artwork at full size, so the inline copy no longer has to be legible on its own
+— it has to be *recognisable*, which a 0.938 or even a 0.343 scale is.
+Legibility moved one click away instead of being traded against layout.
+
+**A rule is revisable when the constraint it was written under changes.** That
+is the actual lesson and it is not an apology. The failure mode this document
+exists to prevent is a rule that outlives its constraint because nobody wrote
+the constraint down next to it. Every rule here should read as "X, because Y" —
+and when Y stops being true, X is open for re-argument on the record, exactly
+as this one was.
+
+**Do not hide the navigation rail to buy diagram width.** That is the standing
+rule, and it is the opposite of what an earlier revision of this section said.
+`hide: navigation` on `index.md` does widen the column — it also, at ≥76.25em,
+sets `.md-header__button[for="__drawer"]` to `display: none` and drops the
+footer prev/next block, so the rail, the hamburger and prev/next disappear
+together and the GitHub icon becomes the only persistent link on the page.
+Mobile is unaffected: below that breakpoint Material's drawer CSS overrides the
+`hidden` attribute, so the hamburger is a working 40×40 target and the drawer
+lists Home / Agents / Skills. The regression was therefore desktop-only and
+invisible to anyone checking on a phone. Shipped, measured, reverted.
+
+Navigation outranks diagram width. That argument is now moot rather than merely
+won — the artwork was re-authored to fit, so there is no width left to buy.
+
+### The width was in the artwork, not the page — fixed
+
+**The durable fix was narrower artwork, and it shipped.**
+`brand/make_diagrams.py` now authors both diagrams on a **1000px canvas** — crew
+1000×834, loop 1000×800 — down from 1400px. Nothing was cut to get there. The
+loop's drawn content already stopped at x=1250, so 150px of the old canvas was
+air; the crew's width was never a property of the drawing but a layout
+parameter, `columns × col_w + gaps × gap`. 1000 sits one notch above the 938px
+column at 1440 and inside the 1032px column at 1920, which is why 1920 renders
+1:1.
+
+**Wrap widths now derive from the box they wrap into.** `wrap()` counts
+characters; boxes are measured in pixels. Every call site used to carry a
+hand-tuned character count that did not derive from its box — `wrap(role, 38)`
+against a 380px column that holds about 55 characters. That number was never a
+fit constraint. It was a guess that happened not to fail, it could not have
+caught an overflow, and narrowing `col_w` would have pushed text out through the
+card's stroke with the suite green.
+
+`chars_wide(px, size)` closes it: ask for a box's usable width in pixels, get
+the character budget back. `EM_PER_CHAR = 0.5` is a **budget, not an average** —
+a line of exactly N characters must fit in `N × 0.5 × size` pixels whatever it
+says. It is set to clear Arial's bare-lowercase advance, Arial being the widest
+face in `FONT_SANS` and the one a reader without the webfont lands on. There are
+now **zero hardcoded wrap counts** in the generator.
+
+Someone will change `col_w` again. The trap to carry forward is not "the old
+number was wrong" — it is that **the old number carried no information about the
+box**, so it could be neither right nor wrong, only lucky. A literal passed to
+`wrap()` is a coincidence with a lifespan.
+
+### The site ships JavaScript — a first, and a deliberate one
+
+`docs_site/docs/assets/js/diagram-lightbox.js` is the first JavaScript this site
+has ever shipped. Recording it as a decision so it is not discovered later as a
+drift:
+
+- **What it is.** One local file, no dependencies, no build step, no framework,
+  plain DOM. Wired through `extra_javascript` in `mkdocs.yml`.
+- **Why it is allowed.** §3's standing rule is *no CDN, no third-party request
+  at runtime* — the same rule that sets `theme.font: false`. It governs what the
+  reader's browser is made to fetch from other people; it is not a rule against
+  behaviour. A self-hosted file makes no request at all, so it satisfies the
+  rule as written and as meant.
+- **Where the line still is.** No CDN, no framework, no analytics, no runtime
+  fetch of any kind. If a future need cannot be met by a dependency-free local
+  file, that is a new decision to argue, not an extension of this one.
+
+**What the modal must keep doing.** All verified on the built site. Each of
+these breaks silently:
+
+| Behaviour | Why it is load-bearing |
+|---|---|
+| `role="dialog"`, `aria-modal="true"`, `aria-labelledby` resolving to "The crew diagram" / "The loop diagram" | The artwork has no `<title>`; without the label the dialog is anonymous and the button name is a flattened paragraph of SVG text |
+| Escape closes; focus is trapped while open and returns to the triggering button on close | The full-size view is the compensation for the fit cap. A keyboard-only reader who cannot leave the modal has lost the page, not gained a diagram |
+| The SVG is **cloned, not moved**, and the clone repaints on the scheme toggle — measured node fill `rgb(20,27,36)` → `rgb(255,255,255)` | The whole inline-SVG mechanism above depends on `--diagram-*` reaching the artwork. The clone inherits from `<body>`, so one mechanism serves both copies. Lose this and the modal strands one scheme |
+| The backdrop closes on `mousedown`, not `click`; a `mousedown` on the pane does not close | A drag that starts inside the pane and releases on the backdrop must not dismiss it. This is deliberate, not an oversight to "fix" back to `click` |
+| The overlay is `position: fixed` and measures `documentElement.clientWidth`, never `window.innerWidth` | The two differ by the scrollbar width. Sizing off the viewport overflows the page by exactly that much and §5 forbids sideways body scroll. **No viewport unit appears anywhere in the stylesheet** |
+| Background scroll is locked using the *measured* scrollbar width and restored on close | Same gap, other direction: `overflow: hidden` removes the scrollbar and shifts the layout. CSS cannot see the number; JS can |
+| One overlay is reused for both diagrams | Two would be two things to keep in sync, for no gain |
 
 **The reversal, on the record.** A viewport-spanning break-out — negative
 margins derived from Material's sidebar constants, diagram centred at natural
@@ -373,10 +481,9 @@ Two traps, both measured, both still worth keeping:
   child can never exceed its containing block, so while `.md-content__inner`
   carried the 68ch cap the diagram stayed pinned at 551px whatever its margins
   said. This mattered under the break-out; it matters *more* now, because the
-  full grid width is the entire mechanism. The diagram reaches the full column
+  content column is the entire mechanism. The diagram reaches the full column
   width only because the cap sits on the article's blocks. Move the cap back
-  onto `.md-content__inner` and the diagram is 551px again, single column or
-  not.
+  onto `.md-content__inner` and the diagram is 551px again, rails or no rails.
 - **`margin-inline: calc(50% - 50vw)` was wrong for the break-out.** History,
   not live guidance — there is no break-out left to implement. Recorded so the
   idea is not rediscovered as a fix: it centres on the containing block, and
@@ -385,54 +492,54 @@ Two traps, both measured, both still worth keeping:
   artwork is unreachable at `scrollLeft: 0` and left overflow produces no
   scrollbar to catch it.
 
-**Decision: break-out withdrawn, homepage single-column.** Full grid width, no
-negative margins, both rails hidden on `index.md`.
+**Decision: break-out withdrawn, navigation rail kept, TOC hidden, artwork
+re-authored to fit.** The diagram stays inside the content column and is capped
+to it; `index.md` hides `toc` only.
 
-### Known limitation: narrow viewports — accepted
+### Narrow viewports — resolved by the modal, not by CSS
 
-| Viewport | Diagram visible | Basis |
-|---|---|---|
-| 1920 | ~93% | measured — root 22px, `61rem` = 1342px, content 1307px |
-| 1440 | ~85% | measured — root 20px, `61rem` = 1220px, content 1188px |
-| 1024 | ~70% | measured |
-| 768 | ~51% | measured |
-| 375 | ~25% | measured |
+This section used to accept a live defect: below roughly 800px there was nothing
+left to give the diagram, a landscape composition does not fit a portrait
+screen, and no amount of CSS fixes an aspect-ratio mismatch. All of that was
+true and none of it is load-bearing any more.
 
-**The `61rem` grid cap is font-relative, not a fixed pixel width**, and Material
-raises the root font-size at large viewports — 20px at 1440, 22px at 1920. The
-cap therefore grows with the window, and the diagram's visible share keeps
-climbing instead of plateauing. Below the cap the grid tracks the viewport and
-the percentage falls with it, which is why the 1024-and-below rows carry over
-unchanged from the break-out era — a full-width grid and a viewport-spanning
-break-out are the same width once there are no rails to break past.
+At 375×812 the inline diagram renders 343×286 and its smallest labels are
+3.9px. That is unreadable, and it is now *supposed* to be: the inline copy is a
+recognisable thumbnail and the modal opens the same SVG at its full 1000px on a
+surface that pans. The phone case is the desktop case, one click deeper. What
+changed was not the CSS — it was having a second place to put the artwork.
 
-Below roughly 800px width there is nothing left to give the diagram.
-`1400×826` is a landscape composition and phones are portrait, so
-this is an aspect-ratio mismatch, not a sizing bug — **no amount of CSS fixes
-it.** On a phone the reader scrolls a 1400px canvas through a 343px window.
+The old 1024 / 768 percentage rows are gone. They were measured against layouts
+that no longer exist, and "percent of the diagram visible" stopped being the
+right metric once the diagram fits by construction. Scale and smallest rendered
+label are the numbers that matter; they are in the table above.
 
-**Decision: accepted.** These docs skew desktop, and a legible diagram you
-scroll beats a shrunken one you cannot read.
-
-Two fixes were considered and deliberately not taken. Record them so they are
-not re-litigated as bugs:
+Two fixes were considered and are still not taken. Recorded so they are not
+re-litigated as bugs:
 
 1. **Reflow the SVG responsively** — stack the crew diagram's three columns
-   under a media query *inside* the SVG. Cheap in principle, since
-   `make_diagrams.py` builds it programmatically. This is the real fix if the
-   mobile case ever matters.
-2. **Raise the diagram type floor** from 11.5px to about 14px. The 11.5px
-   labels are precisely what forces "never scale"; 14px would tolerate a ~20%
-   downscale and lift 768px on its own.
+   under a media query *inside* the SVG. Still cheap in principle, since
+   `make_diagrams.py` builds it programmatically. It is now an improvement to a
+   thumbnail rather than a fix for a defect, which is a much weaker case.
+2. **Raise the diagram type floor** from 11.5px to about 14px. The whole
+   argument for this was that 11.5px labels are what forced "never scale". That
+   rule is retired, so the argument retired with it. 11.5px stays — and at 1920
+   it is what the reader actually gets.
 
 ### Authoring rules
 
 - No background `<rect>`. The page supplies the ground.
 - No hardcoded fills — use the token variables.
-- **Retune the wrap width after the font change.** `make_diagrams.py` wraps by
-  *character count* (`wrap(s, width)`), not measured advance width. Plex Sans is
-  wider than Carlito at the same size, so each call's `width` needs lowering and
-  the result eyeballed against its box. A parameter sweep, not hand-positioning.
+- **Derive every wrap width from its box.** Call `chars_wide(px, size)`; never
+  pass a literal to `wrap()`. A hardcoded count is not a constraint, it is a
+  coincidence that survives until someone changes a column width.
+- **`EM_PER_CHAR` is the single number to revisit after a font change.** The
+  Plex migration does not need each call site retuned — it needs the budget
+  re-derived once against Plex Sans's advance widths. Plex Sans is wider than
+  Carlito, so confirm 0.5 still clears its worst case; if it does not, raise the
+  budget, not the call sites.
+- **Keep the canvas at 1000px unless the content column changes.** The number is
+  chosen against the 938px column at 1440 and the 1032px column at 1920 (§6).
 - Name the new faces explicitly in `font-family`, keeping a generic fallback.
 
 ---
@@ -733,7 +840,10 @@ since it is the exact ambiguity that raised the question.
 | 8 | Brand kit moves into the repo as a `brand/` package | Files drift; generators don't |
 | 9 | Docs live at `docs.nescio-ai.org` | Subdomain CNAME beats apex A records; apex kept free |
 | 10 | Brand and site stay in `nescio-ai` | `FRAMEWORK_PATHS` already isolates them; a split buys nothing |
-| 11 | Homepage is single-column; diagrams span the grid; narrow viewports accepted as-is | The column break-out slid 63 elements under the sticky rails; the mobile case is an aspect-ratio mismatch CSS cannot fix |
+| 11 | Homepage keeps the nav rail and hides only `toc`; diagrams are capped to the content column | The break-out slid 63 elements under the sticky rails; hiding `navigation` to widen the column removed rail, hamburger and prev/next at once on desktop (§6) |
+| 12 | Diagrams re-authored on a 1000px canvas; wrap widths derived from box width via `chars_wide()` | The width was a layout parameter, not a property of the drawing. Hardcoded wrap counts carried no information about the box they wrapped into |
+| 13 | "Never scale the artwork" retired; full size moved one click away into a modal | The rule held only while the inline copy was the only place to see the diagram. The modal removed that constraint, so the rule was re-argued rather than inherited |
+| 14 | The site ships one local, dependency-free JavaScript file | §3's rule bars third-party requests at runtime, not behaviour. No CDN, no framework, no build step, no runtime fetch |
 
 ---
 
@@ -744,7 +854,9 @@ since it is the exact ambiguity that raised the question.
 - [x] **Fix the AA failure** — one line in `make_diagrams.py`.
 - [x] **Extend `make_diagrams.py`** to emit tokenised SVGs + generated twins (§6).
 - [x] **Outline the wordmark** in `make_brand.py`.
-- [ ] **Retune wrap widths** after the Plex swap.
+- [ ] **Re-derive `EM_PER_CHAR`** after the Plex swap — one constant, not a
+      sweep of call sites (§6). The call sites themselves are already
+      box-derived and need no attention.
 - [ ] **Decide where the apex landing page lives** (§9).
 - [x] **Guard the deploy workflow** against forks (`github.repository ==`).
 - [ ] **Exclude `brand/` from initial instance derivation** — currently unscripted.
