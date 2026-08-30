@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import apply_theme  # noqa: E402
 from _crew_common import (  # noqa: E402
+    BOUNDARY_PHRASE,
     BOUNDED_WRITERS,
     CODE_WRITERS,
     TIERED_AGENTS,
@@ -241,6 +242,36 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
             len(CODE_WRITERS | BOUNDED_WRITERS), 6,
             "adding a writer is an architectural decision — say why in the commit message",
         )
+
+    def test_bounded_writers_declare_their_boundary(self):
+        """Each bounded writer's charter body states its file boundary.
+
+        This is a **doc-lint, not enforcement**. Agent frontmatter accepts tool
+        *names* only — `tools`/`disallowedTools` have no path-scoped form, so
+        `Edit(tests/**)` cannot be expressed here at all. Nothing stops a
+        bounded writer from editing a production file; the only thing standing
+        between it and one is the sentence this test pins.
+
+        The body, not `description:`. `description:` is routing metadata the
+        orchestrator reads to pick an agent; asserting there proves only that
+        the blurb advertises a boundary, not that the agent is ever told about
+        it. The spec puts enforcement in the prompt
+        (docs/specs/2026-08-24-team-workflow-patterns.md:66).
+
+        Deliberately out of scope: the `Write`-boundary agents. `planner`
+        (read-only except `.sisyphus/`) and `reviewer` (writes only its report
+        file) have real boundaries of the same kind, unchecked here because
+        this invariant is Edit-centric. That gap is acknowledged, not hidden.
+        """
+        for name in BOUNDED_WRITERS:
+            path = AGENTS_DIR / f"{_themed(name)}.md"
+            with self.subTest(agent=path.stem):
+                text = path.read_text(encoding="utf-8")
+                body = FRONTMATTER_RE.sub("", text, count=1)
+                self.assertIn(
+                    BOUNDARY_PHRASE, body,
+                    f"{path.stem}: boundary declared only in routing metadata",
+                )
 
     def test_notebook_edit_alone_does_not_bar_editing(self):
         """Regression: `Edit` in `NotebookEdit` is True — tokens, not substrings."""
