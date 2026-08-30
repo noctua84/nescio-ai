@@ -104,13 +104,23 @@ and changes nothing if it can't.
 | `scout` | Pre-plan risk/intent triage — surfaces assumptions and likely failure points. |
 | `planner` | Interviews for requirements and writes the work plan. |
 | `validator` | Checks a plan is executable before work starts. |
-| `builder` | Implements one scoped task from a plan — the only agent that writes production code. Verifies before reporting. |
+| `builder` | Implements one scoped task from a plan — the complex/unclassified tier. Verifies before reporting. |
+| `builder-standard` | Same contract as `builder`, for tasks the plan classifies `standard`; runs on Sonnet. |
+| `builder-simple` | Same contract as `builder`, for mechanical tasks the plan classifies `simple`; runs on Haiku. |
+| `test-writer` | Writes and extends tests against the intended interface; may not touch implementation files. |
+| `qa-guard` | Discovers and runs the project's CI checks, fixing mechanical failures until they pass. |
 | `advisor` | Read-only architecture/design advice for hard tradeoffs. |
 | `reviewer` | QA audit of implemented code — bugs, regressions, security. |
 | `critic` | Devil's advocate — challenges the approach before it's built. |
 | `librarian` | External docs / OSS research with cited sources. |
 | `explore` | Fast codebase search. |
 | `vision` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
+| `doc-researcher` | Maps the existing docs — coverage, gaps, update targets; writes nothing. |
+| `doc-writer` | Writes docs from `doc-researcher`'s findings; may not touch implementation files. |
+
+Six agents write files: `builder` and its two tiers plus `qa-guard` write
+production code; `test-writer` and `doc-writer` write only within their declared
+file boundaries. The rest are read-only.
 
 ## Skills
 
@@ -145,11 +155,18 @@ optional theme renames the thinker/advisor agents after Graeco-Roman philosopher
 `socrates`, `builder`→`archimedes`) — tracing the Socrates → Plato → Aristotle
 lineage, plus Pyrrho the skeptic, plus Archimedes the engineer and craftsman
 (not part of that lineage, which is fitting for the agent that builds rather
-than reasons).
+than reasons). The two builder cost tiers follow `builder`, so seven files are
+renamed in all: `builder-simple.md`→`archimedes-simple.md` and
+`builder-standard.md`→`archimedes-standard.md`.
+
+The remaining agents — `orchestrator`, `scout`, `validator`, `librarian`,
+`explore`, `vision`, `test-writer`, `qa-guard`, `doc-researcher`, `doc-writer` —
+keep their functional names under both themes.
 
 Apply it with `python scripts/apply_theme.py philosophers` (and
 `python scripts/apply_theme.py functional` to revert). It renames the agent files,
 frontmatter, and all cross-references; it's idempotent and reversible.
+`--dry-run` prints what it would do without touching anything.
 
 ## Prerequisites
 
