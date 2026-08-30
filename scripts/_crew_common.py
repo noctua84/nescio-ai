@@ -96,13 +96,19 @@ def themed_name(functional_name: str, theme: str) -> str:
 
     A name the theme does not rename (every member of THEME_INVARIANT_ROSTER)
     is returned unchanged, so callers can map the whole roster through this.
+
+    The tier branch is gated on TIERED_AGENTS — membership, not shape. Gating it
+    on "any PAIRS base with a known variant suffix" made this function claim
+    `planner-simple` becomes `plato-simple`, while `renamed_agents` (which
+    derives its file list from TIERED_AGENTS) would never rename such a file.
+    Only `builder` has tiers; the two derivations must not disagree about that.
     """
     if theme not in THEMES:
         raise ValueError(f"unknown theme {theme!r} (expected one of {THEMES})")
     if theme == "functional":
         return functional_name
-    base, sep, variant = functional_name.partition("-")
-    if sep and variant in TIER_VARIANTS and base in _FUNCTIONAL_TO_PHILOSOPHER:
+    if functional_name in TIERED_AGENTS:
+        base, _, variant = functional_name.partition("-")
         return f"{_FUNCTIONAL_TO_PHILOSOPHER[base]}-{variant}"
     return _FUNCTIONAL_TO_PHILOSOPHER.get(functional_name, functional_name)
 

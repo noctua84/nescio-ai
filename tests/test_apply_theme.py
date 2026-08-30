@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import _crew_common  # noqa: E402
 import apply_theme  # noqa: E402
 
 AGENTS_DIR = ROOT / "agents"
@@ -47,10 +48,15 @@ def _other_theme(theme: str) -> str:
 
 
 def _expected_renames(target: str) -> list[tuple[str, str]]:
-    """(src, dst) filenames apply_theme renames when switching to `target`."""
-    if target == "philosophers":
-        return [(f"{f}.md", f"{p}.md") for f, p in apply_theme.PAIRS]
-    return [(f"{p}.md", f"{f}.md") for f, p in apply_theme.PAIRS]
+    """(src, dst) filenames apply_theme renames when switching to `target`.
+
+    Derived from `_crew_common.renamed_agents` — the same list the script drives
+    its rename loop from — so this covers all seven files. Deriving it from
+    `PAIRS` alone named only five: the two builder tiers were renamed by the
+    script but asserted by nothing, so the dry-run report could stop mentioning
+    them without a test noticing.
+    """
+    return [(f"{src}.md", f"{dst}.md") for src, dst in _crew_common.renamed_agents(target)]
 
 
 def _frontmatter_name(path: Path) -> str | None:
@@ -173,6 +179,96 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
             self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.start), 0)
         self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.start)
         self._assert_names_match_filenames(f"after reverting to '{self.start}'")
+
+    def test_a_tree_desynced_by_an_older_run_is_repaired_by_re_running(self):
+        """Re-running the script must converge a tree an older build half-converted.
+
+        `detect_theme` classifies the whole tree from one representative file
+        (`plato.md` exists -> "philosophers"), and the no-op path used to
+        short-circuit on `current == target` alone. So the tree left behind by
+        the build that renamed only five of the seven files — themed charters
+        under two un-renamed tier filenames, two agents that do not load —
+        reported "already on the 'philosophers' theme — nothing to do." The
+        obvious remedy, re-running the fixed script, claimed success and
+        repaired nothing.
+
+        The corruption is reproduced the way it actually happened rather than
+        hand-written: switch cleanly, then undo the tier *file* renames, leaving
+        their content themed. The oracle is each file's own `name:` against its
+        own filename — no roster constant takes part, so this can fail while
+        every constant in the repo agrees with itself.
+        """
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.other), 0)
+        healthy = _tree_snapshot(self.agents_dir)
+
+        for name in _crew_common.TIERED_AGENTS:
+            on_disk = self.agents_dir / f"{_crew_common.themed_name(name, self.other)}.md"
+            on_disk.rename(self.agents_dir / f"{_crew_common.themed_name(name, self.start)}.md")
+
+        self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.other,
+                         "precondition: detect_theme must still report the target theme")
+        self.assertTrue(apply_theme.desynced_agents(self.agents_dir),
+                        "precondition: the reproduced tree must actually be desynced")
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = apply_theme.apply_theme(self.agents_dir, self.other)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("nothing to do", out.getvalue(),
+                         "a desynced tree must not be reported as already themed")
+        self.assertEqual(apply_theme.desynced_agents(self.agents_dir), [])
+        self._assert_names_match_filenames("after repairing a desynced tree")
+        self.assertEqual(_tree_snapshot(self.agents_dir), healthy,
+                         "the repair must land on the same tree a clean switch produces")
+
+        # ...and the repair converges: the next run is a clean no-op again.
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.other), 0)
+        self.assertIn(f"already on the '{self.other}' theme", out.getvalue())
+        self.assertEqual(_tree_snapshot(self.agents_dir), healthy)
+
+    def test_a_rename_conflict_aborts_with_the_tree_untouched(self):
+        """A destination that already exists must abort *before* anything is written.
+
+        The rename loop guarded `src.exists()` and never `dst.exists()`.
+        `Path.rename` raises FileExistsError on Windows and silently clobbers a
+        user's own file on POSIX — and because step 1 rewrites every charter
+        before step 2 renames anything, an exception raised mid-loop left the
+        whole tree rewritten and only some files renamed. That state is
+        self-perpetuating: `detect_theme` still reports the target theme, so
+        every later run re-crashes at the same file.
+
+        The assertion that matters is therefore not the exit code but
+        `_tree_snapshot` being byte-identical to before the call — "no partial
+        write", checked once per destination and in both dry-run and live mode,
+        since a dry run that pre-flights nothing reports a rename it cannot do.
+        """
+        original = _tree_snapshot(self.agents_dir)
+        renames = _expected_renames(self.other)
+        self.assertTrue(renames, "no renames — nothing asserted")
+
+        for _src, dst in renames:
+            stray = self.agents_dir / dst
+            for dry_run in (False, True):
+                with self.subTest(destination=dst, dry_run=dry_run):
+                    stray.write_bytes(b"# a file the user put here themselves\n")
+                    before = _tree_snapshot(self.agents_dir)
+
+                    with contextlib.redirect_stdout(io.StringIO()), \
+                            contextlib.redirect_stderr(io.StringIO()) as err:
+                        rc = apply_theme.apply_theme(self.agents_dir, self.other,
+                                                     dry_run=dry_run)
+
+                    self.assertEqual(rc, 2, f"{dst} already exists — the run must refuse")
+                    self.assertIn(dst, err.getvalue(),
+                                  "the conflicting destination must be named on stderr")
+                    self.assertEqual(
+                        _tree_snapshot(self.agents_dir), before,
+                        f"{dst}: the tree must be byte-identical after a refused run — "
+                        "a partial write leaves charters rewritten and files half-renamed",
+                    )
+            stray.unlink()
+            self.assertEqual(_tree_snapshot(self.agents_dir), original)
 
     def test_reapplying_the_current_theme_is_a_noop(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
