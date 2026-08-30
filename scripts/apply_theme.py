@@ -24,9 +24,14 @@ Idempotent: a no-op if the crew is already on the requested theme *and* the tree
 is consistent. If a charter's ``name:`` frontmatter disagrees with its filename
 — the state an older build of this script left behind, in which such an agent
 does not load at all — re-running converges the tree instead of reporting
-success. The rename is word-boundary and case-aware, so it updates
-``critic``/``Critic`` but preserves the word "Socratic" (the critic's method)
-when reverting.
+success — and the convergence is verified afterwards, so a desync the theme
+machinery cannot express (a hand-edited ``name:``) exits 2 naming the residue
+rather than reporting a repair that did not happen. The rename is word-boundary
+and case-aware, so it updates ``critic``/``Critic`` but preserves the word
+"Socratic" (the critic's method) when reverting.
+
+A tree carrying representatives of *both* themes at once is not classified by
+branch order; it exits 2 naming the collision.
 
 All-or-nothing: every rename destination is checked before anything is written,
 so a name already taken by another file exits 2 with the tree untouched rather
@@ -52,6 +57,28 @@ from _crew_common import PAIRS, THEMES, renamed_agents  # noqa: E402
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
+# The file whose presence is taken as evidence that the tree is on a theme.
+#
+# One file per theme, not the whole roster: this is a *classifier*, and
+# ``desynced_agents`` is the consistency oracle. Kept as data rather than two
+# ``if`` branches so the check can be order-independent — see ``detect_theme``.
+THEME_REPRESENTATIVES = {
+    "functional": "planner.md",
+    "philosophers": "plato.md",
+}
+
+
+def theme_representatives(agents_dir: Path) -> dict[str, str]:
+    """{theme: representative filename} for every theme with evidence on disk.
+
+    Normally one entry. Zero means the crew is not here at all; **two** means the
+    tree carries representatives of both themes at once, which is not a theme to
+    detect but a broken tree to report — see ``detect_theme``.
+    """
+    return {theme: name for theme, name in THEME_REPRESENTATIVES.items()
+            if (agents_dir / name).exists()}
+
+
 def detect_theme(agents_dir: Path) -> str | None:
     """Which theme is currently on disk (by a representative agent file)?
 
@@ -60,11 +87,24 @@ def detect_theme(agents_dir: Path) -> str | None:
     older build of this script still answers "philosophers" here — see
     ``desynced_agents``, which is what the no-op path must consult before
     believing this.
+
+    Returns None when the evidence does not single one theme out — both when
+    *neither* representative exists and when *both* do. The second case used to
+    answer "philosophers", not because the tree was philosophical but because
+    that branch was written first: a classification decided by source order
+    rather than by evidence. A tree holding both ``planner.md`` and ``plato.md``
+    has no answer to give, and saying so is what lets ``apply_theme`` refuse it
+    instead of guessing. Callers that need to tell the two None cases apart
+    consult ``theme_representatives``.
+
+    Note this is *not* the partially-renamed state the repair path converges.
+    That tree has exactly one representative — the earlier run renamed the file,
+    it did not duplicate it — so it still classifies, and ``desynced_agents``
+    picks up the stragglers from there.
     """
-    if (agents_dir / "plato.md").exists():
-        return "philosophers"
-    if (agents_dir / "planner.md").exists():
-        return "functional"
+    found = theme_representatives(agents_dir)
+    if len(found) == 1:
+        return next(iter(found))
     return None
 
 
@@ -147,6 +187,22 @@ def _transform(text: str, mappings: list[tuple[str, str]]) -> str:
 def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
     if target not in THEMES:
         print(f"error: unknown theme {target!r} (expected one of {THEMES})", file=sys.stderr)
+        return 2
+    # Refuse an ambiguous tree before refusing an unrecognisable one: both are
+    # `detect_theme is None`, but they are different faults and only one of them
+    # names files. A tree carrying representatives of *both* themes cannot be
+    # classified from evidence, and picking a winner would only be picking a
+    # branch order. The rename-conflict guard below already keeps that from
+    # being destructive; this keeps it from being silent.
+    present = theme_representatives(agents_dir)
+    if len(present) > 1:
+        print(f"error: {agents_dir} carries representatives of {len(present)} themes at "
+              "once — the tree cannot be classified:", file=sys.stderr)
+        for theme, name in sorted(present.items()):
+            print(f"  ! {name} ({theme})", file=sys.stderr)
+        print("no files were changed. This is a half-renamed or hand-mixed tree — remove "
+              "or rename the stray file(s) so exactly one theme is represented, and "
+              "re-run.", file=sys.stderr)
         return 2
     current = detect_theme(agents_dir)
     if current is None:
@@ -246,6 +302,28 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
             print(f"  renamed {src.name} -> {dst.name}")
 
     if repairing:
+        # Re-ask the oracle. The pass converges the stragglers an *older build of
+        # this script* left behind, and nothing more: a desync it cannot express
+        # as a rename or a word rewrite — a hand-edited `name: sccout` in
+        # scout.md, a name belonging to no roster — survives it untouched.
+        # Announcing "converged" and exiting 0 over that residue is worse than
+        # the original no-op bug, because the operator now believes a repair
+        # happened. So the claim is checked before it is made.
+        #
+        # Only after a real pass: in dry-run mode nothing was written, so every
+        # desync is trivially still present and a re-check could only report a
+        # failure the run never attempted.
+        residue = [] if dry_run else desynced_agents(agents_dir)
+        if residue:
+            print(f"\nerror: the pass ran, but {len(residue)} file(s) still declare a "
+                  "`name:` that disagrees with their filename:", file=sys.stderr)
+            for name, declared in residue:
+                print(f"  ! {name} declares `name: {declared}` — does not load",
+                      file=sys.stderr)
+            print("the theme machinery cannot converge these — re-running will not help. "
+                  "Edit the frontmatter (or the filename) by hand so the two agree.",
+                  file=sys.stderr)
+            return 2
         verb = "would converge" if dry_run else "converged"
         print(f"\n{verb} crew onto the '{target}' theme "
               f"({changed} file(s) had refs updated).")

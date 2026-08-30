@@ -227,6 +227,100 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
         self.assertIn(f"already on the '{self.other}' theme", out.getvalue())
         self.assertEqual(_tree_snapshot(self.agents_dir), healthy)
 
+    def test_a_desync_the_theme_cannot_fix_is_reported_and_fails(self):
+        """A repair pass must verify it repaired something before claiming it did.
+
+        The convergence path above fixes the stragglers an older build left
+        behind. It cannot fix a desync that is not a rename or a word rewrite —
+        a hand-edited `name:`, a name in no roster. Such a file is correctly
+        *detected* (the run stops calling itself a no-op and lists it), the pass
+        does nothing to it, and the run used to print "converged" and exit 0
+        anyway. That is a worse failure than the no-op it replaced: the operator
+        is now told the tree was repaired.
+
+        The subject is deliberately a THEME_INVARIANT agent, so no rename rule
+        and no word mapping in the script can touch it — the residue is
+        unfixable by construction, not by a fixture's choice of name.
+        """
+        victim = self.agents_dir / "scout.md"
+        self.assertTrue(victim.exists(), "precondition: scout.md must be in the crew")
+        victim.write_text(
+            victim.read_text(encoding="utf-8", newline="").replace(
+                "name: scout", "name: sccout", 1),
+            encoding="utf-8", newline="")
+        self.assertEqual(apply_theme.desynced_agents(self.agents_dir),
+                         [("scout.md", "sccout")],
+                         "precondition: exactly one unfixable desync")
+        self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.start,
+                         "precondition: the tree is still on its own theme")
+        before = victim.read_bytes()
+
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = apply_theme.apply_theme(self.agents_dir, self.start)
+
+        self.assertNotEqual(rc, 0, "an unrepaired desync must not exit 0")
+        self.assertIn("scout.md", err.getvalue(),
+                      "the file that could not be converged must be named")
+        self.assertIn("sccout", err.getvalue(),
+                      "the name that could not be converged must be named")
+        self.assertNotIn("converged crew", out.getvalue(),
+                         "the run must not claim a convergence it did not achieve")
+        # The pass is allowed to run — it just may not lie about the outcome.
+        # Nothing in the machinery addresses this file, so it is still desynced.
+        self.assertEqual(victim.read_bytes(), before)
+        self.assertEqual(apply_theme.desynced_agents(self.agents_dir),
+                         [("scout.md", "sccout")])
+
+    def test_a_tree_carrying_both_themes_is_refused_not_guessed(self):
+        """Representatives of both themes present is a broken tree, not a theme.
+
+        `detect_theme` tested `plato.md` before `planner.md`, so a tree holding
+        both was classified "philosophers" by *source order* — the answer would
+        have flipped had the two branches been written the other way round. The
+        rename-conflict guard means this can no longer clobber anything, so what
+        is at stake is the claim, not the data: the run must say it cannot tell
+        rather than pick a branch.
+
+        Asserted in both directions and in dry-run as well as live, and the
+        oracle for "did not guess" is the snapshot being byte-identical — a run
+        that guessed would have rewritten every charter before reaching the
+        rename loop.
+        """
+        stray = self.agents_dir / apply_theme.THEME_REPRESENTATIVES[self.other]
+        self.assertFalse(stray.exists(), "precondition: the other theme is not on disk")
+        stray.write_bytes(b"# a file the user put here themselves\n")
+        before = _tree_snapshot(self.agents_dir)
+
+        self.assertIsNone(apply_theme.detect_theme(self.agents_dir),
+                          "a tree carrying both themes must not classify as either")
+
+        for target in apply_theme.THEMES:
+            for dry_run in (False, True):
+                with self.subTest(target=target, dry_run=dry_run):
+                    with contextlib.redirect_stdout(io.StringIO()), \
+                            contextlib.redirect_stderr(io.StringIO()) as err:
+                        rc = apply_theme.apply_theme(self.agents_dir, target,
+                                                     dry_run=dry_run)
+                    self.assertEqual(rc, 2, "an ambiguous tree must be refused")
+                    # Naming the files is not enough on its own: the "could not
+                    # detect the crew (neither planner.md nor plato.md found)"
+                    # branch names both too, and is exactly the wrong diagnosis
+                    # for a tree that has both. So the report must attribute
+                    # each file to the theme it evidences, and must not claim
+                    # the crew is missing.
+                    for theme, name in apply_theme.THEME_REPRESENTATIVES.items():
+                        self.assertIn(f"{name} ({theme})", err.getvalue(),
+                                      "each colliding representative must be named "
+                                      "with the theme it evidences")
+                    self.assertNotIn("neither", err.getvalue(),
+                                     "both representatives are present — reporting the "
+                                     "tree as unrecognisable is a misdiagnosis")
+                    self.assertEqual(
+                        _tree_snapshot(self.agents_dir), before,
+                        "the tree must be byte-identical after a refused run",
+                    )
+
     def test_a_rename_conflict_aborts_with_the_tree_untouched(self):
         """A destination that already exists must abort *before* anything is written.
 

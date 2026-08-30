@@ -32,6 +32,22 @@ the `agent-evaluation`, `prompt-testing-plan`, and `prompt-evaluation-harness`
 skills help. See `docs/specs/` for worked example design specs (the brainstorm →
 spec format).
 
+## Running the tests
+
+```
+PYTHONPATH=scripts python -m unittest discover -s tests
+```
+
+That is the canonical command, and what CI runs. Python 3.13 is the floor
+(`requires-python = ">=3.13"`).
+
+If a local `pytest` wrapper reports `Path.read_text() got an unexpected keyword
+argument 'newline'`, it is invoking an out-of-contract interpreter — `newline=`
+is valid on `read_text` from 3.13 onward. That is a stale interpreter, not a real
+failure, and it is **not** a reason to delete the `newline=""` arguments in
+`scripts/apply_theme.py`: they are the fix that stops a rewritten charter coming
+back as CRLF against a `.gitattributes` that pins `eol=lf`.
+
 ## What goes on the roadmap
 
 `ROADMAP.md` lists **planned features** — capabilities the project intends to
