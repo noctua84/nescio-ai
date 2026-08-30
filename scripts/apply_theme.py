@@ -4,19 +4,26 @@
 The default agent names are functional (planner / advisor / reviewer / critic
 / builder). This renames those agents to philosophers (and back) — the agent
 files, their ``name:`` frontmatter, and every cross-reference in the crew
-(charters + the orchestrator's ``subagent_type`` dispatches). The other agents
-(orchestrator, scout, validator, librarian, explore, vision) are already
-functional and are left untouched.
+(charters + the orchestrator's ``subagent_type`` dispatches). Seven files are
+renamed: the five word pairs plus the builder's two cost tiers
+(``builder-simple`` / ``builder-standard``). The remaining agents
+(orchestrator, scout, validator, librarian, explore, vision, test-writer,
+qa-guard, doc-researcher, doc-writer) are already functional and are left
+untouched.
 
     python scripts/apply_theme.py philosophers   # planner->plato, advisor->aristotle,
                                                   #  reviewer->pyrrho, critic->socrates,
                                                   #  builder->archimedes
+                                                  #  (+ builder-simple/-standard)
     python scripts/apply_theme.py functional      # revert to the default names
     python scripts/apply_theme.py --dry-run philosophers
 
 Idempotent: a no-op if the crew is already on the requested theme. The rename is
 word-boundary and case-aware, so it updates ``critic``/``Critic`` but preserves
 the word "Socratic" (the critic's method) when reverting.
+
+The roster itself lives in ``_crew_common``, not here — see that module's
+docstring. This script declares no roster facts of its own.
 """
 from __future__ import annotations
 
@@ -25,15 +32,11 @@ import re
 import sys
 from pathlib import Path
 
-# functional (default)  <->  philosopher
-PAIRS = [
-    ("planner", "plato"),
-    ("advisor", "aristotle"),
-    ("reviewer", "pyrrho"),
-    ("critic", "socrates"),
-    ("builder", "archimedes"),
-]
-THEMES = ("functional", "philosophers")
+# Works whether this file is run as a script, imported by the tests (which put
+# scripts/ on the path themselves), or collected under PYTHONPATH=scripts in CI.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _crew_common import PAIRS, THEMES, renamed_agents  # noqa: E402
 
 
 def detect_theme(agents_dir: Path) -> str | None:
@@ -75,8 +78,7 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
         return 0
 
     mappings = _mappings(target)
-    file_renames = ([(f, p) for f, p in PAIRS] if target == "philosophers"
-                    else [(p, f) for f, p in PAIRS])
+    file_renames = renamed_agents(target)
 
     # 1) rewrite cross-references in every agent charter (incl. orchestrator dispatch).
     #
@@ -96,7 +98,13 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
             else:
                 md.write_text(new, encoding="utf-8", newline="")
 
-    # 2) rename the four agent files.
+    # 2) rename the seven agent files (five pairs + the two builder tiers).
+    #
+    # The tiers must be renamed here as well as rewritten above: `-` is a
+    # non-word character, so the `\bbuilder\b` rule already rewrote
+    # `name: builder-simple` to `name: archimedes-simple`. Without the matching
+    # file rename the charter's name and its filename desync and the agent
+    # stops loading entirely.
     for frm, to in file_renames:
         src, dst = agents_dir / f"{frm}.md", agents_dir / f"{to}.md"
         if not src.exists():
