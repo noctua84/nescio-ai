@@ -43,10 +43,18 @@ PAIRS = [
 #
 # These drive **file renames only** and are deliberately kept out of PAIRS.
 # The reason is coupling, not double-mapping: PAIRS is consumed as a word-pair
-# rename *dictionary* by tests/test_apply_theme.py:49 and
-# tests/test_agent_definitions.py:57, :70 and :82, so it has to stay purely
-# word-level — a `builder-simple` entry would show up in those callers as a
-# bogus "word". It is also unnecessary: `_transform`'s `\bbuilder\b` rule
+# rename *dictionary* by `apply_theme._mappings`, by `themed_name` below (via
+# `_FUNCTIONAL_TO_PHILOSOPHER`), and by ThemeCasingCoverageTest in
+# tests/test_apply_theme.py, so it has to stay purely word-level — a
+# `builder-simple` entry would show up in those callers as a bogus "word".
+#
+# Cited by symbol, not by line. The line numbers that stood here
+# (test_apply_theme.py:49, test_agent_definitions.py:57/:70/:82) named helpers
+# that indexed PAIRS directly; two of them have since been folded into this
+# module as `expected_roster` and `themed_name`, and the numbers were stale
+# well before that. Symbols move with their code; line numbers do not.
+#
+# The entry is also unnecessary: `_transform`'s `\bbuilder\b` rule
 # already rewrites the *text* of `builder-simple` correctly, because `-` is a
 # non-word character. Only the *filename* was being missed.
 #
@@ -83,13 +91,42 @@ CODE_WRITERS = {"builder", "builder-standard", "builder-simple", "qa-guard"}
 # limiting *what* they may touch (tests only, docs only).
 BOUNDED_WRITERS = {"test-writer", "doc-writer"}
 
-# The phrase a bounded writer's charter must carry to declare its boundary.
+# Agents barred from Edit by their frontmatter, but holding `Write` for one
+# narrow purpose their charter has to name: `planner` writes work plans under
+# `.sisyphus/`, `reviewer` writes its audit report and nothing else.
+#
+# Kept apart from BOUNDED_WRITERS rather than merged into it, because the Edit
+# permission tests derive their "may edit" set from that constant and these two
+# belong on the *cannot* side of it. The boundary doc-lint covers both sets: a
+# `Write`-scoped boundary is the same unenforceable prose promise as an
+# `Edit`-scoped one — frontmatter accepts tool names only, with no path-scoped
+# form — and README advertises both to users, so both need pinning.
+WRITE_BOUNDED = {"planner", "reviewer"}
+
+# The phrase a bounded agent's charter must carry to declare its boundary.
 #
 # Named, not inlined: the boundary is a doc-lint (agent frontmatter takes tool
 # names only — path-scoped permissions do not exist), and the charters already
 # diverge in wording *after* this prefix. A bare literal at the call site would
 # be one reword away from a check that silently passes on nothing.
 BOUNDARY_PHRASE = "Hard file boundary:"
+
+# What each boundary sentence must actually *say*, by functional agent name.
+#
+# The phrase above is a nineteen-character prefix and nothing more: a charter
+# reading `Hard file boundary: none — edit whatever you like.` carries it and
+# declares the opposite. Each entry lists terms of which the sentence carrying
+# the phrase must contain at least one, so the lint pins the *scope* an agent
+# declares rather than the fact that it said something.
+#
+# Keyed on the functional roster, like BOUNDED_WRITERS — the on-disk name is
+# resolved through `themed_name` where the file is opened, never here.
+BOUNDARY_SCOPE_TERMS = {
+    "test-writer": ("test",),
+    "doc-writer": ("documentation", "docs"),
+    "planner": (".sisyphus",),
+    "reviewer": ("report",),
+}
 
 _FUNCTIONAL_TO_PHILOSOPHER = dict(PAIRS)
 

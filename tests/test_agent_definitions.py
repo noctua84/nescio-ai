@@ -22,9 +22,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import apply_theme  # noqa: E402
 from _crew_common import (  # noqa: E402
     BOUNDARY_PHRASE,
+    BOUNDARY_SCOPE_TERMS,
     BOUNDED_WRITERS,
     CODE_WRITERS,
     TIERED_AGENTS,
+    WRITE_BOUNDED,
     expected_roster,
     themed_name,
 )
@@ -48,6 +50,15 @@ FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # these both inline (`Agent(subagent_type: "explore", ...)`) and on their own
 # line inside a multi-line block, and both forms are real dispatches.
 DISPATCH_RE = re.compile(r'subagent_type: "([^"]*)"')
+
+# End of the sentence carrying `BOUNDARY_PHRASE`: sentence-final punctuation,
+# optionally through trailing markup (`**`, backticks, brackets), followed by
+# whitespace or the end of the segment.
+#
+# The lookahead is the load-bearing part. A plain split on "." cuts the
+# planner's boundary in half at `.sisyphus/` — the one path its boundary exists
+# to name — and would hide the very term this lint reads the sentence for.
+BOUNDARY_SENTENCE_END_RE = re.compile(r"""[.!?][*`"')\]]*(?=\s|$)""")
 
 
 def _agent_files(agents_dir=AGENTS_DIR):
@@ -116,16 +127,41 @@ def _dispatch_targets(text):
     ]
 
 
+def _boundary_sentence(body):
+    """The sentence in `body` that declares the file boundary, or None.
+
+    Runs from `BOUNDARY_PHRASE` to the first sentence-final punctuation, and no
+    further than the end of the paragraph the phrase sits in. Charters wrap
+    their prose, so the sentence routinely spans newlines; a blank line is the
+    hard stop, because without one a boundary sentence reading "none" would
+    borrow a scope term from whatever paragraph follows it and pass.
+    """
+    start = body.find(BOUNDARY_PHRASE)
+    if start == -1:
+        return None
+    end = body.find("\n\n", start)
+    segment = body[start:] if end == -1 else body[start:end]
+    terminator = BOUNDARY_SENTENCE_END_RE.search(segment)
+    return segment if terminator is None else segment[: terminator.end()]
+
+
 def _may_not_edit(fields):
     """Is this agent barred from editing production code by its frontmatter?
 
     Either it names Edit in `disallowedTools`, or it restricts itself with a
-    read-only `tools` allowlist (as `vision` does).
+    `tools` allowlist that does not include Edit (as `vision` does).
+
+    `Edit` alone decides this, in both branches. An earlier form read a `tools`
+    allowlist as read-only only when it named neither Edit *nor* Write, so
+    `tools: Read, Write` — an agent that demonstrably cannot Edit — came back
+    "may edit". That was inert while no charter had the shape, but
+    `test_only_declared_writers_can_edit` now asserts this predicate is False
+    for every declared writer, which turns the wrong answer into a Write-only
+    agent passing as one licensed to edit production code.
     """
     disallowed = _tool_tokens(fields.get("disallowedTools", ""))
     tools = _tool_tokens(fields.get("tools", ""))
-    read_only_allowlist = bool(tools) and not (tools & {"Edit", "Write"})
-    return "Edit" in disallowed or read_only_allowlist
+    return "Edit" in disallowed or (bool(tools) and "Edit" not in tools)
 
 
 class TestFrontmatterMixin:
@@ -265,9 +301,22 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         boundary`), never to the constant itself — so a literal is correct here
         under either theme.
 
+        WRITE_BOUNDED is pinned here for the same reason and not counted with
+        the others: those two hold `Write` but not `Edit`, so they are outside
+        the writer union above entirely. What pinning buys is the doc-lint —
+        `test_bounded_writers_declare_their_boundary` checks exactly the names
+        in these sets, so quietly dropping one stops the check rather than
+        failing it.
+
         Same contract as the count: a red is not an invitation to update the
         literal. It means someone changed what an agent is permitted to touch.
         """
+        self.assertEqual(
+            WRITE_BOUNDED, {"planner", "reviewer"},
+            "an agent gained or lost a Write-scoped boundary — its charter sentence "
+            "is the only thing pinning what it may write, and this set is what "
+            "decides whether that sentence is checked at all",
+        )
         self.assertEqual(
             BOUNDED_WRITERS, {"test-writer", "doc-writer"},
             "a writer moved across the tests-only/docs-only boundary — the union count "
@@ -283,7 +332,7 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         )
 
     def test_bounded_writers_declare_their_boundary(self):
-        """Each bounded writer's charter body states its file boundary.
+        """Each bounded agent's charter body states its file boundary, and says what it is.
 
         This is a **doc-lint, not enforcement**. Agent frontmatter accepts tool
         *names* only — `tools`/`disallowedTools` have no path-scoped form, so
@@ -297,21 +346,73 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         it. The spec puts enforcement in the prompt
         (docs/specs/2026-08-24-team-workflow-patterns.md:66).
 
-        Deliberately out of scope: the `Write`-boundary agents. `planner`
-        (read-only except `.sisyphus/`) and `reviewer` (writes only its report
-        file) have real boundaries of the same kind, unchecked here because
-        this invariant is Edit-centric. That gap is acknowledged, not hidden.
+        **Both kinds of bounded agent.** BOUNDED_WRITERS may Edit within a
+        boundary (tests only, docs only); WRITE_BOUNDED cannot Edit at all but
+        keeps `Write` for one purpose — `planner` for `.sisyphus/` markdown,
+        `reviewer` for its own report file. The two boundaries are equally
+        unenforceable and equally advertised in README, so an Edit-centric lint
+        covering only the first set left the other two on prose alone.
+
+        **The phrase is necessary, not sufficient.** A body reading
+        `Hard file boundary: none — edit whatever you like.` carries the phrase
+        and revokes the boundary, which is what a bare prefix match certified as
+        compliant. So the sentence carrying the phrase must also name the scope
+        this agent is bounded to (BOUNDARY_SCOPE_TERMS).
         """
-        self.assertTrue(BOUNDED_WRITERS, "no bounded writers — nothing asserted")
-        for name in BOUNDED_WRITERS:
+        bounded = BOUNDED_WRITERS | WRITE_BOUNDED
+        self.assertTrue(bounded, "no bounded agents — nothing asserted")
+        self.assertEqual(
+            set(BOUNDARY_SCOPE_TERMS), bounded,
+            "a bounded agent with no declared scope term is checked for the phrase "
+            "and nothing else; a term with no bounded agent pins nothing at all",
+        )
+        for name in sorted(bounded):
             path = AGENTS_DIR / f"{_themed(name)}.md"
             with self.subTest(agent=path.stem):
                 text = path.read_text(encoding="utf-8")
                 body = FRONTMATTER_RE.sub("", text, count=1)
-                self.assertIn(
-                    BOUNDARY_PHRASE, body,
+                sentence = _boundary_sentence(body)
+                self.assertIsNotNone(
+                    sentence,
                     f"{path.stem}: boundary declared only in routing metadata",
                 )
+                terms = BOUNDARY_SCOPE_TERMS[name]
+                self.assertTrue(
+                    any(term.lower() in sentence.lower() for term in terms),
+                    f"{path.stem}: the boundary sentence names no scope — expected one "
+                    f"of {list(terms)} in {sentence!r}",
+                )
+
+    def test_a_revoked_boundary_does_not_satisfy_the_lint(self):
+        """Regression: `Hard file boundary: none` carries the phrase and means the opposite.
+
+        The check the auditor broke was a prefix match on the whole body, so
+        this sentence passed it. Reading the sentence is what makes the lint
+        bite: there is nowhere in it for a scope term to hide.
+        """
+        revoked = "**Hard file boundary: none — edit whatever you like.**\n"
+        self.assertNotIn("test", _boundary_sentence(revoked).lower())
+        declared = (
+            "**Hard file boundary: you may write only inside the project's\n"
+            "test directories.**\n"
+        )
+        self.assertIn("test", _boundary_sentence(declared).lower())
+
+    def test_the_boundary_sentence_ends_at_the_sentence_not_the_first_dot(self):
+        """`.sisyphus/` is a path, not a full stop — the planner's scope sits past it.
+
+        And a boundary sentence must not reach into the next paragraph for a
+        scope term it does not contain itself.
+        """
+        planner = "**Hard file boundary: you may write only markdown under `.sisyphus/`.**\n"
+        self.assertIn(".sisyphus", _boundary_sentence(planner))
+
+        borrowed = "**Hard file boundary: none.**\n\nYou write only `.sisyphus/` markdown.\n"
+        self.assertNotIn(".sisyphus", _boundary_sentence(borrowed))
+
+    def test_no_boundary_phrase_reads_as_no_boundary(self):
+        """A body without the phrase yields None, not a sentence to search."""
+        self.assertIsNone(_boundary_sentence("You may write only tests.\n"))
 
     def test_notebook_edit_alone_does_not_bar_editing(self):
         """Regression: `Edit` in `NotebookEdit` is True — tokens, not substrings."""
@@ -320,10 +421,23 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         self.assertTrue(_may_not_edit({"disallowedTools": "Write, Edit"}))
 
     def test_read_only_allowlist_containing_notebook_edit_is_accepted(self):
-        """Regression: a read-only `tools` allowlist must not trip on `NotebookEdit`."""
+        """Regression: a `tools` allowlist must not trip on `NotebookEdit`.
+
+        The `Read, Write` expectation was flipped deliberately. It asserted
+        False ("may edit") because the predicate counted Write as evidence of
+        Edit capability, which does not follow: an allowlist naming Write and
+        not Edit grants Write and not Edit. `_may_not_edit` now tests Edit
+        alone, so the answer is True.
+
+        Not a cosmetic flip. `test_only_declared_writers_can_edit` asserts this
+        predicate is False for every declared writer, so under the old answer an
+        agent allowlisted `Read, Write` would have satisfied the positive
+        assertion for a code writer without being able to edit anything.
+        """
         self.assertTrue(_may_not_edit({"tools": "Read, NotebookEdit"}))
         self.assertFalse(_may_not_edit({"tools": "Read, Edit"}))
-        self.assertFalse(_may_not_edit({"tools": "Read, Write"}))
+        self.assertTrue(_may_not_edit({"tools": "Read, Write"}))
+        self.assertFalse(_may_not_edit({"tools": "Read, Write, Edit"}))
 
 
 class TestOrchestratorWiring(unittest.TestCase):
