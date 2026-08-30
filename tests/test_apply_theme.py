@@ -16,6 +16,7 @@ byte-for-byte restore — only the direction is now read off the tree.
 
 import contextlib
 import io
+import re
 import sys
 import tempfile
 import unittest
@@ -27,6 +28,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import apply_theme  # noqa: E402
 
 AGENTS_DIR = ROOT / "agents"
+
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def _tree_snapshot(agents_dir: Path) -> dict[str, bytes]:
@@ -48,6 +51,22 @@ def _expected_renames(target: str) -> list[tuple[str, str]]:
     if target == "philosophers":
         return [(f"{f}.md", f"{p}.md") for f, p in apply_theme.PAIRS]
     return [(f"{p}.md", f"{f}.md") for f, p in apply_theme.PAIRS]
+
+
+def _frontmatter_name(path: Path) -> str | None:
+    """The `name:` value declared in an agent charter's YAML frontmatter.
+
+    Returns None when the file has no frontmatter block or no `name:` key —
+    both of which are failures at the call site, not conditions to skip.
+    """
+    block = FRONTMATTER_RE.match(path.read_text(encoding="utf-8"))
+    if block is None:
+        return None
+    for line in block.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() == "name":
+            return value.strip()
+    return None
 
 
 class ApplyThemeRoundTripTest(unittest.TestCase):
@@ -110,6 +129,51 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
             self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.start), 0)
         self.assertEqual(_tree_snapshot(self.agents_dir), crlf)
 
+    def _assert_names_match_filenames(self, when: str):
+        """Every charter in the tree declares the name its filename promises."""
+        agents = sorted(self.agents_dir.glob("*.md"))
+        self.assertTrue(agents, f"{when}: no agent files found — nothing asserted")
+        for path in agents:
+            with self.subTest(when=when, agent=path.name):
+                declared = _frontmatter_name(path)
+                self.assertEqual(
+                    declared, path.stem,
+                    f"{when}: {path.name} declares `name: {declared}` — a charter whose "
+                    "name and filename disagree does not load at all",
+                )
+
+    def test_theme_never_desyncs_name_from_filename(self):
+        """A themed charter's `name:` must equal its filename stem, both directions.
+
+        Regression test for the builder-tier corruption. `_transform` rewrites
+        on ``\\bbuilder\\b`` and ``-`` is a non-word character, so it happily
+        rewrote ``name: builder-simple`` to ``name: archimedes-simple`` — while
+        the file-rename list knew only ``builder.md``. The theme therefore
+        produced ``builder-simple.md`` declaring itself ``archimedes-simple``,
+        and that agent silently stops loading.
+
+        The round-trip test above is structurally blind to this. The corruption
+        was *symmetric*: the reverse leg mangled the file back exactly as it had
+        mangled it out, so the tree restored byte-for-byte and the assertion
+        passed over a broken intermediate state. Any property checked only as
+        "start == end" cannot see damage that both legs share.
+
+        So the oracle here is deliberately local: each file's own content
+        against its own name. No roster constant takes part, which is the point
+        — the roster tests derive both sides from ``_crew_common`` and can only
+        prove the script is self-consistent. This one can fail while every
+        constant in the repo agrees with itself.
+        """
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.other), 0)
+        self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.other)
+        self._assert_names_match_filenames(f"after switching to '{self.other}'")
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(apply_theme.apply_theme(self.agents_dir, self.start), 0)
+        self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.start)
+        self._assert_names_match_filenames(f"after reverting to '{self.start}'")
+
     def test_reapplying_the_current_theme_is_a_noop(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             rc = apply_theme.apply_theme(self.agents_dir, self.start)
@@ -127,6 +191,41 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
         # nothing on disk actually changed
         self.assertEqual(apply_theme.detect_theme(self.agents_dir), self.start)
         self.assertEqual(_tree_snapshot(self.agents_dir), self.original)
+
+
+class ThemeMappingSafetyTest(unittest.TestCase):
+    """Properties of the rename table itself, independent of any agent file."""
+
+    def test_no_mapping_replacement_is_another_mappings_search_term(self):
+        """No rename may feed another rename.
+
+        `_transform` applies its rules sequentially with `re.sub` over the whole
+        text, so if one mapping's replacement is another mapping's search term
+        the second rule rewrites the first rule's output and a name lands two
+        hops from where it started — in a single pass, invisibly. Nothing in
+        `_mappings` prevents that; today's pairs merely happen to be disjoint.
+
+        `apply_theme`'s module docstring already advertises the neighbouring
+        hazard — the word "Socratic" must survive a `critic` revert — with no
+        test standing behind it. This closes that class going forward: it is the
+        guard that fires on the *next* name added to `PAIRS`, not on the ones
+        already vetted.
+
+        Asserted over all pairs rather than only over rules emitted later, so
+        the guarantee does not quietly depend on the order `_mappings` returns.
+        """
+        for theme in apply_theme.THEMES:
+            mappings = apply_theme._mappings(theme)
+            self.assertTrue(mappings, f"{theme}: no mappings — nothing asserted")
+            search_terms = {frm for frm, _ in mappings}
+            for frm, to in mappings:
+                with self.subTest(theme=theme, mapping=f"{frm} -> {to}"):
+                    self.assertNotIn(
+                        to, search_terms - {frm},
+                        f"{theme}: '{frm}' -> '{to}', but '{to}' is itself a search term "
+                        "of another mapping — sequential re.sub would chain the two "
+                        "renames and carry the name past its target",
+                    )
 
 
 if __name__ == "__main__":
