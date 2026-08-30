@@ -20,6 +20,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import apply_theme  # noqa: E402
+from _crew_common import (  # noqa: E402
+    BOUNDED_WRITERS,
+    CODE_WRITERS,
+    TIERED_AGENTS,
+    expected_roster,
+    themed_name,
+)
 
 AGENTS_DIR = ROOT / "agents"
 
@@ -32,30 +39,28 @@ ALLOWED_MODELS = {
     "claude-haiku-4-5",
 }
 
-# Agents whose names are the same under every theme. The remaining five are
-# renamed by `scripts/apply_theme.py` (planner->plato, advisor->aristotle,
-# reviewer->pyrrho, critic->socrates, builder->archimedes), so the roster is
-# derived from the theme actually on disk rather than hardcoded.
-THEME_INVARIANT_ROSTER = {
-    "explore",
-    "librarian",
-    "orchestrator",
-    "scout",
-    "validator",
-    "vision",
-}
-
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+# A dispatch declaration in the orchestrator charter. The value may name
+# several agents separated by `|` (the builder cost tiers do), so it is parsed
+# rather than substring-matched. Deliberately unanchored: the charter writes
+# these both inline (`Agent(subagent_type: "explore", ...)`) and on their own
+# line inside a multi-line block, and both forms are real dispatches.
+DISPATCH_RE = re.compile(r'subagent_type: "([^"]*)"')
 
 
 def _agent_files(agents_dir=AGENTS_DIR):
     return sorted(agents_dir.glob("*.md"))
 
 
-def _expected_roster(theme):
-    """The agent filenames expected under `theme` ('functional'/'philosophers')."""
-    themed = {p if theme == "philosophers" else f for f, p in apply_theme.PAIRS}
-    return THEME_INVARIANT_ROSTER | themed
+def _current_theme(agents_dir=AGENTS_DIR):
+    """The theme on disk, normalised to a name `_crew_common` accepts.
+
+    `detect_theme` returns None for a tree it cannot classify; treating that as
+    'functional' preserves the behaviour these helpers had before they were
+    routed through `_crew_common`, which rejects an unknown theme outright.
+    """
+    return "philosophers" if apply_theme.detect_theme(agents_dir) == "philosophers" else "functional"
 
 
 def _themed(functional_name, agents_dir=AGENTS_DIR):
@@ -64,10 +69,13 @@ def _themed(functional_name, agents_dir=AGENTS_DIR):
     These tests ship to instances (``tests`` is in ``FRAMEWORK_PATHS``), and an
     instance may have run ``apply_theme.py``. Asserting the functional name
     there asserts this repo's own state rather than a property of the framework.
+
+    Delegates to `_crew_common.themed_name` rather than indexing `PAIRS`: the
+    tier variants (`builder-simple`, `builder-standard`) are not PAIRS keys, so
+    a `dict(PAIRS)[name]` lookup KeyErrors on exactly the names the write-policy
+    tests below map through here.
     """
-    if apply_theme.detect_theme(agents_dir) != "philosophers":
-        return functional_name
-    return dict(apply_theme.PAIRS)[functional_name]
+    return themed_name(functional_name, _current_theme(agents_dir))
 
 
 def _off_theme(functional_name, agents_dir=AGENTS_DIR):
@@ -79,7 +87,7 @@ def _off_theme(functional_name, agents_dir=AGENTS_DIR):
     themed = _themed(functional_name, agents_dir)
     if themed != functional_name:
         return functional_name
-    return dict(apply_theme.PAIRS)[functional_name]
+    return themed_name(functional_name, "philosophers")
 
 
 def _tool_tokens(value):
@@ -90,6 +98,21 @@ def _tool_tokens(value):
     Edit — the exact drift these tests exist to catch.
     """
     return {t.strip() for t in value.split(",") if t.strip()}
+
+
+def _dispatch_targets(text):
+    """Every `subagent_type:` value declared in a charter, split on `|`.
+
+    Returned as a list of sets because one declaration may offer a choice of
+    agents — the builder cost tiers share a single dispatch block. Comparing
+    parsed sets rather than raw substrings keeps `"builder"` from matching
+    inside `"builder-simple"`, the same token-vs-substring hazard `_tool_tokens`
+    exists for.
+    """
+    return [
+        {alternative.strip() for alternative in match.group(1).split("|")}
+        for match in DISPATCH_RE.finditer(text)
+    ]
 
 
 def _may_not_edit(fields):
@@ -122,7 +145,7 @@ class TestRoster(TestFrontmatterMixin, unittest.TestCase):
         theme = apply_theme.detect_theme(AGENTS_DIR)
         self.assertIsNotNone(theme, "could not detect the crew's theme in agents/")
         found = {path.stem for path in _agent_files()}
-        self.assertEqual(found, _expected_roster(theme))
+        self.assertEqual(found, expected_roster(theme))
 
     def test_roster_expectation_follows_the_philosophers_theme(self):
         """Applying the shipped theme must not break the roster assertion."""
@@ -134,7 +157,7 @@ class TestRoster(TestFrontmatterMixin, unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(apply_theme.detect_theme(themed_dir), "philosophers")
             found = {path.stem for path in _agent_files(themed_dir)}
-            self.assertEqual(found, _expected_roster("philosophers"))
+            self.assertEqual(found, expected_roster("philosophers"))
 
 
 class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
@@ -159,34 +182,65 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
 
 
 class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
-    def test_builder_is_the_only_editor(self):
-        """builder is the only agent permitted to edit production code.
+    def test_only_declared_writers_can_edit(self):
+        """The declared writers may Edit production code; nobody else may.
 
         Note this is about Edit, not Write. orchestrator, planner and reviewer
         deliberately retain Write so they can produce plans and audit reports —
         but none of them may Edit. vision restricts itself with a read-only
         ``tools`` allowlist instead of ``disallowedTools``.
 
-        The builder is renamed to ``archimedes`` on a themed instance, so the
-        agent that must keep Edit is resolved through the theme on disk.
+        Both directions are asserted with the same predicate, so an agent
+        cannot satisfy this test by being ambiguous: it is either in the
+        declared set and demonstrably able to Edit, or outside it and
+        demonstrably barred.
+
+        The writers are renamed on a themed instance (``builder`` becomes
+        ``archimedes``, and the tiers follow it), so every declared name is
+        resolved through the theme actually on disk.
         """
-        builder = _themed("builder")
-        self.assertIn(
-            builder, {path.stem for path in _agent_files()},
-            f"{builder}.md is missing — without it this test asserts nothing",
+        writers = {_themed(name) for name in CODE_WRITERS | BOUNDED_WRITERS}
+        found = {path.stem for path in _agent_files()}
+        self.assertEqual(
+            writers - found, set(),
+            "declared writers with no charter on disk — this test asserts "
+            "nothing about them, so either the file or the declaration is wrong",
         )
         for path in _agent_files():
             with self.subTest(agent=path.stem):
                 fields = self._frontmatter(path)
-                if path.stem == builder:
+                if path.stem in writers:
+                    self.assertFalse(
+                        _may_not_edit(fields),
+                        f"{path.stem}: declared a writer but its frontmatter bars Edit",
+                    )
                     disallowed = _tool_tokens(fields.get("disallowedTools", ""))
-                    self.assertNotIn("Edit", disallowed, f"{builder} must retain Edit access")
-                    self.assertNotIn("Write", disallowed, f"{builder} must retain Write access")
+                    self.assertNotIn(
+                        "Write", disallowed, f"{path.stem} must retain Write access"
+                    )
                 else:
                     self.assertTrue(
                         _may_not_edit(fields),
                         f"{path.stem}: must not be able to Edit production code",
                     )
+
+    def test_the_writer_set_is_pinned(self):
+        """Growing the set of agents that may write code costs a deliberate edit.
+
+        A red here does **not** mean "add the new name to the count". It means
+        a seventh agent has been given write access to production code, and
+        that is an architectural decision someone has to justify in the commit
+        message — the whole point of this assertion is to force that
+        conversation, which a self-updating registration set would silently
+        skip.
+
+        Six is not a magic number; it is the number of writers the crew was
+        last deliberately agreed to have.
+        """
+        self.assertEqual(
+            len(CODE_WRITERS | BOUNDED_WRITERS), 6,
+            "adding a writer is an architectural decision — say why in the commit message",
+        )
 
     def test_notebook_edit_alone_does_not_bar_editing(self):
         """Regression: `Edit` in `NotebookEdit` is True — tokens, not substrings."""
@@ -205,12 +259,31 @@ class TestOrchestratorWiring(unittest.TestCase):
     def _text(self):
         return (AGENTS_DIR / "orchestrator.md").read_text(encoding="utf-8")
 
-    def test_orchestrator_dispatches_builder_not_general_purpose(self):
-        text = self._text()
-        builder, off_theme = _themed("builder"), _off_theme("builder")
-        self.assertIn(f'subagent_type: "{builder}"', text)
-        self.assertNotIn(f'subagent_type: "{off_theme}"', text)
-        self.assertNotIn('subagent_type: "general-purpose"', text)
+    def test_orchestrator_dispatches_a_builder_tier_not_general_purpose(self):
+        """Implementation work is dispatched to a builder tier, never elsewhere.
+
+        The template used to name a single `builder`; it now offers the three
+        cost tiers on one alternation line, so a literal grep for
+        ``subagent_type: "builder"`` no longer sees it. Parsing the declared
+        values instead of substring-matching keeps the original point — no
+        implementation work goes to `general-purpose` — and additionally pins
+        that a tier cannot silently vanish from the menu, which would make the
+        planner's `simple`/`standard` classification undispatchable.
+        """
+        targets = _dispatch_targets(self._text())
+        tiers = {_themed(name) for name in ("builder",) + TIERED_AGENTS}
+        self.assertIn(
+            tiers, targets,
+            f"no dispatch block offers exactly the builder tiers {sorted(tiers)}",
+        )
+        off_theme = _off_theme("builder")
+        for value in targets:
+            self.assertNotIn(
+                "general-purpose", value, "implementation work must not go to general-purpose"
+            )
+            self.assertNotIn(
+                off_theme, value, f"{off_theme}: a half-applied theme left both names in the tree"
+            )
 
     def test_orchestrator_names_builder_as_the_code_writer(self):
         text = self._text()
