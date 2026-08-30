@@ -228,5 +228,57 @@ class ThemeMappingSafetyTest(unittest.TestCase):
                     )
 
 
+class ThemeCasingCoverageTest(unittest.TestCase):
+    """The rename table must cover every casing the real charters actually use."""
+
+    def test_no_agent_file_writes_a_mapped_term_in_an_uncovered_casing(self):
+        """Every `\\b<term>\\b` in `agents/` must be a casing `_mappings` rewrites.
+
+        Motivating finding: ``agents/planner.md`` shouts its role in two places
+        — ``**YOU ARE A PLANNER. YOU ARE NOT AN IMPLEMENTER...**`` (:12) and
+        ``You are a CONSULTANT first, PLANNER second`` (:24). ``_mappings``
+        emitted only ``planner`` and ``Planner``, so ``\\bPLANNER\\b`` had no
+        rule and applying the philosopher theme produced a ``plato.md`` still
+        calling itself a PLANNER — the functional name leaking into the
+        philosopher tree.
+
+        The round-trip test cannot see this, and stays green while it happens:
+        the leak is **symmetric**. A word neither leg rewrites is restored by
+        doing nothing to it, so "start == end" holds over a broken middle. Same
+        blindness class as the builder-tier corruption above.
+
+        The oracle is the *real* ``agents/`` tree, not a fixture, and the
+        covered set is read out of ``_mappings`` rather than restated here — so
+        this fails if a charter grows a new casing **or** if a casing rule is
+        removed from the script.
+
+        Known gap, deliberately not asserted: **intercaps** (``QA-guard``,
+        ``docWriter``). No term in ``PAIRS`` is spelled that way today, so
+        there is nothing to catch; it becomes live if a mixed-case agent name
+        is ever added to ``PAIRS``, and would need a variant rule of its own.
+        """
+        terms = {name for pair in apply_theme.PAIRS for name in pair}
+        covered = {frm for theme in apply_theme.THEMES
+                   for frm, _ in apply_theme._mappings(theme)}
+        self.assertTrue(covered, "no mappings — nothing asserted")
+
+        offenders = []
+        for md in sorted(AGENTS_DIR.glob("*.md")):
+            text = md.read_text(encoding="utf-8", newline="")
+            for term in sorted(terms):
+                for match in re.finditer(rf"\b{re.escape(term)}\b", text, re.IGNORECASE):
+                    found = match.group(0)
+                    if found not in covered:
+                        line = text.count("\n", 0, match.start()) + 1
+                        offenders.append(f"{md.name}:{line}: {found!r}")
+
+        self.assertEqual(
+            offenders, [],
+            "these agent files spell a themed name in a casing `_mappings` has no "
+            "rule for, so the theme would leave the name behind on rename:\n  "
+            + "\n  ".join(offenders),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

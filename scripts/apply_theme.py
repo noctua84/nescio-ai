@@ -49,12 +49,32 @@ def detect_theme(agents_dir: Path) -> str | None:
 
 
 def _mappings(target: str) -> list[tuple[str, str]]:
-    """(from, to) word pairs for the requested direction, both cases."""
+    """(from, to) word pairs for the requested direction, in every covered casing.
+
+    Three variants per pair, because charters write these names three ways and
+    a casing with no rule is a name that silently survives the rename:
+
+    * lowercase — ``subagent_type: planner``, ``name:`` frontmatter, prose.
+    * Capitalised — sentence-initial prose, headings ("The Planner").
+    * UPPERCASE — shouted directives. ``agents/planner.md`` carries two
+      ("**YOU ARE A PLANNER...**"), and without the ``.upper()`` rule the
+      philosopher tree shipped a ``plato.md`` still declaring itself a
+      PLANNER. That leak was invisible to the round-trip test because it is
+      symmetric: the reverse leg leaves the same word alone, so the tree
+      restores byte-for-byte over a broken intermediate state.
+
+    Still uncovered: **intercaps** — a term written ``QA-guard`` or ``docWriter``
+    matches no rule here. Harmless today, since no such spelling exists for any
+    term in ``PAIRS``; it becomes live the moment a mixed-case agent name (e.g.
+    ``qa-guard``) is mapped to a philosopher. ``ThemeCasingCoverageTest`` in
+    tests/test_apply_theme.py is the guard that will notice.
+    """
     base = [(f, p) for f, p in PAIRS] if target == "philosophers" else [(p, f) for f, p in PAIRS]
     out: list[tuple[str, str]] = []
     for a, b in base:
         out.append((a, b))
         out.append((a.capitalize(), b.capitalize()))
+        out.append((a.upper(), b.upper()))
     return out
 
 
