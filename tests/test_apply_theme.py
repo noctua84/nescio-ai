@@ -17,6 +17,7 @@ byte-for-byte restore — only the direction is now read off the tree.
 import contextlib
 import io
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -523,6 +524,202 @@ class ThemeCasingCoverageTest(unittest.TestCase):
             "rule for, so the theme would leave the name behind on rename:\n  "
             + "\n  ".join(offenders),
         )
+
+
+class ThemeReferenceBlastRadiusTest(unittest.TestCase):
+    """The theme rewrites words inside `agents/`; it renames nothing outside it."""
+
+    # Tokens containing at least one "/" — the shape a path reference takes in
+    # prose. Deliberately permissive; the two filters below decide what counts.
+    _PATH_TOKEN_RE = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
+
+    # Extensions that make a slash-token a path regardless of where it is
+    # rooted, so a reference to an unwritten file (or one under a directory
+    # that does not exist yet) is still scanned.
+    _SOURCE_SUFFIXES = (".py", ".md", ".json", ".sh", ".yml", ".yaml", ".ts", ".js", ".toml")
+
+    def _outside_agents_path_references(self) -> list[tuple[str, str]]:
+        """(offender label, token) for every non-`agents/` path a charter names.
+
+        The label is `<file>:<line>` so a failure points at the exact
+        occurrence, matching `ThemeCasingCoverageTest`'s style.
+        """
+        top_level = {p.name for p in ROOT.iterdir()}
+        found: list[tuple[str, str]] = []
+        for md in sorted(AGENTS_DIR.glob("*.md")):
+            text = md.read_text(encoding="utf-8", newline="")
+            for match in self._PATH_TOKEN_RE.finditer(text):
+                token = match.group(0)
+                first = token.split("/", 1)[0]
+                # Two ways to qualify as a path: rooted at something that really
+                # exists at the top of the repo, or carrying a source/doc
+                # extension. Prose slashes ("pass/fail", "authN/authZ",
+                # "reviewer/critic") satisfy neither, which is the point — the
+                # last of those is a mapped term and would otherwise flood this
+                # scan with false offenders.
+                if not (first in top_level or token.endswith(self._SOURCE_SUFFIXES)):
+                    continue
+                # `agents/...` references are rewritten *and* the file renamed,
+                # in lockstep, by the same run. That is the script working, not
+                # the hazard.
+                if first == "agents":
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                found.append((f"{md.name}:{line}", token))
+        return found
+
+    def test_no_charter_references_an_outside_path_the_theme_would_rewrite(self):
+        """A path outside `agents/` must not contain a word the theme renames.
+
+        What breaks: `apply_theme` does two things, and only one of them reaches
+        past `agents/`. `_transform` rewrites mapped names **inside charter
+        bodies**; the rename loop renames **`agents/*.md` files**. Both are
+        scoped to `agents_dir.glob("*.md")`. So a charter that mentions, say,
+        `hooks/qa-guard-scope.py` has that reference rewritten in place to
+        `hooks/cato-scope.py` — while the file on disk keeps its name, because
+        it lives outside the only directory the script touches. The charter now
+        points at a path that does not exist, and the failure surfaces at
+        whatever later moment something tries to follow it.
+
+        Why nothing else sees it: every existing test of this behaviour globs
+        `agents/` and nothing else — `ThemeCasingCoverageTest` above, and
+        `test_roster_expectation_follows_the_philosophers_theme` in
+        tests/test_agent_definitions.py. A dangling reference *into another
+        directory* is outside all of their fields of view, and it is symmetric
+        besides, so the round-trip test restores it byte-for-byte over the
+        broken middle exactly as it does the casing leak.
+
+        The underscore form is immune, and that is the mitigation: `_` is a word
+        character, so `\\bqa-guard\\b` does not match inside `qa_guard_scope.py`.
+        A red here is a request to rename the *referenced file* to the
+        underscore spelling — not to reword the charter, which would only hide
+        the reference from this scan while leaving the next author free to
+        write it again.
+
+        `_transform`/`_mappings` are the oracle rather than a re-derived
+        `\\b...\\b` rule of our own, so this cannot drift from the script it
+        guards: a fourth casing variant, or a new pair, is picked up here the
+        moment it lands in the script.
+
+        Latent, not hypothetical: today's charters reference
+        `scripts/verify_commit_position.py`, `skills/code-navigation`,
+        `memory/repo/`, `.sisyphus/plans/` and friends, none of which contains a
+        mapped word — so this lands green and stays a guard rather than a
+        finding. `test_apply_theme_leaves_files_outside_agents_untouched` below
+        is what makes it necessary rather than belt-and-braces: it pins the
+        blast radius shut, which is precisely why a rewritten reference can
+        never be followed by a matching rename.
+        """
+        references = self._outside_agents_path_references()
+        # Anti-vacuity: several such references exist today. If this list comes
+        # back empty the extractor has regressed and the assertion below is
+        # asserting nothing.
+        self.assertTrue(
+            references,
+            "found no outside-`agents/` path references at all — the extractor has "
+            "regressed and this test is asserting nothing",
+        )
+
+        offenders = []
+        for where, token in references:
+            for theme in apply_theme.THEMES:
+                if apply_theme._transform(token, apply_theme._mappings(theme)) != token:
+                    offenders.append(f"{where}: {token!r}")
+                    break
+
+        self.assertEqual(
+            offenders, [],
+            "these charters reference a path outside `agents/` that contains a themed "
+            "name, so applying a theme rewrites the reference in the charter but cannot "
+            "rename the file — the reference would dangle:\n  "
+            + "\n  ".join(offenders)
+            + "\nFix: rename the referenced file to use `_` instead of `-` (an "
+              "underscore is a word character, so `\\bname\\b` no longer matches "
+              "inside it), then update the reference.",
+        )
+
+    def test_apply_theme_leaves_files_outside_agents_untouched(self):
+        """Nothing outside `agents/` is read, written, renamed or created.
+
+        Pinned explicitly rather than left as an omission. The script's scope is
+        a single `glob` deep inside `apply_theme`, and "we never noticed it
+        touch anything else" is not a property — this makes the boundary an
+        assertion, over a tree seeded with sibling files whose *names and bodies*
+        both carry mapped words, so a widened scope has something to damage.
+
+        This is also exactly why
+        `test_no_charter_references_an_outside_path_the_theme_would_rewrite`
+        above has to exist. Because the boundary holds, a charter reference into
+        another directory gets the rewrite half of the operation and never the
+        rename half. The boundary is correct; the dangling reference it can
+        produce is what needs guarding.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            agents_dir = tmp / "agents"
+            # agents/ only — never the repo. The script must not be pointed at a
+            # tree that contains the real working copy.
+            shutil.copytree(AGENTS_DIR, agents_dir)
+
+            # Siblings that would be collateral damage if the scope ever
+            # widened: hyphenated mapped words in the filenames, and mapped
+            # words from *both* themes in the bodies, so the fixture bites
+            # whichever direction this instance is themed in.
+            body = (
+                "# Sibling\n"
+                "The builder writes code and the reviewer reads it; qa-guard gates it.\n"
+                "Under the other theme those are archimedes, pyrrho and cato.\n"
+                "See hooks/qa-guard-scope.py and skills/test-writer-helper/SKILL.md.\n"
+            )
+            siblings = [
+                tmp / "README.md",
+                tmp / "hooks" / "qa-guard-scope.py",
+                tmp / "hooks" / "cato-scope.py",
+                tmp / "skills" / "test-writer-helper" / "SKILL.md",
+            ]
+            for path in siblings:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8", newline="")
+
+            start = apply_theme.detect_theme(agents_dir)
+            self.assertIn(start, apply_theme.THEMES,
+                          "could not detect a theme in the seeded agents/ copy")
+            target = _other_theme(start)
+
+            def outside_snapshot() -> dict[str, bytes]:
+                return {
+                    str(p.relative_to(tmp).as_posix()): p.read_bytes()
+                    for p in sorted(tmp.rglob("*"))
+                    if p.is_file() and not p.is_relative_to(agents_dir)
+                }
+
+            before = outside_snapshot()
+            # Anti-vacuity: the sibling bodies must actually contain words this
+            # run rewrites, or "unchanged" would be true for the boring reason.
+            self.assertNotEqual(
+                apply_theme._transform(body, apply_theme._mappings(target)), body,
+                f"the sibling fixture contains no name the '{target}' theme rewrites — "
+                "an unchanged snapshot would prove nothing",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = apply_theme.apply_theme(agents_dir, target)
+            self.assertEqual(rc, 0)
+            # The run must have done real work inside agents/, otherwise the
+            # boundary held only because nothing happened at all.
+            self.assertEqual(apply_theme.detect_theme(agents_dir), target)
+
+            after = outside_snapshot()
+            self.assertEqual(
+                sorted(after), sorted(before),
+                "applying a theme added, removed or renamed a file outside `agents/` — "
+                "the script's scope is supposed to be `agents_dir.glob('*.md')`",
+            )
+            self.assertEqual(
+                after, before,
+                "applying a theme rewrote the contents of a file outside `agents/` — "
+                "the script's scope is supposed to be `agents_dir.glob('*.md')`",
+            )
 
 
 if __name__ == "__main__":
