@@ -16,9 +16,41 @@ mostly Markdown (agents, skills, memory) plus small Python glue.
 
 ## Adding an agent
 
-Create `agents/<name>.md` with frontmatter (`name`, `description`, `model`, and
-`disallowedTools` or `tools`) and a prose charter. Keep the name functional and
-the mission single-purpose.
+An agent is registered in three places, and two of them fail the build if you
+skip them.
+
+1. **Create `agents/<name>.md`** with frontmatter (`name`, `description`,
+   `model`, and `disallowedTools` or `tools`) and a prose charter. Keep the name
+   functional and the mission single-purpose.
+2. **Register it in `scripts/_crew_common.py`.** Add it to `PAIRS` if the
+   philosopher theme should rename it, or to `THEME_INVARIANT_ROSTER` if the
+   name stays put. Then add it to whichever write-policy set applies:
+   `CODE_WRITERS` for an agent that edits production code, `BOUNDED_WRITERS` for
+   one whose charter limits it to tests or docs, `WRITE_BOUNDED` for one barred
+   from `Edit` but holding `Write` for a single named purpose.
+3. **Route it in `AGENT_GROUPS` in `docs_site/gen_catalog.py`.** That table is a
+   routing table, not a roster: it is checked strictly in both directions, so an
+   unrouted agent **fails the build** rather than falling into an "Other"
+   bucket. Pick the lifecycle bucket it belongs in.
+4. **Regenerate the catalog and commit its output:**
+
+   ```
+   python docs_site/gen_catalog.py
+   ```
+
+   `docs_site/docs/agents.md` is a generated artefact — do not hand-edit it. The
+   required `tests` CI job runs `gen_catalog.py --check` and fails on drift.
+5. **Run both suites.** There are two unittest roots; `discover -s tests` does
+   **not** reach the second one:
+
+   ```
+   PYTHONPATH=scripts python -m unittest discover -s tests
+   python -m unittest discover -s docs_site
+   ```
+
+The crew diagram (`brand/make_diagrams.py`, inlined on the docs homepage) is
+**not** regenerated from `agents/`. It draws a fixed subset and is a known
+manual follow-up, tracked separately — adding an agent does not update it.
 
 ## Adding a skill
 
