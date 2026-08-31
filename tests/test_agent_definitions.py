@@ -377,6 +377,14 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
                     f"{path.stem}: boundary declared only in routing metadata",
                 )
                 terms = BOUNDARY_SCOPE_TERMS[name]
+                # Multi-word terms ("may never edit") are why this exists: the
+                # charters wrap their prose, so a reword that pushes the phrase
+                # across a line break would fail the raw substring match with
+                # the misleading "names no scope". Collapsing whitespace cannot
+                # remove a substring that contains none, so the single-word
+                # terms are unaffected. Normalised here only — `_boundary_
+                # sentence`'s raw return is asserted on directly below.
+                sentence = " ".join(sentence.split())
                 self.assertTrue(
                     any(term.lower() in sentence.lower() for term in terms),
                     f"{path.stem}: the boundary sentence names no scope — expected one "
@@ -415,9 +423,17 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         Pure literals, like the sibling above: reading `agents/*.md` here would
         only duplicate `test_bounded_writers_declare_their_boundary`. What is
         asserted is a property of the term, not of any charter on disk.
+
+        **Exclusivity, not membership.** The tuple is pinned whole rather than
+        checked with `assertIn`, because
+        `test_bounded_writers_declare_their_boundary` matches with `any(...)`:
+        one positive term sitting *alongside* the negation-bearing one is enough
+        to certify the inverted sentence. `("may never edit", "check")` would
+        satisfy a membership assertion while re-opening the exact polarity hole
+        this test exists to close, and stay green doing it.
         """
         term = "may never edit"
-        self.assertIn(term, BOUNDARY_SCOPE_TERMS["qa-guard"])
+        self.assertEqual(BOUNDARY_SCOPE_TERMS["qa-guard"], (term,))
         inverted = (
             "**Hard file boundary: you may edit the files that define the\n"
             "checks freely.**\n"
