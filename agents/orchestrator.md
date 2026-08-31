@@ -453,8 +453,8 @@ silences a check without modifying anything the diff can see. `git status
 "simplify" it back.
 
 ```bash
-d=$(git diff -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^-\s*(assert|self\.assert|expect|it\()')
-a=$(git diff -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^\+\s*(assert|self\.assert|expect|it\()')
+d=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^-\s*(assert|self\.assert|expect|it\()')
+a=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^\+\s*(assert|self\.assert|expect|it\()')
 [ "$d" -gt "$a" ] && echo "REJECT: net -$((d-a)) assertions"
 ```
 Net count, not raw deletions: formatting is `qa-guard`'s first fix category, and
@@ -463,7 +463,9 @@ line for work that removed nothing. A control that cries wolf on its own agent's
 main workflow gets ignored, and then it detects nothing. The pathspecs are
 case-insensitive and cover `spec` as well as `test`, because `qa-guard` is told
 not to assume a stack — `TestFoo.java` and `foo_spec.rb` slip past a bare
-`'*test*'`.
+`'*test*'`. `git diff HEAD`, not `git diff`: a staged deletion is invisible
+to plain `git diff`, and this check must stay consistent with the `git status
+--porcelain` above it, which already covers staged changes.
 
 Reject a `PASSED` verdict when the working tree shows: any path under
 `.github/workflows/`; `azure-pipelines.yml`; `.pre-commit-config.yaml`; a
