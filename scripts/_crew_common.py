@@ -128,6 +128,33 @@ BOUNDARY_SCOPE_TERMS = {
     "reviewer": ("report",),
 }
 
+# The phrase an implementer's charter must carry to declare its write access.
+#
+# Named for the same reason as BOUNDARY_PHRASE: the three charters diverge in
+# wording *after* this prefix — each names a different set of neighbours it is
+# unlike — so a bare literal at the call site would be one reword away from a
+# check that silently passes on nothing.
+WRITE_ACCESS_PHRASE = "Write access to production code:"
+
+# Who must carry that declaration, by functional agent name.
+#
+# **Not CODE_WRITERS, and deliberately so.** `qa-guard` is a CODE_WRITER and is
+# absent here. The declaration is a *licensing* sentence: it tells an implementer
+# that it may write production code and that few others may. `qa-guard`'s charter
+# does the opposite job — it opens `You have one job: make the CI-equivalent
+# checks pass`, then spends its length narrowing that to the mechanical
+# (formatting, imports, lint, types, test setup, in that order) and returning
+# `BLOCKED` at the first judgment call. Adding a licensing sentence there would
+# widen the only control that charter has: frontmatter accepts tool names only,
+# so the prose *is* the control surface — the same fact
+# `test_bounded_writers_declare_their_boundary` already rests on.
+#
+# A partial domain with a stated reason beats a total one bought by editing a
+# charter to fit a test. If `qa-guard` ever belongs here, the charter changes
+# first and this set follows; do not "fix" the asymmetry by widening the set to
+# CODE_WRITERS.
+WRITE_ACCESS_DECLARERS = {"builder", "builder-standard", "builder-simple"}
+
 _FUNCTIONAL_TO_PHILOSOPHER = dict(PAIRS)
 
 # Every agent, by functional name. The single source the roster derives from.
