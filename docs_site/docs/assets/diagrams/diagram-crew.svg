@@ -32,7 +32,7 @@
   </marker>
 </defs>
 <text x="60" y="52" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="25" fill="var(--diagram-node-label)" font-weight="700" text-anchor="start">The crew</text>
-<text x="60" y="76" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="14.5" fill="var(--diagram-body)" font-weight="400" text-anchor="start">One orchestrator, nine specialists. Delegation goes down; every result comes back through the gate.</text>
+<text x="60" y="76" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="14.5" fill="var(--diagram-body)" font-weight="400" text-anchor="start">Delegation goes down; every result comes back through the gate.</text>
 <rect x="432.0" y="108" width="136" height="40" rx="20" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
 <text x="500.0" y="133" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="14.5" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">your request</text>
 <path d="M 500.0 148 L 500.0 176" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>

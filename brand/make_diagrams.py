@@ -276,8 +276,13 @@ def diagram_crew():
     centre_scale = col_block / (ncols * 380 + (ncols - 1) * gap)
 
     s.append(text(60, 52, "The crew", size=25, weight="700", fill=NODE_LABEL, anchor="start"))
-    s.append(text(60, 76, "One orchestrator, nine specialists. Delegation goes down; "
-                  "every result comes back through the gate.",
+    # No count here, deliberately. The artwork draws the orchestrator and nine
+    # specialists; `agents/` holds seventeen. Stating either number makes the
+    # caption argue with something — the drawing, or docs/agents.md on the same
+    # site. The shape of the flow is what this diagram is actually for, so the
+    # caption says only that. Restore a count when the artwork carries the
+    # whole crew, not before.
+    s.append(text(60, 76, "Delegation goes down; every result comes back through the gate.",
                   size=14.5, fill=BODY, anchor="start"))
 
     # Request
