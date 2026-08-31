@@ -48,6 +48,12 @@ skip them.
    python -m unittest discover -s docs_site
    ```
 
+   The `docs_site` suite and `mkdocs build` require the **functional** roster on
+   disk — the catalog is pinned to functional names by design — so if you have
+   run `python scripts/apply_theme.py philosophers` in this checkout, run
+   `python scripts/apply_theme.py functional` first. `discover -s tests` stays
+   green either way, which makes the failure look unrelated.
+
 The crew diagram (`brand/make_diagrams.py`, inlined on the docs homepage) is
 **not** regenerated from `agents/`. It draws a fixed subset and is a known
 manual follow-up, tracked separately — adding an agent does not update it.

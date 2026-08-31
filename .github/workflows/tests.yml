@@ -50,7 +50,7 @@ jobs:
   #
   # PRECONDITION: this job must NOT be added to main's required status checks,
   # for the opposite reason to the `roadmap` job below. It installs from PyPI --
-  # mkdocs-material is needed by the 13 end-to-end BuiltSiteTest cases, which
+  # mkdocs-material is needed by the 8 end-to-end BuiltSiteTest cases, which
   # shell out to a real `mkdocs build --strict` -- and a network install inside
   # the blocking gate means a PyPI blip reds every open PR. The drift check that
   # genuinely must block lives in `tests` above and needs no install at all.
