@@ -318,12 +318,12 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
             "decides whether that sentence is checked at all",
         )
         self.assertEqual(
-            BOUNDED_WRITERS, {"test-writer", "doc-writer"},
-            "a writer moved across the tests-only/docs-only boundary — the union count "
+            BOUNDED_WRITERS, {"test-writer", "doc-writer", "qa-guard"},
+            "a writer moved across the bounded/unbounded boundary — the union count "
             "cannot see this, so say why in the commit message",
         )
         self.assertEqual(
-            CODE_WRITERS, {"builder", "builder-standard", "builder-simple", "qa-guard"},
+            CODE_WRITERS, {"builder", "builder-standard", "builder-simple"},
             "an agent gained or lost unbounded write access to production code",
         )
         self.assertEqual(
@@ -397,6 +397,38 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
             "test directories.**\n"
         )
         self.assertIn("test", _boundary_sentence(declared).lower())
+
+    def test_an_exclusion_boundary_needs_a_negation_bearing_scope_term(self):
+        """Regression: a positive term cannot tell an exclusion from its inverse.
+
+        `test-writer` and `doc-writer` name the region they are confined *to*,
+        so a term naming that region ("test", "docs") is enough — the sentence
+        cannot carry it and mean the opposite. `qa-guard` is bounded the other
+        way round: it names the region it may not touch. There the scope word
+        appears in the revocation too, so a term like "check" would certify
+        `Hard file boundary: you may edit the files that define the checks
+        freely.` — the same failure `test_a_revoked_boundary_does_not_satisfy_
+        the_lint` covers, in a shape that test cannot see, because substring
+        presence has no view of polarity. The negation has to be inside the
+        pinned term.
+
+        Pure literals, like the sibling above: reading `agents/*.md` here would
+        only duplicate `test_bounded_writers_declare_their_boundary`. What is
+        asserted is a property of the term, not of any charter on disk.
+        """
+        term = "may never edit"
+        self.assertIn(term, BOUNDARY_SCOPE_TERMS["qa-guard"])
+        inverted = (
+            "**Hard file boundary: you may edit the files that define the\n"
+            "checks freely.**\n"
+        )
+        self.assertNotIn(term, _boundary_sentence(inverted).lower())
+        declared = (
+            "**Hard file boundary: you may never edit the files that define the\n"
+            "checks — CI workflows, pre-commit config, linter and type-checker\n"
+            "settings, or build scripts.**\n"
+        )
+        self.assertIn(term, _boundary_sentence(declared).lower())
 
     def test_the_boundary_sentence_ends_at_the_sentence_not_the_first_dot(self):
         """`.sisyphus/` is a path, not a full stop — the planner's scope sits past it.

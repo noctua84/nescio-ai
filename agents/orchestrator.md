@@ -436,6 +436,29 @@ If `qa-guard` returns `BLOCKED`: surface the blocker to the user before
 dispatching `reviewer`. A bug surfaced here is a `builder` task, not a
 review finding.
 
+### CI Gate Audit (after a `qa-guard` wave)
+
+`qa-guard` does not commit — it leaves fixes in the working tree and PHASE 6
+commits them wholesale. A `git log --grep` gate would therefore pass vacuously.
+Audit the diff instead.
+
+```bash
+git diff --name-only
+```
+```bash
+git diff -U0 -- '*test*' | grep -E '^-\s*(assert|self\.assert|expect|it\()'
+```
+
+Reject a `PASSED` verdict when the diff shows: any path under
+`.github/workflows/`; `.pre-commit-config.yaml`; a `[tool.*]` section of
+`pyproject.toml` or `setup.cfg`; a `Makefile` or `package.json` scripts target;
+a removed assertion or deleted test function; or a new entry under
+`[project.dependencies]`. Name the file, ask for a revert, re-dispatch.
+
+This catches edits made via Bash, which no permission rule can see: `qa-guard`
+must hold `Bash` to run the checks at all, and a shell redirect or `sed -i`
+rewrites a check file without ever going through `Edit`.
+
 ### Step 2: QA Audit
 ```
 Agent(

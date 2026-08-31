@@ -83,13 +83,20 @@ THEME_INVARIANT_ROSTER = {
     "vision",
 }
 
-# Agents permitted to edit production code, by functional name. Adding to this
-# set is an architectural decision, not bookkeeping.
-CODE_WRITERS = {"builder", "builder-standard", "builder-simple", "qa-guard"}
+# Agents permitted to edit production code with no declared file boundary, by
+# functional name. Adding to this set is an architectural decision, not
+# bookkeeping.
+CODE_WRITERS = {"builder", "builder-standard", "builder-simple"}
 
 # Agents permitted to edit, but whose charters declare a hard file boundary
-# limiting *what* they may touch (tests only, docs only).
-BOUNDED_WRITERS = {"test-writer", "doc-writer"}
+# limiting *what* they may touch (tests only, docs only, everything except the
+# files that define the CI checks).
+#
+# A boundary may be stated either way round: `test-writer` and `doc-writer`
+# name the region they are confined *to*, `qa-guard` names the region it is
+# excluded *from*. Both shapes are pinned by BOUNDARY_SCOPE_TERMS below, but an
+# exclusion needs a term that carries the negation — see the note there.
+BOUNDED_WRITERS = {"test-writer", "doc-writer", "qa-guard"}
 
 # Agents barred from Edit by their frontmatter, but holding `Write` for one
 # narrow purpose their charter has to name: `planner` writes work plans under
@@ -119,11 +126,20 @@ BOUNDARY_PHRASE = "Hard file boundary:"
 # the phrase must contain at least one, so the lint pins the *scope* an agent
 # declares rather than the fact that it said something.
 #
+# An *exclusion*-shaped boundary needs a term that carries the negation.
+# `qa-guard` is bounded by what it may not touch, so a positive term such as
+# `("check",)` would certify `Hard file boundary: you may edit the checks
+# freely.` as compliant — the failure `test_a_revoked_boundary_does_not_satisfy_
+# the_lint` exists to prevent, in a shape that test cannot see, because
+# substring presence has no view of polarity. `"may never edit"` fails on the
+# inverted sentence, which is the whole point of pinning a term at all.
+#
 # Keyed on the functional roster, like BOUNDED_WRITERS — the on-disk name is
 # resolved through `themed_name` where the file is opened, never here.
 BOUNDARY_SCOPE_TERMS = {
     "test-writer": ("test",),
     "doc-writer": ("documentation", "docs"),
+    "qa-guard": ("may never edit",),
     "planner": (".sisyphus",),
     "reviewer": ("report",),
 }

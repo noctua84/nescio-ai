@@ -119,10 +119,11 @@ and changes nothing if it can't.
 | `doc-writer` | Writes docs from `doc-researcher`'s findings; may not touch implementation files. |
 
 Nine agents can write files, in two tiers. Six may also *edit* existing ones:
-`builder` and its two tiers plus `qa-guard` change production code, while
-`test-writer` and `doc-writer` are held to their declared file boundaries by
-their charters — frontmatter has no path-scoped form, so the boundary is prose,
-not enforcement. Three more may create files but not edit any: `orchestrator`,
+`builder` and its two tiers change production code with no declared limit, while
+`test-writer`, `doc-writer` and `qa-guard` are held to their declared file
+boundaries by their charters — tests only, docs only, and never the files that
+define the CI checks. Frontmatter has no path-scoped form, so those boundaries
+are prose, not enforcement. Three more may create files but not edit any: `orchestrator`,
 `planner` (work plans under `.sisyphus/`) and `reviewer` (its audit report). The
 remaining eight are read-only.
 
