@@ -71,6 +71,20 @@ extra_javascript:
   - assets/js/diagram-lightbox.js
 
 hooks:
+  # CATALOG DRIFT GUARD. `on_pre_build` in gen_catalog.py re-renders agents.md
+  # and skills.md in memory and fails the build if the committed pages differ.
+  # It does NOT write them: they are generated artefacts that are also tracked
+  # source files under docs_dir, and a writing hook was measured rewriting the
+  # committed agents.md mid-build (11 -> 17 sections, exit 0) — mutating the
+  # working tree and laundering the very drift it should report. Regenerating
+  # stays a deliberate act: `python docs_site/gen_catalog.py`, then commit.
+  #
+  # Path has no `hooks/` prefix because the module lives at
+  # docs_site/gen_catalog.py — it is the generator, imported by
+  # test_gen_catalog.py and run as a CLI, not a hook that happens to live in
+  # hooks/. A shim under hooks/ would have to put docs_site/ on sys.path just
+  # to import it. Hook paths here are relative to this config file.
+  - gen_catalog.py
   # Ships brand/fonts/*.woff2 and brand/favicons/* into the build output without
   # committing a second copy of them under docs/. See hooks/assets.py.
   - hooks/assets.py

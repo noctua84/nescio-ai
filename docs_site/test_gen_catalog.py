@@ -55,12 +55,22 @@ def _make_repo(root: Path, agents: dict[str, str], skills: dict[str, str]) -> Pa
     return root
 
 
+#: Agent grouping is strict in both directions, so a fixture repo carrying a
+#: three-agent subset would (correctly) fail every `build_pages` call. The
+#: fixture roster is therefore derived from the routing table rather than
+#: retyped: what these tests need is "a repo whose agents/ matches
+#: AGENT_GROUPS", and adding a real agent must not require an edit here.
+#: Whether AGENT_GROUPS matches the *real* tree is covered by
+#: TestAgainstTheRealRepo, which is the right place for that assertion.
+FIXTURE_AGENTS = {
+    name: f"Fixture description for {name}."
+    for _, bucket in gen_catalog.AGENT_GROUPS
+    for name in bucket
+}
+
+
 class FixtureRepoMixin(unittest.TestCase):
-    AGENTS = {
-        "orchestrator": "Coordinates the crew.",
-        "scout": "Triages a request before planning.",
-        "reviewer": "Audits the built code.",
-    }
+    AGENTS = FIXTURE_AGENTS
     SKILLS = {
         "threat-model": "Enumerates attack surfaces.",
         "risk-register": "Logs risks with named owners.",
@@ -103,8 +113,10 @@ class TestFrontmatterParsing(unittest.TestCase):
 class TestRendering(FixtureRepoMixin):
     def test_every_row_has_name_and_description(self) -> None:
         pages, warnings = gen_catalog.build_pages(self.repo)
-        # The fixture repo holds only a handful of the real definitions, so the
-        # "listed in a group but absent" warnings are expected here; nothing else is.
+        # The fixture repo holds only a handful of the real *skills*, so the
+        # "listed in a group but absent" warnings SKILL_GROUPS produces are
+        # expected here; nothing else is. (The agent side cannot warn this way
+        # at all -- strict grouping makes it fatal.)
         self.assertEqual(
             [w for w in warnings if not w.startswith("grouping table lists")], []
         )
@@ -139,7 +151,9 @@ class TestRendering(FixtureRepoMixin):
     def test_writes_both_pages(self) -> None:
         with TemporaryDirectory() as out:
             counts = gen_catalog.generate(self.repo, Path(out))
-            self.assertEqual(counts, {"agents": 3, "skills": 3})
+            self.assertEqual(
+                counts, {"agents": len(self.AGENTS), "skills": len(self.SKILLS)}
+            )
             self.assertTrue((Path(out) / "agents.md").is_file())
             self.assertTrue((Path(out) / "skills.md").is_file())
 
@@ -153,17 +167,93 @@ class TestRendering(FixtureRepoMixin):
 
 
 class TestGrouping(FixtureRepoMixin):
-    def test_unmapped_name_still_renders(self) -> None:
-        _make_repo(self.repo, {"brand-new-agent": "Does a thing."}, {})
+    def test_unmapped_skill_still_renders_under_other(self) -> None:
+        """Skills stay lenient: unlisted ones render under 'Other' and warn.
+
+        Was `test_unmapped_name_still_renders`, which exercised the same
+        leftover branch through the *agent* path. Agents are strict now (see
+        below), so the lenient behaviour -- which SKILL_GROUPS still relies on
+        -- is asserted here, where it survives.
+        """
+        _make_repo(self.repo, {}, {"brand-new-skill": "Does a thing."})
         pages, warnings = gen_catalog.build_pages(self.repo)
-        self.assertIn("### `brand-new-agent`", pages["agents.md"])
-        self.assertIn(f"## {gen_catalog.UNGROUPED_TITLE}", pages["agents.md"])
-        self.assertTrue(any("brand-new-agent" in w for w in warnings))
+        self.assertIn("### `brand-new-skill`", pages["skills.md"])
+        self.assertIn(f"## {gen_catalog.UNGROUPED_TITLE}", pages["skills.md"])
+        self.assertTrue(any("brand-new-skill" in w for w in warnings))
+
+    def test_unrouted_agent_is_fatal(self) -> None:
+        """An agent no group routes fails the build, naming itself."""
+        _make_repo(self.repo, {"brand-new-agent": "Does a thing."}, {})
+        with self.assertRaises(CatalogError) as ctx:
+            gen_catalog.build_pages(self.repo)
+        message = str(ctx.exception)
+        self.assertIn("brand-new-agent", message)
+        self.assertIn("AGENT_GROUPS", message)
+
+    def test_routed_name_with_no_definition_is_fatal(self) -> None:
+        """The other direction: a table entry nothing on disk answers to.
+
+        Pinning only filesystem -> table would leave the themed-roster refusal
+        (below) emergent instead of enforced.
+        """
+        (self.repo / "agents" / "reviewer.md").unlink()
+        with self.assertRaises(CatalogError) as ctx:
+            gen_catalog.build_pages(self.repo)
+        message = str(ctx.exception)
+        self.assertIn("reviewer", message)
+        self.assertIn("AGENT_GROUPS", message)
 
     def test_no_duplicate_names_across_group_tables(self) -> None:
         for label, groups in (("agents", gen_catalog.AGENT_GROUPS), ("skills", gen_catalog.SKILL_GROUPS)):
             names = [n for _, bucket in groups for n in bucket]
             self.assertEqual(len(names), len(set(names)), f"duplicate in {label} groups")
+
+
+class TestThemedRosterIsRefused(unittest.TestCase):
+    """A philosopher-themed checkout must never publish philosopher names.
+
+    `scripts/apply_theme.py philosopher` renames every file in `agents/`
+    (`planner.md` -> `plato.md`, and so on). The published catalog ships the
+    *functional* roster, and strict grouping is the only thing enforcing that:
+    the aliases are not in AGENT_GROUPS, so a themed tree fails loudly instead
+    of quietly renaming the whole crew on the public site.
+
+    Without this test that refusal is emergent -- it holds only because nobody
+    has routed the aliases yet -- and a future author could delete it by adding
+    them to the table, with no test going red. The build's own error message is
+    asserted here too, including the `apply_theme.py functional` hint, because
+    an unexplained "17 unrouted agents" is the one failure mode whose cause
+    does not resemble its symptom.
+    """
+
+    THEMED_AGENTS = {
+        "plato": "Plans the work.",
+        "aristotle": "Advises on architecture.",
+        "sisyphus": "Implements one scoped task.",
+        "pyrrho": "Audits the built code.",
+    }
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = _make_repo(
+            Path(self._tmp.name),
+            self.THEMED_AGENTS,
+            {"threat-model": "Enumerates attack surfaces."},
+        )
+
+    def test_themed_roster_is_refused(self) -> None:
+        with self.assertRaises(CatalogError) as ctx:
+            gen_catalog.build_pages(self.repo)
+        message = str(ctx.exception)
+        for alias in self.THEMED_AGENTS:
+            self.assertIn(alias, message)
+        self.assertIn("AGENT_GROUPS", message)
+        self.assertIn("apply_theme.py functional", message)
+
+    def test_no_philosopher_alias_is_routed(self) -> None:
+        routed = {n for _, bucket in gen_catalog.AGENT_GROUPS for n in bucket}
+        self.assertEqual(routed & set(self.THEMED_AGENTS), set())
 
 
 class TestCountGuard(FixtureRepoMixin):
@@ -176,8 +266,11 @@ class TestCountGuard(FixtureRepoMixin):
         """The core guarantee: a file on disk that vanished during rendering."""
         original = gen_catalog._group
 
-        def dropping_group(items, groups):
-            grouped, warnings = original(items, groups)
+        # Signature tracks `_group`'s: the `strict=` keyword is passed by
+        # `render_agents`, so a stub without it raises TypeError and the test
+        # would pass for the wrong reason.
+        def dropping_group(items, groups, *, strict=False):
+            grouped, warnings = original(items, groups, strict=strict)
             # Silently lose the first item, as a buggy filter would.
             title, bucket = grouped[0]
             grouped[0] = (title, bucket[1:])
@@ -194,6 +287,13 @@ class TestCountGuard(FixtureRepoMixin):
         """A legitimate new agent/skill flows through both sides of the check."""
         before = gen_catalog.generate(self.repo, self.repo / "out")
         _make_repo(self.repo, {"newcomer": "A new agent."}, {"new-skill": "A new skill."})
+        # Adding an agent now means routing it too -- that is the obligation
+        # strict grouping creates, and CONTRIBUTING.md documents. Do here what
+        # a real addition does in the source file, so what is under test stays
+        # the count-guard rather than the routing table.
+        original = gen_catalog.AGENT_GROUPS
+        gen_catalog.AGENT_GROUPS = original + [("Newly added", ["newcomer"])]
+        self.addCleanup(setattr, gen_catalog, "AGENT_GROUPS", original)
         after = gen_catalog.generate(self.repo, self.repo / "out")
         self.assertEqual(after["agents"], before["agents"] + 1)
         self.assertEqual(after["skills"], before["skills"] + 1)
@@ -234,6 +334,16 @@ class TestMalformedInput(FixtureRepoMixin):
         (self.repo / "agents" / "scout.md").write_text(
             AGENT_FM.format(name="scoutt", description="Typo'd name."), encoding="utf-8"
         )
+        # Grouping keys off the frontmatter `name`, so under strict agent
+        # grouping the typo is unrouted AND `scout` is now missing -- two fatal
+        # errors that would mask the warning this test is about. Route the typo
+        # so the page renders and the warning is what is left to observe.
+        original = gen_catalog.AGENT_GROUPS
+        gen_catalog.AGENT_GROUPS = [
+            (title, ["scoutt" if n == "scout" else n for n in bucket])
+            for title, bucket in original
+        ]
+        self.addCleanup(setattr, gen_catalog, "AGENT_GROUPS", original)
         pages, warnings = gen_catalog.build_pages(self.repo)
         self.assertIn("### `scoutt`", pages["agents.md"])
         self.assertTrue(any("does not match its location" in w for w in warnings))

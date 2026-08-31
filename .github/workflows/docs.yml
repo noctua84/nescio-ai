@@ -41,6 +41,14 @@ jobs:
       # has quietly reverted to the stock palette.
       - run: pip install mkdocs-material==9.7.7
 
+      # Post-merge backstop for the catalog pages. The same `--check` runs in
+      # the required `tests` job, so anything reaching main has already passed
+      # it -- but this workflow also fires on workflow_dispatch and on direct
+      # pushes to main, and a stale catalog must not be publishable by either.
+      # Run BEFORE the build: gen_catalog's own pre-build hook would catch the
+      # same drift, but buried in mkdocs output rather than as its own red step.
+      - run: python docs_site/gen_catalog.py --check
+
       - run: mkdocs build -f docs_site/mkdocs.yml --strict
 
       # Scrub the generated output, not just the source tree: a docs build is a

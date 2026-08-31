@@ -25,6 +25,51 @@ jobs:
         with:
           python-version: "3.13"
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
+      # `docs_site/docs/agents.md` and `skills.md` are generated artefacts that
+      # are also tracked source files, and nothing regenerates them on a commit
+      # -- so they drift the moment an agent or a skill is added, silently, and
+      # stayed stale for six agents before anyone noticed. `--check` writes
+      # nothing and exits 1 on any difference; the fix is always
+      # `python docs_site/gen_catalog.py` plus a commit of its output.
+      #
+      # THIS STEP BELONGS IN THIS JOB, not in `docs-tests` below. Protection on
+      # main requires exactly ["tests"], so a check in any other job is red but
+      # mergeable -- which would move the drift from "never noticed" to
+      # "noticed and ignored", and the generator is strict about agent routing
+      # now: an unrouted agent that merged anyway would break the Pages deploy
+      # on main. The generator is stdlib-only, so it adds no install and no
+      # network dependency to the blocking gate.
+      - run: python docs_site/gen_catalog.py --check
+
+  # The docs_site/ tests are a second unittest root. `discover -s tests` above
+  # does not reach them, by design: `tests/` is on FRAMEWORK_PATHS and syncs
+  # into derived instances, which never receive `docs_site/`, so a test there
+  # importing gen_catalog would break `python -m unittest` for every downstream
+  # user. Discovering the second root in a second job is the way that boundary
+  # stays intact and the tests still run.
+  #
+  # PRECONDITION: this job must NOT be added to main's required status checks,
+  # for the opposite reason to the `roadmap` job below. It installs from PyPI --
+  # mkdocs-material is needed by the 13 end-to-end BuiltSiteTest cases, which
+  # shell out to a real `mkdocs build --strict` -- and a network install inside
+  # the blocking gate means a PyPI blip reds every open PR. The drift check that
+  # genuinely must block lives in `tests` above and needs no install at all.
+  #
+  # Making this job required is a branch-protection change in GitHub settings.
+  # No commit in this repository can perform it, so if you want it, do it there
+  # -- and pin or vendor the install first.
+  docs-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Same hard pin as .github/workflows/docs.yml, and for the same reason:
+      # the custom schemes are coupled to Material's CSS variable names. Keep
+      # the two in step.
+      - run: pip install mkdocs-material==9.7.7
+      - run: python -m unittest discover -s docs_site -v
 
   # `uv.lock` records the project's own version, so it drifts from pyproject.toml
   # on every release. release-please keeps it in step via `extra-files` in

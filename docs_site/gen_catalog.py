@@ -18,11 +18,11 @@ Two ways to run it, both supported:
    faithfully. ``--check`` regenerates in memory and fails on any drift from
    what is on disk, without writing.
 
-2. **From a MkDocs hook**, by importing :func:`generate`::
-
-       import gen_catalog
-       def on_pre_build(config):
-           gen_catalog.generate()
+2. **From a MkDocs hook**. This file is registered directly in the ``hooks:``
+   list of ``docs_site/mkdocs.yml``; its :func:`on_pre_build` calls
+   ``generate(check_only=True)``, so a build **verifies** the committed pages
+   and refuses on drift rather than rewriting them. See that function for why
+   the hook must not write.
 
    ``generate()`` returns ``{"agents": n, "skills": m}`` and raises
    :class:`CatalogError` on any problem, which fails the build.
@@ -65,19 +65,36 @@ class CatalogError(RuntimeError):
 # Grouping
 #
 # Explicit, hand-curated, and derived from reading the actual files -- an
-# alphabetical dump of 43 entries is not scannable, and an invented taxonomy
-# would be worse. Anything not listed here still renders, under "Other", and
-# prints a warning: a new agent or skill must never silently vanish from the
-# page (the count-guard would fail the build if it did).
+# alphabetical dump of 50 entries is not scannable, and an invented taxonomy
+# would be worse.
+#
+# The two tables are NOT the same kind of object, and the difference is
+# deliberate:
+#
+#   AGENT_GROUPS is a *routing table*, not a roster. It is checked strictly in
+#   both directions (`_group(..., strict=True)`): every agent on disk must be
+#   routed, and every name routed must exist on disk. It therefore equals
+#   `agents/*.md` as a set, by construction. An agent that is not listed does
+#   NOT fall through to "Other" -- it fails the build, loudly, with the name in
+#   the message. That is the point: the previous behaviour let six agents sit
+#   in an "Other" bucket behind a warning nothing read.
+#
+#   SKILL_GROUPS stays lenient. It curates 33 entries with a different churn
+#   profile, and an unlisted skill still renders under "Other" with a warning.
 # --------------------------------------------------------------------------
 
-# Lifecycle order: coordinate -> discover -> plan and challenge -> build -> verify.
+# Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
+# document -> verify. Every agent in agents/ must appear exactly once.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
     ("Plan and challenge", ["planner", "validator", "advisor", "critic"]),
-    ("Build", ["builder"]),
-    ("Verify", ["reviewer"]),
+    ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
+    # `doc-writer`'s charter says it does not write code, so Build was the only
+    # fit among the original five buckets and a poor one. Its own bucket keeps
+    # the research -> write pair adjacent.
+    ("Document", ["doc-researcher", "doc-writer"]),
+    ("Verify", ["reviewer", "qa-guard"]),
 ]
 
 SKILL_GROUPS: list[tuple[str, list[str]]] = [
@@ -326,22 +343,55 @@ def discover_skills(repo_dir: Path) -> Catalog:
 ITEM_HEADING_RE = re.compile(r"^### `", re.MULTILINE)
 
 
-def _group(items: list[Item], groups: list[tuple[str, list[str]]]) -> tuple[list[tuple[str, list[Item]]], list[str]]:
-    """Bucket items by the curated tables; unlisted names fall to 'Other'."""
+#: Appended to every strict-mode failure. A themed checkout is the one way to
+#: hit this error without having actually added or removed an agent, and the
+#: symptom (seventeen unrouted philosopher names) does not look like its cause.
+#:
+#: Deliberately a static string: `scripts/apply_theme.py` is NOT imported to
+#: detect the condition. `docs_site/` must build with nothing from `scripts/`
+#: on PYTHONPATH, and a hint costs nothing to keep true.
+THEME_HINT = (
+    "If the philosopher theme is applied to this checkout, run "
+    "`python scripts/apply_theme.py functional` before regenerating -- the "
+    "published catalog ships the functional names."
+)
+
+
+def _group(
+    items: list[Item],
+    groups: list[tuple[str, list[str]]],
+    *,
+    strict: bool = False,
+) -> tuple[list[tuple[str, list[Item]]], list[str]]:
+    """Bucket items by the curated tables.
+
+    Lenient (the default, used for skills): a name in the table with no
+    definition on disk warns; a definition no table routes warns and renders
+    under 'Other'.
+
+    Strict (``strict=True``, used for agents): both of those are fatal, so the
+    table is pinned to equal the directory listing as a *set*. One-way pinning
+    would not be enough -- it would leave the refusal of a themed roster
+    emergent rather than enforced, and a future author could publish
+    philosopher names to the public site by routing both name sets.
+    """
     by_name = {item.name: item for item in items}
     placed: set[str] = set()
     grouped: list[tuple[str, list[Item]]] = []
     warnings: list[str] = []
+    unmatched: list[str] = []
 
     for title, names in groups:
         bucket: list[Item] = []
         for name in names:
             item = by_name.get(name)
             if item is None:
-                warnings.append(
-                    f"grouping table lists '{name}' under '{title}', but no such "
-                    f"definition exists -- drop it from gen_catalog.py"
-                )
+                unmatched.append(name)
+                if not strict:
+                    warnings.append(
+                        f"grouping table lists '{name}' under '{title}', but no such "
+                        f"definition exists -- drop it from gen_catalog.py"
+                    )
                 continue
             if name in placed:
                 warnings.append(f"'{name}' is listed in more than one group")
@@ -352,6 +402,25 @@ def _group(items: list[Item], groups: list[tuple[str, list[str]]]) -> tuple[list
             grouped.append((title, bucket))
 
     leftover = [item for item in items if item.name not in placed]
+
+    if strict and (leftover or unmatched):
+        problems: list[str] = []
+        if leftover:
+            problems.append(
+                "no group routes these definitions: "
+                + ", ".join(sorted(i.name for i in leftover))
+            )
+        if unmatched:
+            problems.append(
+                "these names are routed but have no definition on disk: "
+                + ", ".join(sorted(unmatched))
+            )
+        raise CatalogError(
+            "AGENT_GROUPS must list exactly the definitions on disk -- no more, "
+            "no fewer. " + "; ".join(problems) + ". Update AGENT_GROUPS in "
+            "docs_site/gen_catalog.py. " + THEME_HINT
+        )
+
     if leftover:
         warnings.append(
             "not in any grouping table, rendered under "
@@ -400,7 +469,7 @@ def _skill_meta(item: Item) -> str:
 
 
 def render_agents(catalog: Catalog) -> tuple[str, list[str]]:
-    grouped, warnings = _group(catalog.items, AGENT_GROUPS)
+    grouped, warnings = _group(catalog.items, AGENT_GROUPS, strict=True)
     count = len(catalog.items)
     lines = [
         GENERATED_BANNER,
@@ -559,8 +628,31 @@ def generate(
 
 
 def on_pre_build(config) -> None:  # noqa: ANN001 - MkDocs hook signature
-    """MkDocs hook entry point, for `hooks:` in mkdocs.yml."""
-    generate()
+    """MkDocs hook entry point, for `hooks:` in mkdocs.yml. Checks, never writes.
+
+    Registered as `hooks: [gen_catalog.py]` -- this module sits at
+    `docs_site/gen_catalog.py`, not under `docs_site/hooks/`, and is pointed at
+    directly rather than being re-exported through a one-line shim in `hooks/`.
+    A shim there would have to put `docs_site/` on `sys.path` to import this
+    module, which is a worse thing to own than a path with a `/` fewer in it.
+    Like the other two hooks it resolves its own root from `__file__`
+    (`REPO_DIR`) and signals failure by raising, which fails the build.
+
+    WHY `check_only=True` AND NOT `generate()`
+    ------------------------------------------
+    `agents.md` and `skills.md` are generated artefacts that are also *tracked
+    source files* under `docs_dir`. A writing hook rewrites them mid-build:
+    measured on this repo, `mkdocs build` silently took the committed page from
+    11 item sections to 17 and exited 0. That is unacceptable twice over -- a
+    build must not mutate the working tree, and rewriting the page in the same
+    process that publishes it launders drift instead of reporting it. The
+    guarantee worth having is the opposite one: a build refuses when the
+    committed pages do not match a fresh render, and says so.
+
+    Regenerating is a deliberate act: run `python docs_site/gen_catalog.py` and
+    commit the result.
+    """
+    generate(check_only=True)
 
 
 def main(argv: list[str] | None = None) -> int:
