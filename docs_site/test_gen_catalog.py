@@ -226,11 +226,35 @@ class TestThemedRosterIsRefused(unittest.TestCase):
     does not resemble its symptom.
     """
 
+    #: **Every** alias `apply_theme.py philosophers` can produce, not a sample.
+    #:
+    #: A subset is worse than useless here: this is the only guard on the
+    #: refusal, and an earlier four-name version stayed green when `socrates`
+    #: alone -- or `euclid`, `cato`, `cicero`, `callimachus` and `archimedes`
+    #: together -- was routed into AGENT_GROUPS. In precisely the scenario the
+    #: test exists to catch, it did not fire.
+    #:
+    #: Source of truth: `scripts/_crew_common.PAIRS` (the nine word-pairs) plus
+    #: `_crew_common.TIERED_AGENTS` resolved through `themed_name` (the two
+    #: `archimedes-*` tier variants). Kept as a literal on purpose --
+    #: `docs_site/` must not import from `scripts/`, because the docs build has
+    #: to work with nothing from `scripts/` on PYTHONPATH. That makes this list
+    #: a hand-maintained copy: adding a PAIRS entry means adding it here.
+    #:
+    #: (An earlier version also listed `sisyphus`, which the theme script never
+    #: produces -- it is the `.sisyphus/` plan directory, not an agent.)
     THEMED_AGENTS = {
         "plato": "Plans the work.",
         "aristotle": "Advises on architecture.",
-        "sisyphus": "Implements one scoped task.",
         "pyrrho": "Audits the built code.",
+        "socrates": "Challenges the plan.",
+        "archimedes": "Implements one scoped task.",
+        "archimedes-simple": "Implements one simple task.",
+        "archimedes-standard": "Implements one standard task.",
+        "euclid": "Writes the tests.",
+        "cato": "Guards the quality gate.",
+        "callimachus": "Researches the documentation.",
+        "cicero": "Writes the documentation.",
     }
 
     def setUp(self) -> None:
@@ -252,8 +276,24 @@ class TestThemedRosterIsRefused(unittest.TestCase):
         self.assertIn("apply_theme.py functional", message)
 
     def test_no_philosopher_alias_is_routed(self) -> None:
+        """Asserted against the *whole* alias set -- see THEMED_AGENTS above.
+
+        Routing any one of the eleven reds this, which is the property the
+        four-name version lacked.
+        """
         routed = {n for _, bucket in gen_catalog.AGENT_GROUPS for n in bucket}
         self.assertEqual(routed & set(self.THEMED_AGENTS), set())
+
+    def test_alias_set_is_the_whole_roster(self) -> None:
+        """A weak tripwire, kept for one specific failure: silent shrinkage.
+
+        It cannot verify the names (that would need `scripts/_crew_common`,
+        which `docs_site/` may not import). It only makes deleting an entry
+        require a deliberate second edit, so the fixture cannot quietly rot back
+        into the partial set that let a routed `socrates` through. The count is
+        nine `_crew_common.PAIRS` entries plus two `TIERED_AGENTS` variants.
+        """
+        self.assertEqual(len(self.THEMED_AGENTS), 11)
 
 
 class TestCountGuard(FixtureRepoMixin):
