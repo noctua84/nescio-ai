@@ -155,6 +155,30 @@ WRITE_ACCESS_PHRASE = "Write access to production code:"
 # CODE_WRITERS.
 WRITE_ACCESS_DECLARERS = {"builder", "builder-standard", "builder-simple"}
 
+# What that declaration must actually *claim*, and for whom.
+#
+# The same hole BOUNDARY_SCOPE_TERMS closes, in the same place. The phrase above
+# is a thirty-two-character prefix ending in a colon and nothing more: a charter
+# reading `Write access to production code: none — the four other agents hold
+# it, not you.` carries the prefix, carries the spelled count the lint reads
+# for, and hands the implementer the exact reverse of the fact — in a system
+# prompt. The sentence carrying the phrase must therefore claim the access *for
+# its reader*, and these are the accepted forms: at least one must appear.
+#
+# Second person is the load-bearing part, not the verb. `hold it` appears in the
+# revocation quoted above; `you hold` and `you are one of` do not, and cannot,
+# because the revocation's whole grammar is to put the access somewhere else.
+#
+# A flat tuple, not a mapping keyed on the declarers. Boundaries genuinely
+# differ per agent (tests, docs, `.sisyphus/`, one report file), which is why
+# BOUNDARY_SCOPE_TERMS is keyed and why its domain has to be pinned equal to the
+# bounded set. This declaration is one shared fact — how many agents hold write
+# access — and every declarer states it identically. Keying it would encode a
+# per-agent variation that does not exist and buy a second domain-sync
+# assertion to keep it honest. Emptying the tuple reds the lint rather than
+# silencing it, which is the property the keyed form was there to protect.
+WRITE_ACCESS_AFFIRMATIONS = ("you are one of", "you hold")
+
 _FUNCTIONAL_TO_PHILOSOPHER = dict(PAIRS)
 
 # Every agent, by functional name. The single source the roster derives from.

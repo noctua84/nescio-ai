@@ -26,6 +26,7 @@ from _crew_common import (  # noqa: E402
     BOUNDED_WRITERS,
     CODE_WRITERS,
     TIERED_AGENTS,
+    WRITE_ACCESS_AFFIRMATIONS,
     WRITE_ACCESS_DECLARERS,
     WRITE_ACCESS_PHRASE,
     WRITE_BOUNDED,
@@ -466,15 +467,39 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         told it was alone. Reading the number out of `len(CODE_WRITERS)` and
         looking for its spelled-out form is what couples the two again.
 
-        **Scope, honestly.** This aims at an author who edits CODE_WRITERS and
-        forgets `agents/` — exactly how the bug arose. It does not read the rest
-        of the charter: an author who writes the anchored sentence correctly and
-        then contradicts it two paragraphs later passes this test. Prose
-        consistency at large is not mechanically checkable; the anchored
-        sentence is, so that is what is pinned.
+        **The phrase is necessary, not sufficient** — the same lesson as the
+        boundary lint above, learned the same way. A body reading
+        `Write access to production code: none — the four other agents hold it,
+        not you.` carries the phrase *and* the spelled count, and tells an
+        implementer the reverse of the fact. So the sentence must also claim the
+        access for its reader (WRITE_ACCESS_AFFIRMATIONS) before its count is
+        read.
 
-        The word must match whole (`\\b`), or a crew of four would be satisfied
-        by a charter claiming fourteen.
+        **Scope, honestly.** This aims at an author who edits CODE_WRITERS and
+        forgets `agents/` — exactly how the bug arose. What it pins is one
+        sentence, read for two things: that it claims write access for the agent
+        reading it, and that the count it names is the true one. Three gaps are
+        left open, deliberately.
+
+        *Outside the sentence:* an author who writes it correctly and then
+        contradicts it two paragraphs later passes. Prose consistency at large is
+        not mechanically checkable.
+
+        *Inside the sentence:* the affirmation is an allowlist of phrasings, so a
+        reversal built out of words not on that list, or a hedge that satisfies a
+        listed phrase and then qualifies it away, still passes. The list is
+        narrow on purpose — the charters already agree on one wording, and a
+        wider list is a wider hole.
+
+        *Around the sentence:* `_write_access_sentence` finds the phrase by
+        substring and is markdown-blind. The declaration quoted inside a fenced
+        code block — an example, a snippet of another agent's charter — satisfies
+        this lint while the prose above it says anything at all. No charter has
+        that shape today; the fix is a markdown-aware scan, which is a larger
+        change than this lint is worth until one does.
+
+        The count word must match whole (`\\b`), or a crew of four would be
+        satisfied by a charter claiming fourteen.
 
         The domain is WRITE_ACCESS_DECLARERS, not CODE_WRITERS — `qa-guard`
         holds write access and deliberately declares none, for the reasons
@@ -506,6 +531,15 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
                     sentence,
                     f"{path.name}: no write-access declaration — expected a sentence "
                     f"opening {WRITE_ACCESS_PHRASE!r} in the charter body",
+                )
+                self.assertTrue(
+                    any(
+                        term in sentence.lower()
+                        for term in WRITE_ACCESS_AFFIRMATIONS
+                    ),
+                    f"{path.name}: the declaration carries the phrase but claims no "
+                    f"access for this agent — expected one of "
+                    f"{list(WRITE_ACCESS_AFFIRMATIONS)} in {sentence!r}",
                 )
                 self.assertRegex(
                     sentence.lower(), rf"\b{expected}\b",
@@ -544,6 +578,88 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
     def test_no_boundary_phrase_reads_as_no_boundary(self):
         """A body without the phrase yields None, not a sentence to search."""
         self.assertIsNone(_boundary_sentence("You may write only tests.\n"))
+
+    def test_a_revoked_write_access_declaration_does_not_satisfy_the_lint(self):
+        """Regression: the declaration can carry the phrase, the count, and the opposite meaning.
+
+        The sibling hazard to `Hard file boundary: none`, reproduced by an
+        auditor against the count check as first shipped. Both halves of that
+        check pass here — the phrase anchors the sentence, and `four` is the
+        spelled `len(CODE_WRITERS)` the lint looks for — while the sentence
+        hands an implementer the reverse of the fact it exists to state.
+        WRITE_ACCESS_AFFIRMATIONS is what bites, and this test asserts the split:
+        the count is not evidence, the second-person claim is.
+
+        Asserted against literal strings rather than the real charters, like the
+        boundary regressions above, so the hazard stays documented here and a
+        charter reword cannot quietly retire it.
+        """
+        revoked = _write_access_sentence(
+            "Write access to production code: none — the four other agents\n"
+            "hold it, not you.\n"
+        )
+        self.assertRegex(
+            revoked.lower(), r"\bfour\b",
+            "the reversal keeps the count — if it did not, this would prove nothing "
+            "about the affirmation check",
+        )
+        self.assertFalse(
+            any(term in revoked.lower() for term in WRITE_ACCESS_AFFIRMATIONS),
+            f"a revoked declaration claims access for its reader: {revoked!r}",
+        )
+
+        declared = _write_access_sentence(
+            "Write access to production code: you are one of four agents that\n"
+            "hold it.\n"
+        )
+        self.assertTrue(
+            any(term in declared.lower() for term in WRITE_ACCESS_AFFIRMATIONS),
+            f"the settled charter wording claims no access: {declared!r}",
+        )
+
+    def test_the_write_access_sentence_spans_a_line_wrap(self):
+        """Charters wrap their prose, so the declaration is routinely two lines long.
+
+        Read a line at a time this sentence is truncated at `that`, losing both
+        the count and the claim. It must also stop at its own full stop rather
+        than swallowing the sentence after it, or every word in the paragraph
+        becomes evidence.
+        """
+        wrapped = (
+            "Write access to production code: you are one of four agents that\n"
+            "hold it. Most of this crew reads, judges, and advises; you build.\n"
+        )
+        self.assertEqual(
+            _write_access_sentence(wrapped),
+            "Write access to production code: you are one of four agents that\n"
+            "hold it.",
+        )
+
+    def test_the_write_access_sentence_stops_at_the_paragraph_break(self):
+        """A declaration naming no count must not borrow one from the paragraph below.
+
+        Not hypothetical. `agents/builder-standard.md` follows its declaration
+        with a paragraph reading "moderate complexity, 50–200 lines, one or two
+        design decisions" — `one` and `two` are both NUMBER_WORDS entries the
+        count assertion reads for. `len(CODE_WRITERS)` is 4 today so nothing
+        collides; a crew that shrank to two, with no hard stop here, would have
+        this lint certify a charter that states no count at all.
+        """
+        borrowed = (
+            "Write access to production code: none.\n"
+            "\n"
+            "You are the `standard` tier: moderate complexity, 50–200 lines, one\n"
+            "or two design decisions.\n"
+        )
+        sentence = _write_access_sentence(borrowed)
+        self.assertEqual(sentence, "Write access to production code: none.")
+        self.assertNotRegex(sentence.lower(), r"\btwo\b")
+
+    def test_no_write_access_phrase_reads_as_no_declaration(self):
+        """A body without the phrase yields None, not a sentence to search."""
+        self.assertIsNone(
+            _write_access_sentence("You may edit production code.\n")
+        )
 
     def test_notebook_edit_alone_does_not_bar_editing(self):
         """Regression: `Edit` in `NotebookEdit` is True — tokens, not substrings."""
