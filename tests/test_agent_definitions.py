@@ -60,6 +60,17 @@ DISPATCH_RE = re.compile(r'subagent_type: "([^"]*)"')
 # to name — and would hide the very term this lint reads the sentence for.
 BOUNDARY_SENTENCE_END_RE = re.compile(r"""[.!?][*`"')\]]*(?=\s|$)""")
 
+# What the *remainder* of the boundary paragraph looks like when the sentence
+# above was cut short: a lowercase continuation of the sentence that was being
+# read (`" sections of ..."` after `[tool.*]`).
+#
+# Leading whitespace and markup are skipped before the first letter is judged,
+# so a genuine second sentence opening in bold or a backticked path is not
+# misread as a continuation. Only a lowercase *letter* means truncation —
+# anything else (a digit, a dash, an em-dash) is left to pass, because this is
+# a floor on obvious mid-sentence cuts, not a grammar checker.
+BOUNDARY_CONTINUATION_RE = re.compile(r"""\A\s*[*`"'(\[]*[a-z]""")
+
 
 def _agent_files(agents_dir=AGENTS_DIR):
     return sorted(agents_dir.glob("*.md"))
@@ -127,22 +138,85 @@ def _dispatch_targets(text):
     ]
 
 
-def _boundary_sentence(body):
-    """The sentence in `body` that declares the file boundary, or None.
+def _boundary_paragraph(body):
+    """The paragraph in `body` that declares the file boundary, or None.
 
-    Runs from `BOUNDARY_PHRASE` to the first sentence-final punctuation, and no
-    further than the end of the paragraph the phrase sits in. Charters wrap
-    their prose, so the sentence routinely spans newlines; a blank line is the
-    hard stop, because without one a boundary sentence reading "none" would
-    borrow a scope term from whatever paragraph follows it and pass.
+    Runs from `BOUNDARY_PHRASE` to the end of the paragraph the phrase sits in.
+    A blank line is the hard stop, because without one a boundary sentence
+    reading "none" would borrow a scope term from whatever paragraph follows it
+    and pass.
+
+    Split out of `_boundary_sentence` so `_boundary_sentence_is_truncated` can
+    ask what follows the parsed sentence *within the same paragraph* without
+    re-deriving the segment. Duplicating the two `find` calls there would have
+    worked, but the truncation check is only meaningful against the exact
+    segment `_boundary_sentence` cut down — two copies that drift stop
+    disagreeing loudly and start disagreeing silently.
     """
     start = body.find(BOUNDARY_PHRASE)
     if start == -1:
         return None
     end = body.find("\n\n", start)
-    segment = body[start:] if end == -1 else body[start:end]
+    return body[start:] if end == -1 else body[start:end]
+
+
+def _boundary_sentence(body):
+    """The sentence in `body` that declares the file boundary, or None.
+
+    Runs from `BOUNDARY_PHRASE` to the first sentence-final punctuation, and no
+    further than the end of the paragraph the phrase sits in (see
+    `_boundary_paragraph`). Charters wrap their prose, so the sentence routinely
+    spans newlines.
+    """
+    segment = _boundary_paragraph(body)
+    if segment is None:
+        return None
     terminator = BOUNDARY_SENTENCE_END_RE.search(segment)
     return segment if terminator is None else segment[: terminator.end()]
+
+
+def _boundary_sentence_is_truncated(body):
+    """Did `_boundary_sentence` cut this boundary off mid-sentence?
+
+    `BOUNDARY_SENTENCE_END_RE` ends the sentence at any `.` followed by optional
+    markup and whitespace. That is deliberate and load-bearing — it is what
+    stops `.sisyphus/` and `.pre-commit-config.yaml` terminating a sentence — but
+    it cannot tell a full stop from the dot inside a *spaced* dotted token. A
+    boundary reading ``never edit the `[tool.*]` sections of `pyproject.toml`,
+    CI workflows, or pre-commit config.`` parses down to ``never edit the
+    `[tool.*]``` and the rest of the declared scope vanishes, while
+    `test_bounded_writers_declare_their_boundary` stays **green**, because the
+    required scope term happened to fall before the cut. A silently shortened
+    boundary is worse than a missing one: the lint reports the agent as
+    compliant on a sentence that no longer says what it is bounded to.
+
+    The discriminator is what *follows* the cut, and two more obvious ones were
+    tried first and rejected:
+
+    * **Parsed length vs. paragraph length** — false-positives on `planner`,
+      whose boundary paragraph legitimately carries a second sentence
+      ("Everything else in the tree is read-only to you."). Measured 75 of 124
+      characters, with nothing wrong with it.
+    * **Unclosed markup in the parsed sentence** — does not bite on the case
+      being closed. In ``` `[tool.*]` ``` the terminator's own trailing class
+      ``[*`"')\\]]*`` consumes the `.`, the `*`, the `]` *and* the closing
+      backtick, so the truncated sentence comes out with balanced backticks and
+      balanced brackets. The check stays green on exactly the input it was
+      reached for.
+
+    What is left is the remainder: after a real sentence end it is empty, or it
+    opens a new sentence; after a truncation it continues the old one in
+    lowercase. See BOUNDARY_CONTINUATION_RE.
+
+    Returns False for a body carrying no boundary phrase at all — absence is
+    `test_bounded_writers_declare_their_boundary`'s failure to report, not this
+    one's.
+    """
+    segment = _boundary_paragraph(body)
+    if segment is None:
+        return False
+    remainder = segment[len(_boundary_sentence(body)):]
+    return BOUNDARY_CONTINUATION_RE.match(remainder) is not None
 
 
 def _may_not_edit(fields):
@@ -457,6 +531,89 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
 
         borrowed = "**Hard file boundary: none.**\n\nYou write only `.sisyphus/` markdown.\n"
         self.assertNotIn(".sisyphus", _boundary_sentence(borrowed))
+
+    def test_a_dotted_token_does_not_silently_shorten_the_boundary_sentence(self):
+        """Regression: a `.` inside a token ends the parse, and the lint stays green.
+
+        The sibling above pins that `.sisyphus/` does *not* end the sentence —
+        the terminator's lookahead requires whitespace after the dot. This pins
+        the other half of that rule: a dotted token that *is* followed by a
+        space ends the sentence anyway, and everything the charter declared
+        after it is dropped. ``[tool.*]``, `.yaml`, `.github/workflows/` all do
+        it.
+
+        Nothing existing catches this, because it is silent by construction.
+        `test_bounded_writers_declare_their_boundary` asks only whether a scope
+        term appears *somewhere* in the parsed sentence, so a truncation that
+        happens to fall after the term certifies an agent as bounded on a
+        sentence that no longer names half its scope. This was hit by hand while
+        bounding `qa-guard`'s write scope and dodged by writing a dot-free
+        charter — which is a habit, not a check.
+
+        Pure literals, like the two regressions above: what is asserted is a
+        property of the parse, not of any charter on disk. The charters
+        themselves are covered by the sibling loop, which is what would go red
+        if someone reintroduced the shape.
+
+        The second half is the one that matters for false positives. `planner`'s
+        boundary paragraph genuinely holds two sentences, so any "the parse is
+        shorter than the paragraph" rule flags a charter with nothing wrong with
+        it. `_boundary_sentence_is_truncated` reads what follows the cut
+        instead, and a capitalised new sentence is not a continuation.
+        """
+        truncated = (
+            "**Hard file boundary: never edit the `[tool.*]` sections of\n"
+            "`pyproject.toml`, CI workflows, or pre-commit config.**\n"
+        )
+        # The trap in full: the sentence is cut, and the existing lint's scope
+        # term survives inside the stump, so that check cannot see the loss.
+        self.assertNotIn("pre-commit", _boundary_sentence(truncated))
+        self.assertIn("never edit", _boundary_sentence(truncated).lower())
+        self.assertTrue(_boundary_sentence_is_truncated(truncated))
+
+        two_sentences = (
+            "**Hard file boundary: you may write only markdown files under\n"
+            "`.sisyphus/`.**\n"
+            "Everything else in the tree is read-only to you.\n"
+        )
+        self.assertFalse(_boundary_sentence_is_truncated(two_sentences))
+
+        whole = "**Hard file boundary: you may write only your own report file.**\n"
+        self.assertFalse(_boundary_sentence_is_truncated(whole))
+
+    def test_no_bounded_charter_has_a_truncated_boundary_sentence(self):
+        """No charter on disk declares a boundary the parse quietly shortens.
+
+        The companion to `test_bounded_writers_declare_their_boundary`, over the
+        same files and the same set. That test reads the boundary sentence and
+        asks whether it names a scope; this one asks whether the sentence it
+        read is the whole sentence the author wrote. Both have to hold for the
+        doc-lint to mean anything: a scope term inside a stump proves only that
+        the term landed early.
+
+        Today every one of the five is clean — four parse to their full
+        paragraph, `planner` to the first of its two sentences. This exists for
+        the charter nobody has written yet, where a reworded boundary names
+        `pyproject.toml` or `.github/workflows/` and loses everything after it.
+        """
+        bounded = BOUNDED_WRITERS | WRITE_BOUNDED
+        self.assertTrue(bounded, "no bounded agents — nothing asserted")
+        for name in sorted(bounded):
+            path = AGENTS_DIR / f"{_themed(name)}.md"
+            with self.subTest(agent=path.stem):
+                body = FRONTMATTER_RE.sub("", path.read_text(encoding="utf-8"), count=1)
+                sentence = _boundary_sentence(body)
+                self.assertIsNotNone(
+                    sentence,
+                    f"{path.stem}: boundary declared only in routing metadata",
+                )
+                self.assertFalse(
+                    _boundary_sentence_is_truncated(body),
+                    f"{path.stem}: the boundary sentence is cut off mid-sentence — a "
+                    f"dotted token ends the parse early, so the scope declared after it "
+                    f"is invisible to the lint. Parsed only {sentence!r}, dropping "
+                    f"{_boundary_paragraph(body)[len(sentence):]!r}",
+                )
 
     def test_no_boundary_phrase_reads_as_no_boundary(self):
         """A body without the phrase yields None, not a sentence to search."""
