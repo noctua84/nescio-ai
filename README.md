@@ -108,7 +108,7 @@ and changes nothing if it can't.
 | `builder-standard` | Same contract as `builder`, for tasks the plan classifies `standard`; runs on Sonnet. |
 | `builder-simple` | Same contract as `builder`, for mechanical tasks the plan classifies `simple`; runs on Haiku. |
 | `test-writer` | Writes and extends tests against the intended interface; may not touch implementation files. |
-| `qa-guard` | Discovers and runs the project's CI checks, fixing mechanical failures until they pass. |
+| `qa-guard` | Discovers and runs the project's CI checks, fixing mechanical failures until they pass; may never edit the files that define the checks. |
 | `advisor` | Read-only architecture/design advice for hard tradeoffs. |
 | `reviewer` | QA audit of implemented code — bugs, regressions, security. |
 | `critic` | Devil's advocate — challenges the approach before it's built. |
@@ -119,12 +119,13 @@ and changes nothing if it can't.
 | `doc-writer` | Writes docs from `doc-researcher`'s findings; may not touch implementation files. |
 
 Nine agents can write files, in two tiers. Six may also *edit* existing ones:
-`builder` and its two tiers plus `qa-guard` change production code, while
-`test-writer` and `doc-writer` are held to their declared file boundaries by
-their charters — frontmatter has no path-scoped form, so the boundary is prose,
-not enforcement. Three more may create files but not edit any: `orchestrator`,
-`planner` (work plans under `.sisyphus/`) and `reviewer` (its audit report). The
-remaining eight are read-only.
+`builder` and its two tiers change production code with no declared limit, while
+`test-writer`, `doc-writer` and `qa-guard` are held to their declared file
+boundaries by their charters — tests only, docs only, and never the files that
+define the CI checks. Frontmatter has no path-scoped form, so those boundaries
+are prose, not enforcement. Three more may create files but not edit any:
+`orchestrator`, `planner` (work plans under `.sisyphus/`) and `reviewer` (its
+audit report). The remaining eight are read-only.
 
 ## Skills
 
