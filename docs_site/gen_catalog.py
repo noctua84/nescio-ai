@@ -84,17 +84,24 @@ class CatalogError(RuntimeError):
 # --------------------------------------------------------------------------
 
 # Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
-# document -> verify. Every agent in agents/ must appear exactly once.
+# verify -> document. Documenting is last rather than folded into "Build"
+# because only doc-researcher overlaps implementation (it runs as a parallel
+# research track); doc-writer fires at delivery, once verification has settled
+# what there actually is to describe. Putting the pair at the end keeps the
+# column reading in the order a reader would meet these agents.
+#
+# Every agent in agents/ must appear here exactly once -- see the strictness
+# note above; this table is checked against the directory in both directions.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
     ("Plan and challenge", ["planner", "validator", "advisor", "critic"]),
     ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
+    ("Verify", ["qa-guard", "reviewer"]),
     # `doc-writer`'s charter says it does not write code, so Build was the only
     # fit among the original five buckets and a poor one. Its own bucket keeps
     # the research -> write pair adjacent.
     ("Document", ["doc-researcher", "doc-writer"]),
-    ("Verify", ["reviewer", "qa-guard"]),
 ]
 
 SKILL_GROUPS: list[tuple[str, list[str]]] = [

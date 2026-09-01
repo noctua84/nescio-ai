@@ -19,8 +19,8 @@ Agent names are identifiers, and are set in mono throughout.
 | Discover | `scout`, `explore`, `librarian`, `vision` |
 | Plan and challenge | `planner`, `validator`, `advisor`, `critic` |
 | Build | `builder`, `builder-standard`, `builder-simple`, `test-writer` |
+| Verify | `qa-guard`, `reviewer` |
 | Document | `doc-researcher`, `doc-writer` |
-| Verify | `reviewer`, `qa-guard` |
 
 ## Coordinate
 
@@ -86,7 +86,7 @@ Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a sin
 
 ### `builder`
 
-Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. The only crew member with write access to production code. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment, or work beyond the standard tier's 200-line band. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
 **Model** `claude-opus-5` · [`agents/builder.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder.md)
 
@@ -108,6 +108,20 @@ Test authorship specialist. Writes and extends tests for implemented code — ve
 
 **Model** `claude-opus-5` · [`agents/test-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/test-writer.md)
 
+## Verify
+
+### `qa-guard`
+
+CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
+
+**Model** `claude-sonnet-5` · [`agents/qa-guard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/qa-guard.md)
+
+### `reviewer`
+
+QA engineer. Audits implemented code or features for bugs, regressions, security flaws, and quality issues, then files a dated, severity-ranked report. Works on code whether pre-delivery (in a worktree or PR) or already landed. Read-only against the code under audit — writes only its report file. Distinct from validator (reviews plans for executability before work begins) and advisor (advises on architecture/design).
+
+**Model** `claude-opus-5` · **Denied tools** `Edit`, `NotebookEdit` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
+
 ## Document
 
 ### `doc-researcher`
@@ -121,17 +135,3 @@ Documentation landscape specialist. Reads existing project docs and returns a st
 Documentation author. Consumes doc-researcher findings and a description of what changed, then writes or updates documentation files using the project's existing vocabulary and structure. Hard file boundary: may not touch implementation files. Distinct from doc-researcher (maps the landscape), builder (writes production code), and reviewer (audits code quality).
 
 **Model** `claude-sonnet-5` · [`agents/doc-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-writer.md)
-
-## Verify
-
-### `reviewer`
-
-QA engineer. Audits implemented code or features for bugs, regressions, security flaws, and quality issues, then files a dated, severity-ranked report. Works on code whether pre-delivery (in a worktree or PR) or already landed. Read-only against the code under audit — writes only its report file. Distinct from validator (reviews plans for executability before work begins) and advisor (advises on architecture/design).
-
-**Model** `claude-opus-5` · **Denied tools** `Edit`, `NotebookEdit` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
-
-### `qa-guard`
-
-CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
-
-**Model** `claude-sonnet-5` · [`agents/qa-guard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/qa-guard.md)
