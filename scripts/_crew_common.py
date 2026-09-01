@@ -128,6 +128,57 @@ BOUNDARY_SCOPE_TERMS = {
     "reviewer": ("report",),
 }
 
+# The phrase an implementer's charter must carry to declare its write access.
+#
+# Named for the same reason as BOUNDARY_PHRASE: the three charters diverge in
+# wording *after* this prefix — each names a different set of neighbours it is
+# unlike — so a bare literal at the call site would be one reword away from a
+# check that silently passes on nothing.
+WRITE_ACCESS_PHRASE = "Write access to production code:"
+
+# Who must carry that declaration, by functional agent name.
+#
+# **Not CODE_WRITERS, and deliberately so.** `qa-guard` is a CODE_WRITER and is
+# absent here. The declaration is a *licensing* sentence: it tells an implementer
+# that it may write production code and that few others may. `qa-guard`'s charter
+# does the opposite job — it opens `You have one job: make the CI-equivalent
+# checks pass`, then spends its length narrowing that to the mechanical
+# (formatting, imports, lint, types, test setup, in that order) and returning
+# `BLOCKED` at the first judgment call. Adding a licensing sentence there would
+# widen the only control that charter has: frontmatter accepts tool names only,
+# so the prose *is* the control surface — the same fact
+# `test_bounded_writers_declare_their_boundary` already rests on.
+#
+# A partial domain with a stated reason beats a total one bought by editing a
+# charter to fit a test. If `qa-guard` ever belongs here, the charter changes
+# first and this set follows; do not "fix" the asymmetry by widening the set to
+# CODE_WRITERS.
+WRITE_ACCESS_DECLARERS = {"builder", "builder-standard", "builder-simple"}
+
+# What that declaration must actually *claim*, and for whom.
+#
+# The same hole BOUNDARY_SCOPE_TERMS closes, in the same place. The phrase above
+# is a thirty-two-character prefix ending in a colon and nothing more: a charter
+# reading `Write access to production code: none — the four other agents hold
+# it, not you.` carries the prefix, carries the spelled count the lint reads
+# for, and hands the implementer the exact reverse of the fact — in a system
+# prompt. The sentence carrying the phrase must therefore claim the access *for
+# its reader*, and these are the accepted forms: at least one must appear.
+#
+# Second person is the load-bearing part, not the verb. `hold it` appears in the
+# revocation quoted above; `you hold` and `you are one of` do not, and cannot,
+# because the revocation's whole grammar is to put the access somewhere else.
+#
+# A flat tuple, not a mapping keyed on the declarers. Boundaries genuinely
+# differ per agent (tests, docs, `.sisyphus/`, one report file), which is why
+# BOUNDARY_SCOPE_TERMS is keyed and why its domain has to be pinned equal to the
+# bounded set. This declaration is one shared fact — how many agents hold write
+# access — and every declarer states it identically. Keying it would encode a
+# per-agent variation that does not exist and buy a second domain-sync
+# assertion to keep it honest. Emptying the tuple reds the lint rather than
+# silencing it, which is the property the keyed form was there to protect.
+WRITE_ACCESS_AFFIRMATIONS = ("you are one of", "you hold")
+
 _FUNCTIONAL_TO_PHILOSOPHER = dict(PAIRS)
 
 # Every agent, by functional name. The single source the roster derives from.

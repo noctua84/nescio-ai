@@ -72,7 +72,16 @@ class CatalogError(RuntimeError):
 # --------------------------------------------------------------------------
 
 # Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
-# document -> verify.
+# verify -> document. Documenting is last rather than folded into "Build"
+# because only doc-researcher overlaps implementation (it runs as a parallel
+# research track); doc-writer fires at delivery, once verification has settled
+# what there actually is to describe. Putting the pair at the end keeps the
+# column reading in the order a reader would meet these agents.
+#
+# `test-writer` sits in "Build", not "Verify": it authors the tests rather than
+# auditing what was built. `qa-guard` is the one that audits, and it is a
+# CODE_WRITER in scripts/_crew_common.py, so it stays in "Verify" beside
+# `reviewer`.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
@@ -94,9 +103,9 @@ AGENT_GROUPS: list[tuple[str, list[str]]] = [
     # docs_site/test_site_content.py::CrewRosterTest, which compares this table
     # against brand/make_diagrams.CREW_GROUPS in order.
     ("Plan and challenge", ["planner", "validator", "critic", "advisor"]),
-    ("Build", ["builder", "builder-standard", "builder-simple"]),
+    ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
+    ("Verify", ["qa-guard", "reviewer"]),
     ("Document", ["doc-researcher", "doc-writer"]),
-    ("Verify", ["test-writer", "qa-guard", "reviewer"]),
 ]
 
 SKILL_GROUPS: list[tuple[str, list[str]]] = [

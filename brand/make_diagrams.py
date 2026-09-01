@@ -272,18 +272,18 @@ CREW_GROUPS = [
         ("advisor", "read-only guidance on tradeoffs"),
     ]),
     ("BUILD", [
-        ("builder", "executes one scoped task; the only writer of production code"),
-        ("builder-standard", "same contract on Sonnet; 50-200 lines, one or two design calls"),
-        ("builder-simple", "same contract on Haiku; mechanical work under 50 lines"),
+        ("builder", "complex tier on Opus; design judgment, or over 200 lines"),
+        ("builder-standard", "standard tier on Sonnet; 50-200 lines, some judgment"),
+        ("builder-simple", "simple tier on Haiku; mechanical work under 50 lines"),
+        ("test-writer", "writes tests for the intended interface, not the current output"),
+    ]),
+    ("VERIFY", [
+        ("qa-guard", "runs the project's CI checks; fixes mechanical failures"),
+        ("reviewer", "audits for bugs, regressions, security"),
     ]),
     ("DOCUMENT", [
         ("doc-researcher", "maps existing docs: coverage, gaps, update targets"),
         ("doc-writer", "writes the docs; may not touch implementation files"),
-    ]),
-    ("VERIFY", [
-        ("test-writer", "writes tests for the intended interface, not the current output"),
-        ("qa-guard", "runs the project's CI checks; fixes mechanical failures"),
-        ("reviewer", "audits for bugs, regressions, security"),
     ]),
 ]
 
@@ -382,7 +382,7 @@ def diagram_crew():
     #
     # The guard is now about capacity, not an exact fit: the roster is laid out
     # as two bands of `ncols`, so it may run a column short — it does, band 2 is
-    # DOCUMENT, VERIFY and an empty third slot — but never a column long, which
+    # VERIFY, DOCUMENT and an empty third slot — but never a column long, which
     # would silently drop a whole bucket off the canvas with nothing rendered to
     # show for it.
     assert len(groups) <= 2 * ncols, "the roster no longer fits two bands of columns"
