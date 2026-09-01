@@ -422,14 +422,19 @@ def diagram_crew():
 
     # The note fills band 2's empty third slot. Five buckets in a six-slot grid
     # leave exactly one hole, bottom-right — which is where the note sat before
-    # the reflow — so it costs no canvas height at all: it ends level with the
-    # columns beside it instead of below them.
+    # the reflow. It is the cheapest place for it, though no longer a free one:
+    # at 254px the note outruns both columns beside it and sets `col_bottom`
+    # itself, costing 78px of canvas. It was free until `test-writer` moved to
+    # BUILD and band 2 collapsed to two 2-card columns; before that VERIFY ran
+    # to within a pixel of the note's lower edge.
     #
-    # Under DOCUMENT (band 2, column 1) was tried and measured first, on the
-    # theory that DOCUMENT had become the sparsest column. It is only 77px
-    # sparser than VERIFY and the note is 254px tall, so 185px of it hung below
-    # every card on the canvas with the 514px void sitting right beside it, and
-    # the canvas grew 196px to hold that air. Rejected on the rendering.
+    # Stacking it under a band-2 column instead was tried and measured, and is
+    # still worse by a wide margin. There is no longer an obvious host column —
+    # VERIFY (column 1) and DOCUMENT (column 2) both hold two cards and end 17px
+    # apart — and under either one the note clears the bottom of every card on
+    # the canvas, growing it 171px under VERIFY or 188px under DOCUMENT against
+    # the 78px the slot costs, with a column-deep void left beside it. Rejected
+    # on the rendering, and again on the re-measure.
     #
     # `band2_top` is shared with the draw_band call above rather than recomputed,
     # and `+ 16` is the card loop's own top offset — so the note starts level
