@@ -71,13 +71,32 @@ class CatalogError(RuntimeError):
 # page (the count-guard would fail the build if it did).
 # --------------------------------------------------------------------------
 
-# Lifecycle order: coordinate -> discover -> plan and challenge -> build -> verify.
+# Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
+# document -> verify.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
-    ("Plan and challenge", ["planner", "validator", "advisor", "critic"]),
-    ("Build", ["builder"]),
-    ("Verify", ["reviewer"]),
+    # `critic` before `advisor` is deliberate, and this order was reconciled TO
+    # the crew diagram rather than the other way round. Two reasons, neither
+    # visible from this list alone:
+    #
+    #   * `validator` and `critic` are the two challenge roles, and the diagram
+    #     accents both. Drawn in this order their cards are adjacent; with
+    #     `advisor` between them a plain card splits the pair, and the diagram's
+    #     "Why three are highlighted" note -- which exists to explain exactly
+    #     that grouping -- has to reach around it.
+    #   * It is the real dispatch order. planner -> validator -> critic is the
+    #     PLAN phase in sequence; `advisor` is consulted during ANALYZE, outside
+    #     it, so it trails the three rather than interrupting them.
+    #
+    # Left alphabetical-looking on purpose is NOT what happened here: swapping
+    # these two back to read `advisor, critic` reds
+    # docs_site/test_site_content.py::CrewRosterTest, which compares this table
+    # against brand/make_diagrams.CREW_GROUPS in order.
+    ("Plan and challenge", ["planner", "validator", "critic", "advisor"]),
+    ("Build", ["builder", "builder-standard", "builder-simple"]),
+    ("Document", ["doc-researcher", "doc-writer"]),
+    ("Verify", ["test-writer", "qa-guard", "reviewer"]),
 ]
 
 SKILL_GROUPS: list[tuple[str, list[str]]] = [
