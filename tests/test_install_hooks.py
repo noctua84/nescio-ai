@@ -424,5 +424,288 @@ class WireSessionStartHookTest(unittest.TestCase):
             )
 
 
+class WireCommandHookMatcherTest(unittest.TestCase):
+    """install._wire_command_hook can scope a hook to a tool via the group's
+    `matcher`, and treats that matcher as part of the hook's identity.
+
+    A tool-event hook (PreToolUse/PostToolUse) wired without a matcher fires on
+    every tool call in every session; on a synchronous hook that is a latency tax
+    on the whole session. So the matcher must be expressible, and a matcher that
+    has drifted must re-wire in place rather than silently no-op as "already
+    wired" — which would leave the old, wrongly-scoped entry running.
+
+    The two public wrappers pass no matcher, so these exercise the private
+    _wire_command_hook directly against a stub script of our own name.
+    """
+
+    SCRIPT = "matcher_probe.py"
+    EVENT = "PreToolUse"
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        self.install = importlib.import_module("install")
+
+    def _local(self, config_dir: Path) -> Path:
+        return config_dir / "settings.json"
+
+    def _script(self, config_dir: Path) -> str:
+        return str(config_dir / "hooks" / self.SCRIPT)
+
+    def _seed_script(self, config_dir: Path) -> None:
+        hooks = config_dir / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        (hooks / self.SCRIPT).write_text("# stub\n", encoding="utf-8")
+
+    def _wire(self, config_dir: Path, *, matcher=None, dry_run=False) -> None:
+        self.install._wire_command_hook(
+            config_dir,
+            event_name=self.EVENT,
+            script_name=self.SCRIPT,
+            use_async=False,
+            dry_run=dry_run,
+            matcher=matcher,
+        )
+
+    def _seed_settings(self, config_dir: Path, groups: list) -> str:
+        text = json.dumps({"hooks": {self.EVENT: groups}}, indent=2) + "\n"
+        self._local(config_dir).write_text(text, encoding="utf-8")
+        return text
+
+    def _entry(self, config_dir: Path, *, command=None) -> dict:
+        return {
+            "type": "command",
+            "command": command or sys.executable,
+            "args": [self._script(config_dir)],
+        }
+
+    def _groups(self, config_dir: Path) -> list:
+        data = json.loads(self._local(config_dir).read_text(encoding="utf-8"))
+        return data["hooks"][self.EVENT]
+
+    def _ours(self, config_dir: Path) -> list:
+        """(group, entry) pairs whose entry references our stub script."""
+        script = self._script(config_dir)
+        return [
+            (group, entry)
+            for group in self._groups(config_dir)
+            for entry in group.get("hooks", [])
+            if script in (entry.get("args") or [])
+        ]
+
+    # --- defect 1: the matcher must be expressible at all -----------------
+
+    def test_matcher_is_emitted_ahead_of_hooks(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._wire(cfg, matcher="Bash")
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            # `matcher` first, matching the real Claude Code group shape.
+            self.assertEqual(list(groups[0].keys()), ["matcher", "hooks"])
+            self.assertEqual(groups[0]["matcher"], "Bash")
+            entry = groups[0]["hooks"][0]
+            self.assertEqual(entry["type"], "command")
+            self.assertEqual(entry["command"], sys.executable)
+            self.assertEqual(entry["args"][0], self._script(cfg))
+            self.assertNotIn("async", entry)
+
+    def test_without_matcher_group_shape_is_unchanged(self):
+        # No matcher supplied: the emitted group must carry no `matcher` key at
+        # all — the shape the Stop / SessionStart wiring has always produced.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._wire(cfg)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(list(groups[0].keys()), ["hooks"])
+            self.assertNotIn("matcher", groups[0])
+
+    # --- defect 2: the matcher is part of the hook's identity -------------
+
+    def test_adding_a_matcher_rewires_a_matcherless_entry(self):
+        # The regression this class exists for: an already-wired, matcher-less
+        # entry for the same script must NOT count as "already wired" once a
+        # matcher is asked for. No-oping here leaves a hook firing on every tool.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_settings(cfg, [{"hooks": [self._entry(cfg)]}])
+
+            self._wire(cfg, matcher="Bash")
+
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)  # re-wired in place, not duplicated
+            group, entry = ours[0]
+            self.assertEqual(group.get("matcher"), "Bash")
+            self.assertEqual(list(group.keys()), ["matcher", "hooks"])
+            self.assertEqual(entry["command"], sys.executable)
+
+    def test_same_matcher_rerun_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._wire(cfg, matcher="Bash")
+            first = self._local(cfg).read_text(encoding="utf-8")
+            self._wire(cfg, matcher="Bash")
+            second = self._local(cfg).read_text(encoding="utf-8")
+
+            self.assertEqual(first, second)
+            self.assertEqual(len(self._ours(cfg)), 1)
+
+    def test_changed_matcher_rewires_in_place(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_settings(
+                cfg, [{"matcher": "Bash", "hooks": [self._entry(cfg)]}]
+            )
+
+            self._wire(cfg, matcher="Edit")
+
+            self.assertEqual(len(self._groups(cfg)), 1)  # not duplicated
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)
+            self.assertEqual(ours[0][0].get("matcher"), "Edit")
+
+    def test_removing_the_matcher_rewires(self):
+        # matcher-bearing -> matcher-less is drift in the other direction and
+        # must re-wire too, dropping the key rather than leaving it stale.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_settings(
+                cfg, [{"matcher": "Bash", "hooks": [self._entry(cfg)]}]
+            )
+
+            self._wire(cfg, matcher=None)
+
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)
+            self.assertNotIn("matcher", ours[0][0])
+
+    def test_explicit_null_matcher_counts_as_no_matcher(self):
+        # An explicit `"matcher": null` and an absent key mean the same thing,
+        # so wiring with matcher=None over it is a no-op, not a re-wire.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            original = self._seed_settings(
+                cfg, [{"matcher": None, "hooks": [self._entry(cfg)]}]
+            )
+
+            self._wire(cfg, matcher=None)
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), original)
+
+    def test_matcher_change_in_shared_group_leaves_other_hook_alone(self):
+        # Our entry shares a group with somebody else's hook. Rewriting that
+        # group's matcher would silently re-scope their hook, so ours is pulled
+        # out into a correctly-matched group of its own instead.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            other = {"type": "command", "command": "echo", "args": ["other"]}
+            self._seed_settings(
+                cfg, [{"matcher": "Bash", "hooks": [other, self._entry(cfg)]}]
+            )
+
+            self._wire(cfg, matcher="Edit")
+
+            groups = self._groups(cfg)
+            shared = [g for g in groups if other in g.get("hooks", [])]
+            self.assertEqual(len(shared), 1)
+            self.assertEqual(shared[0]["matcher"], "Bash")  # untouched
+            self.assertEqual(shared[0]["hooks"], [other])   # ours moved out
+
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)  # exactly one entry for our script
+            self.assertEqual(ours[0][0].get("matcher"), "Edit")
+            self.assertIsNot(ours[0][0], shared[0])
+
+    def test_sole_occupant_rescope_preserves_other_group_keys(self):
+        # The other branch: our entry is the group's sole occupant, so the group
+        # is cleared and rebuilt in place to keep `matcher` ahead of `hooks`.
+        # Anything else the user hung on that group has to survive that rebuild
+        # — dropping it would be silent data loss in a real settings.json.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_settings(cfg, [{
+                "matcher": "Bash",
+                "hooks": [self._entry(cfg)],
+                "_comment": "mine",
+                "enabled": False,
+            }])
+
+            self._wire(cfg, matcher="Edit")
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)  # re-scoped in place, not split
+            group = groups[0]
+            self.assertEqual(group["matcher"], "Edit")
+            self.assertEqual(group["_comment"], "mine")
+            self.assertIs(group["enabled"], False)
+            # `matcher` still serialises ahead of `hooks`, extras trailing.
+            self.assertEqual(
+                list(group.keys()), ["matcher", "hooks", "_comment", "enabled"]
+            )
+
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)
+            self.assertEqual(ours[0][1]["command"], sys.executable)
+
+    def test_interpreter_and_matcher_drift_fixed_in_one_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            stale = str(Path(d) / "old" / "python.exe")
+            self._seed_settings(cfg, [{
+                "matcher": "Bash",
+                "hooks": [self._entry(cfg, command=stale)],
+            }])
+
+            self._wire(cfg, matcher="Edit")
+
+            ours = self._ours(cfg)
+            self.assertEqual(len(ours), 1)
+            group, entry = ours[0]
+            self.assertEqual(group.get("matcher"), "Edit")
+            self.assertEqual(entry["command"], sys.executable)
+
+    def test_prefers_the_group_whose_matcher_already_agrees(self):
+        # Two groups reference our script (a pre-existing mess). The one whose
+        # matcher already agrees wins, so a correct wiring stays a no-op.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            original = self._seed_settings(cfg, [
+                {"hooks": [self._entry(cfg)]},
+                {"matcher": "Bash", "hooks": [self._entry(cfg)]},
+            ])
+
+            self._wire(cfg, matcher="Bash")
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), original)
+
+    def test_matcher_change_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            original = self._seed_settings(
+                cfg, [{"matcher": "Bash", "hooks": [self._entry(cfg)]}]
+            )
+
+            self._wire(cfg, matcher="Edit", dry_run=True)
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), original)
+
+    def test_fresh_matcher_wiring_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._wire(cfg, matcher="Bash", dry_run=True)
+            self.assertFalse(self._local(cfg).exists())
+
+
 if __name__ == "__main__":
     unittest.main()
