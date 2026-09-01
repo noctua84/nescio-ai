@@ -25,9 +25,13 @@ from _crew_common import (  # noqa: E402
     BOUNDARY_SCOPE_TERMS,
     BOUNDED_WRITERS,
     CODE_WRITERS,
+    NEGATION_MARKERS,
+    SHAPE_EXCLUSION,
     TIERED_AGENTS,
     WRITE_BOUNDED,
+    exclusion,
     expected_roster,
+    inclusion,
     themed_name,
 )
 
@@ -430,8 +434,14 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         **The phrase is necessary, not sufficient.** A body reading
         `Hard file boundary: none — edit whatever you like.` carries the phrase
         and revokes the boundary, which is what a bare prefix match certified as
-        compliant. So the sentence carrying the phrase must also name the scope
-        this agent is bounded to (BOUNDARY_SCOPE_TERMS).
+        compliant. So the sentence carrying the phrase must also name this
+        agent's scope (BOUNDARY_SCOPE_TERMS).
+
+        How the terms combine is not decided here: it is a property of the
+        entry's *shape*, and `BoundaryScope.satisfied_by` derives it. An
+        inclusion needs any one of its terms, an exclusion every one of them —
+        see the note above BOUNDARY_SCOPE_TERMS for why the two cannot share a
+        mode.
         """
         bounded = BOUNDED_WRITERS | WRITE_BOUNDED
         self.assertTrue(bounded, "no bounded agents — nothing asserted")
@@ -450,7 +460,7 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
                     sentence,
                     f"{path.stem}: boundary declared only in routing metadata",
                 )
-                terms = BOUNDARY_SCOPE_TERMS[name]
+                scope = BOUNDARY_SCOPE_TERMS[name]
                 # Multi-word terms ("may never edit") are why this exists: the
                 # charters wrap their prose, so a reword that pushes the phrase
                 # across a line break would fail the raw substring match with
@@ -460,9 +470,10 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
                 # sentence`'s raw return is asserted on directly below.
                 sentence = " ".join(sentence.split())
                 self.assertTrue(
-                    any(term.lower() in sentence.lower() for term in terms),
-                    f"{path.stem}: the boundary sentence names no scope — expected one "
-                    f"of {list(terms)} in {sentence!r}",
+                    scope.satisfied_by(sentence),
+                    f"{path.stem}: the boundary sentence does not declare its scope "
+                    f"— this {scope.shape}-shaped boundary needs {scope.requirement} "
+                    f"{list(scope.terms)} in {sentence!r}",
                 )
 
     def test_a_revoked_boundary_does_not_satisfy_the_lint(self):
@@ -498,16 +509,49 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         only duplicate `test_bounded_writers_declare_their_boundary`. What is
         asserted is a property of the term, not of any charter on disk.
 
-        **Exclusivity, not membership.** The tuple is pinned whole rather than
-        checked with `assertIn`, because
-        `test_bounded_writers_declare_their_boundary` matches with `any(...)`:
-        one positive term sitting *alongside* the negation-bearing one is enough
-        to certify the inverted sentence. `("may never edit", "check")` would
-        satisfy a membership assertion while re-opening the exact polarity hole
-        this test exists to close, and stay green doing it.
+        **Shape, then membership — and the shape first.** This used to pin the
+        tuple whole (`assertEqual(..., (term,))`), because the lint matched
+        any-of: one positive term sitting *alongside* the negation-bearing one
+        was enough to certify the inverted sentence, so membership alone would
+        have stayed green while the hole reopened. Exclusion entries now match
+        all-of, which inverts that — a second term can only tighten the check —
+        so membership is safe *given the shape*. The shape is therefore asserted
+        first and is the load-bearing half: flipping this entry to
+        `inclusion("may never edit", "check")` restores any-of and the old hole
+        with it, and no assertion about the terms would notice.
+
+        **Generic over the constant.** The negation requirement is asserted for
+        every exclusion-shaped entry, not for `qa-guard` by name. A second
+        exclusion agent inherits the check instead of arriving unpinned — which
+        was the other way the old per-agent pin could be walked around.
         """
         term = "may never edit"
-        self.assertEqual(BOUNDARY_SCOPE_TERMS["qa-guard"], (term,))
+        qa_guard = BOUNDARY_SCOPE_TERMS["qa-guard"]
+        self.assertEqual(
+            qa_guard.shape, SHAPE_EXCLUSION,
+            "qa-guard names the region it may not touch — as an inclusion its "
+            "terms would match any-of, and one positive term beside the "
+            "negation would certify the inverted sentence",
+        )
+        self.assertIn(
+            term, qa_guard.terms,
+            "all-of over positive terms alone still has no view of polarity — "
+            "the negation has to be inside a pinned term",
+        )
+        for name, scope in sorted(BOUNDARY_SCOPE_TERMS.items()):
+            if scope.shape != SHAPE_EXCLUSION:
+                continue
+            with self.subTest(agent=name):
+                self.assertTrue(
+                    any(
+                        marker in scope_term.lower().split()
+                        for scope_term in scope.terms
+                        for marker in NEGATION_MARKERS
+                    ),
+                    f"{name}: an exclusion boundary with no negation-bearing term "
+                    f"({list(scope.terms)}) — every term matches the revocation of "
+                    f"the boundary as readily as the boundary itself",
+                )
         inverted = (
             "**Hard file boundary: you may edit the files that define the\n"
             "checks freely.**\n"
@@ -519,6 +563,57 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
             "settings, or build scripts.**\n"
         )
         self.assertIn(term, _boundary_sentence(declared).lower())
+
+    def test_widening_an_exclusion_entry_tightens_it_where_inclusion_loosened(self):
+        """The invariant the shape buys: an added exclusion term can only reject more.
+
+        What regressed before: `BOUNDARY_SCOPE_TERMS` held bare tuples matched
+        with `any(...)`, so widening `qa-guard` to `("may never edit", "check")`
+        — a reasonable-looking edit, "name the region too" — made `Hard file
+        boundary: you may edit the files that define the checks freely.` pass on
+        "check" alone. Adding a term *revoked* the check, silently, with the
+        suite green.
+
+        What is pinned here is the **shape**, not the term list. The sibling
+        above asserts `qa-guard` is exclusion-shaped today; this asserts what
+        being exclusion-shaped is worth — that the widening which used to open
+        the hole no longer can. The same two terms under `inclusion(...)` are
+        asserted to still accept the inverted sentence, so the test fails if the
+        two shapes ever collapse onto one mode and stops being a tautology.
+
+        Scopes are built locally. Mutating the real constant would leave the
+        rest of the suite asserting against whatever this test left behind.
+        """
+        inverted = " ".join(
+            _boundary_sentence(
+                "**Hard file boundary: you may edit the files that define the\n"
+                "checks freely.**\n"
+            ).split()
+        )
+        declared = " ".join(
+            _boundary_sentence(
+                "**Hard file boundary: you may never edit the files that define\n"
+                "the checks — CI workflows, pre-commit config, linter and\n"
+                "type-checker settings, or build scripts.**\n"
+            ).split()
+        )
+        widened = exclusion("may never edit", "check")
+        self.assertFalse(
+            widened.satisfied_by(inverted),
+            "widening an exclusion entry loosened it — the added term certified "
+            "the revocation the pinned negation exists to reject",
+        )
+        self.assertTrue(
+            widened.satisfied_by(declared),
+            "all-of rejected a genuine boundary sentence carrying both terms — "
+            "the mode has to tighten against the inverse, not against everything",
+        )
+        self.assertTrue(
+            inclusion("may never edit", "check").satisfied_by(inverted),
+            "the same terms under any-of must still accept the inverted sentence "
+            "— if they do not, the two shapes share a mode and the assertion "
+            "above proves nothing",
+        )
 
     def test_the_boundary_sentence_ends_at_the_sentence_not_the_first_dot(self):
         """`.sisyphus/` is a path, not a full stop — the planner's scope sits past it.
