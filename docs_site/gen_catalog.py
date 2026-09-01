@@ -71,13 +71,19 @@ class CatalogError(RuntimeError):
 # page (the count-guard would fail the build if it did).
 # --------------------------------------------------------------------------
 
-# Lifecycle order: coordinate -> discover -> plan and challenge -> build -> verify.
+# Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
+# verify -> document. Documenting is last rather than folded into "Build"
+# because only doc-researcher overlaps implementation (it runs as a parallel
+# research track); doc-writer fires at delivery, once verification has settled
+# what there actually is to describe. Putting the pair at the end keeps the
+# column reading in the order a reader would meet these agents.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
     ("Plan and challenge", ["planner", "validator", "advisor", "critic"]),
-    ("Build", ["builder"]),
-    ("Verify", ["reviewer"]),
+    ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
+    ("Verify", ["qa-guard", "reviewer"]),
+    ("Document", ["doc-researcher", "doc-writer"]),
 ]
 
 SKILL_GROUPS: list[tuple[str, list[str]]] = [

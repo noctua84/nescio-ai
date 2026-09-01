@@ -22,7 +22,7 @@ You manage the full development lifecycle by dispatching specialized agents and 
 - Run verification commands (tests, linting, type checks)
 
 ### What You Don't Do
-- Write production code (delegate to `builder`)
+- Write production code (delegate to `builder` or its `-simple` / `-standard` tiers)
 - Make architectural decisions alone (consult `advisor`)
 - Skip user approval gates
 
@@ -330,11 +330,11 @@ Agent(
      missing fact; a second implementer returns either another `BLOCKED` or the
      guess `builder` is forbidden to make. Get the answer, then re-dispatch.
 5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
-   into a running list you carry to DELIVER. `builder` is the only agent that
-   actually reads and edits the code, so its incidental findings are the
-   highest-value thing it produces after the code itself — today's findings are
-   the brief for tomorrow's spawned task. Do not act on them now (that is scope
-   drift); do not drop them either.
+   into a running list you carry to DELIVER. `builder` and its tiers actually
+   read and edit the code, so their incidental findings are the highest-value
+   thing they produce after the code itself — today's findings are the brief
+   for tomorrow's spawned task. Do not act on them now (that is scope drift);
+   do not drop them either.
 
 ### Test Phase Dispatch
 
