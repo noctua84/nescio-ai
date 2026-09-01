@@ -26,6 +26,9 @@ from _crew_common import (  # noqa: E402
     BOUNDED_WRITERS,
     CODE_WRITERS,
     TIERED_AGENTS,
+    WRITE_ACCESS_AFFIRMATIONS,
+    WRITE_ACCESS_DECLARERS,
+    WRITE_ACCESS_PHRASE,
     WRITE_BOUNDED,
     expected_roster,
     themed_name,
@@ -59,6 +62,38 @@ DISPATCH_RE = re.compile(r'subagent_type: "([^"]*)"')
 # planner's boundary in half at `.sisyphus/` — the one path its boundary exists
 # to name — and would hide the very term this lint reads the sentence for.
 BOUNDARY_SENTENCE_END_RE = re.compile(r"""[.!?][*`"')\]]*(?=\s|$)""")
+
+# Integers spelled the way a charter spells them, for the write-access lint.
+#
+# Charters are prose: they say "one of four agents", never "one of 4". The lint
+# therefore needs the *word*, and the word has to be derived from
+# `len(CODE_WRITERS)` rather than written out beside the assertion — a literal
+# is exactly the thing that went stale in `agents/` in the first place.
+#
+# Runs to 17, the size of the whole roster: no more agents can hold write access
+# than exist. A `len(CODE_WRITERS)` past the end is a roster that grew, and the
+# `KeyError` it raises is the point — a `.get()` with a fallback would turn the
+# one bookkeeping slip this test exists to catch into a check that quietly stops
+# asserting anything.
+NUMBER_WORDS = {
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+    13: "thirteen",
+    14: "fourteen",
+    15: "fifteen",
+    16: "sixteen",
+    17: "seventeen",
+}
 
 
 def _agent_files(agents_dir=AGENTS_DIR):
@@ -137,6 +172,26 @@ def _boundary_sentence(body):
     borrow a scope term from whatever paragraph follows it and pass.
     """
     start = body.find(BOUNDARY_PHRASE)
+    if start == -1:
+        return None
+    end = body.find("\n\n", start)
+    segment = body[start:] if end == -1 else body[start:end]
+    terminator = BOUNDARY_SENTENCE_END_RE.search(segment)
+    return segment if terminator is None else segment[: terminator.end()]
+
+
+def _write_access_sentence(body):
+    """The sentence in `body` that declares who holds write access, or None.
+
+    Shaped exactly like `_boundary_sentence`, for the same two reasons: charters
+    wrap their prose, so the sentence routinely spans newlines and cannot be
+    read a line at a time; and the paragraph break is a hard stop, so a
+    declaration that names no number cannot borrow one from the paragraph below
+    it and pass. `WRITE_ACCESS_PHRASE` ends in a colon, which
+    `BOUNDARY_SENTENCE_END_RE` does not treat as sentence-final, so the search
+    for the terminator can start at the phrase itself.
+    """
+    start = body.find(WRITE_ACCESS_PHRASE)
     if start == -1:
         return None
     end = body.find("\n\n", start)
@@ -308,6 +363,15 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         in these sets, so quietly dropping one stops the check rather than
         failing it.
 
+        WRITE_ACCESS_DECLARERS is pinned on that same argument, and it is the
+        set where the argument bites hardest.
+        `test_code_writers_declare_how_many_hold_write_access` iterates it, and
+        its two structural assertions — a crew of more than one writer, a domain
+        inside CODE_WRITERS — are both satisfied by the empty set. Emptying it
+        therefore does not fail that lint; it turns it into a zero-iteration
+        loop that reports green while no charter is read at all. Exact equality
+        here is what makes that edit visible.
+
         Same contract as the count: a red is not an invitation to update the
         literal. It means someone changed what an agent is permitted to touch.
         """
@@ -325,6 +389,11 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         self.assertEqual(
             CODE_WRITERS, {"builder", "builder-standard", "builder-simple"},
             "an agent gained or lost unbounded write access to production code",
+        )
+        self.assertEqual(
+            WRITE_ACCESS_DECLARERS, {"builder", "builder-standard", "builder-simple"},
+            "an implementer gained or lost its write-access declaration — emptying "
+            "this set does not fail the declaration lint, it silences it",
         )
         self.assertEqual(
             CODE_WRITERS & BOUNDED_WRITERS, set(),
@@ -389,6 +458,102 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
                     any(term.lower() in sentence.lower() for term in terms),
                     f"{path.stem}: the boundary sentence names no scope — expected one "
                     f"of {list(terms)} in {sentence!r}",
+                )
+
+    def test_code_writers_declare_how_many_hold_write_access(self):
+        """Each implementer's charter states the true size of CODE_WRITERS.
+
+        A doc-lint of the same kind as the boundary one above, and for the same
+        reason: frontmatter cannot express "and three others may do this too",
+        so the prose is the only place the fact lives.
+
+        The drift it catches is a specific one. Three charters opened with *you
+        are the only agent in this crew with write access to production code*
+        while CODE_WRITERS held four names — false since the commit that added
+        the tiers to that set and did not open `agents/`. Nothing was reading
+        both, so the claim rotted in place and each of the four implementers was
+        told it was alone. Reading the number out of `len(CODE_WRITERS)` and
+        looking for its spelled-out form is what couples the two again.
+
+        **The phrase is necessary, not sufficient** — the same lesson as the
+        boundary lint above, learned the same way. A body reading
+        `Write access to production code: none — the four other agents hold it,
+        not you.` carries the phrase *and* the spelled count, and tells an
+        implementer the reverse of the fact. So the sentence must also claim the
+        access for its reader (WRITE_ACCESS_AFFIRMATIONS) before its count is
+        read.
+
+        **Scope, honestly.** This aims at an author who edits CODE_WRITERS and
+        forgets `agents/` — exactly how the bug arose. What it pins is one
+        sentence, read for two things: that it claims write access for the agent
+        reading it, and that the count it names is the true one. Three gaps are
+        left open, deliberately.
+
+        *Outside the sentence:* an author who writes it correctly and then
+        contradicts it two paragraphs later passes. Prose consistency at large is
+        not mechanically checkable.
+
+        *Inside the sentence:* the affirmation is an allowlist of phrasings, so a
+        reversal built out of words not on that list, or a hedge that satisfies a
+        listed phrase and then qualifies it away, still passes. The list is
+        narrow on purpose — the charters already agree on one wording, and a
+        wider list is a wider hole.
+
+        *Around the sentence:* `_write_access_sentence` finds the phrase by
+        substring and is markdown-blind. The declaration quoted inside a fenced
+        code block — an example, a snippet of another agent's charter — satisfies
+        this lint while the prose above it says anything at all. No charter has
+        that shape today; the fix is a markdown-aware scan, which is a larger
+        change than this lint is worth until one does.
+
+        The count word must match whole (`\\b`), or a crew of four would be
+        satisfied by a charter claiming fourteen.
+
+        The domain is WRITE_ACCESS_DECLARERS, not CODE_WRITERS — `qa-guard`
+        holds write access and deliberately declares none, for the reasons
+        `_crew_common` gives at that constant. What is asserted here is only that
+        the domain cannot drift *outside* CODE_WRITERS, which would have a
+        charter licensing an agent that may not write at all. That it cannot
+        drift to empty — which would make this loop run zero times and pass — is
+        pinned by exact equality in `test_the_writer_partition_is_pinned`.
+        """
+        self.assertGreater(
+            len(CODE_WRITERS), 1,
+            "a single-writer crew makes 'one of one' vacuously true — if the crew "
+            "really did shrink to one, the exclusivity claim goes back in the "
+            "charters and is argued again, not re-enabled by this lint going quiet",
+        )
+        self.assertEqual(
+            WRITE_ACCESS_DECLARERS - CODE_WRITERS, set(),
+            "an agent must declare its write access only if it has any — this "
+            "declaration licenses production edits and cannot name a non-writer",
+        )
+        expected = NUMBER_WORDS[len(CODE_WRITERS)]
+        for name in sorted(WRITE_ACCESS_DECLARERS):
+            path = AGENTS_DIR / f"{_themed(name)}.md"
+            with self.subTest(agent=path.stem):
+                text = path.read_text(encoding="utf-8")
+                body = FRONTMATTER_RE.sub("", text, count=1)
+                sentence = _write_access_sentence(body)
+                self.assertIsNotNone(
+                    sentence,
+                    f"{path.name}: no write-access declaration — expected a sentence "
+                    f"opening {WRITE_ACCESS_PHRASE!r} in the charter body",
+                )
+                self.assertTrue(
+                    any(
+                        term in sentence.lower()
+                        for term in WRITE_ACCESS_AFFIRMATIONS
+                    ),
+                    f"{path.name}: the declaration carries the phrase but claims no "
+                    f"access for this agent — expected one of "
+                    f"{list(WRITE_ACCESS_AFFIRMATIONS)} in {sentence!r}",
+                )
+                self.assertRegex(
+                    sentence.lower(), rf"\b{expected}\b",
+                    f"{path.name}: declares a count that is not {expected!r} "
+                    f"({len(CODE_WRITERS)} agents may write production code) in "
+                    f"{sentence!r}",
                 )
 
     def test_a_revoked_boundary_does_not_satisfy_the_lint(self):
@@ -462,6 +627,88 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         """A body without the phrase yields None, not a sentence to search."""
         self.assertIsNone(_boundary_sentence("You may write only tests.\n"))
 
+    def test_a_revoked_write_access_declaration_does_not_satisfy_the_lint(self):
+        """Regression: the declaration can carry the phrase, the count, and the opposite meaning.
+
+        The sibling hazard to `Hard file boundary: none`, reproduced by an
+        auditor against the count check as first shipped. Both halves of that
+        check pass here — the phrase anchors the sentence, and `four` is the
+        spelled `len(CODE_WRITERS)` the lint looks for — while the sentence
+        hands an implementer the reverse of the fact it exists to state.
+        WRITE_ACCESS_AFFIRMATIONS is what bites, and this test asserts the split:
+        the count is not evidence, the second-person claim is.
+
+        Asserted against literal strings rather than the real charters, like the
+        boundary regressions above, so the hazard stays documented here and a
+        charter reword cannot quietly retire it.
+        """
+        revoked = _write_access_sentence(
+            "Write access to production code: none — the four other agents\n"
+            "hold it, not you.\n"
+        )
+        self.assertRegex(
+            revoked.lower(), r"\bfour\b",
+            "the reversal keeps the count — if it did not, this would prove nothing "
+            "about the affirmation check",
+        )
+        self.assertFalse(
+            any(term in revoked.lower() for term in WRITE_ACCESS_AFFIRMATIONS),
+            f"a revoked declaration claims access for its reader: {revoked!r}",
+        )
+
+        declared = _write_access_sentence(
+            "Write access to production code: you are one of four agents that\n"
+            "hold it.\n"
+        )
+        self.assertTrue(
+            any(term in declared.lower() for term in WRITE_ACCESS_AFFIRMATIONS),
+            f"the settled charter wording claims no access: {declared!r}",
+        )
+
+    def test_the_write_access_sentence_spans_a_line_wrap(self):
+        """Charters wrap their prose, so the declaration is routinely two lines long.
+
+        Read a line at a time this sentence is truncated at `that`, losing both
+        the count and the claim. It must also stop at its own full stop rather
+        than swallowing the sentence after it, or every word in the paragraph
+        becomes evidence.
+        """
+        wrapped = (
+            "Write access to production code: you are one of four agents that\n"
+            "hold it. Most of this crew reads, judges, and advises; you build.\n"
+        )
+        self.assertEqual(
+            _write_access_sentence(wrapped),
+            "Write access to production code: you are one of four agents that\n"
+            "hold it.",
+        )
+
+    def test_the_write_access_sentence_stops_at_the_paragraph_break(self):
+        """A declaration naming no count must not borrow one from the paragraph below.
+
+        Not hypothetical. `agents/builder-standard.md` follows its declaration
+        with a paragraph reading "moderate complexity, 50–200 lines, one or two
+        design decisions" — `one` and `two` are both NUMBER_WORDS entries the
+        count assertion reads for. `len(CODE_WRITERS)` is 4 today so nothing
+        collides; a crew that shrank to two, with no hard stop here, would have
+        this lint certify a charter that states no count at all.
+        """
+        borrowed = (
+            "Write access to production code: none.\n"
+            "\n"
+            "You are the `standard` tier: moderate complexity, 50–200 lines, one\n"
+            "or two design decisions.\n"
+        )
+        sentence = _write_access_sentence(borrowed)
+        self.assertEqual(sentence, "Write access to production code: none.")
+        self.assertNotRegex(sentence.lower(), r"\btwo\b")
+
+    def test_no_write_access_phrase_reads_as_no_declaration(self):
+        """A body without the phrase yields None, not a sentence to search."""
+        self.assertIsNone(
+            _write_access_sentence("You may edit production code.\n")
+        )
+
     def test_notebook_edit_alone_does_not_bar_editing(self):
         """Regression: `Edit` in `NotebookEdit` is True — tokens, not substrings."""
         self.assertFalse(_may_not_edit({"disallowedTools": "NotebookEdit"}))
@@ -519,9 +766,37 @@ class TestOrchestratorWiring(unittest.TestCase):
             )
 
     def test_orchestrator_names_builder_as_the_code_writer(self):
+        """The capability line delegates code to the builder — and to all its tiers.
+
+        The first two assertions pin the agent and catch a half-applied theme.
+        They do not pin the tiers, and that gap was live: the line used to read
+        ``(delegate to `builder`)`` while three agents could take the work, so
+        the correction that added the tiers to it changed nothing this test
+        could see and could revert the same way. Reading the tiers off the same
+        line is what makes the correction load-bearing.
+
+        The line names the tiers by suffix (`-simple`, `-standard`) rather than
+        by full name, so the suffix is derived — `archimedes-simple` minus
+        `archimedes` — instead of written out. A literal `` `-simple` `` would
+        happen to be right under both themes today, but only because the theme
+        renames the stem; deriving it keeps the assertion true of the tier
+        rather than of the punctuation.
+        """
         text = self._text()
-        self.assertIn(f"delegate to `{_themed('builder')}`", text)
+        builder = _themed("builder")
+        self.assertIn(f"delegate to `{builder}`", text)
         self.assertNotIn(f"delegate to `{_off_theme('builder')}`", text)
+        line = next(
+            (line for line in text.splitlines() if f"delegate to `{builder}`" in line), None
+        )
+        for tier in TIERED_AGENTS:
+            suffix = _themed(tier).removeprefix(builder)
+            self.assertIn(
+                f"`{suffix}`", line,
+                f"the capability line delegates code to `{builder}` without naming its "
+                f"`{suffix}` tier — the planner classifies work into tiers the "
+                f"orchestrator then has no line to dispatch on",
+            )
 
     def test_orchestrator_has_delivery_boundary_check(self):
         text = self._text()
