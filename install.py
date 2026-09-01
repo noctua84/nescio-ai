@@ -419,6 +419,21 @@ def _norm_path(p: str) -> str:
     return os.path.normcase(os.path.normpath(p))
 
 
+def _hook_group(matcher: str | None, entries: list) -> dict:
+    """Build a hooks group, with ``matcher`` serialised ahead of ``hooks``.
+
+    ``None`` omits the key entirely rather than writing ``"matcher": null`` —
+    that is the shape the event-scoped hooks (Stop, SessionStart) have always
+    produced, and re-ordering or padding it would churn every user's
+    settings.json on the next install for no behavioural gain.
+    """
+    group: dict = {}
+    if matcher is not None:
+        group["matcher"] = matcher
+    group["hooks"] = entries
+    return group
+
+
 def _wire_command_hook(
     config_dir: Path,
     *,
@@ -426,6 +441,7 @@ def _wire_command_hook(
     script_name: str,
     use_async: bool,
     dry_run: bool,
+    matcher: str | None = None,
 ) -> None:
     """Inject a global command hook for ``event_name`` into ~/.claude/settings.json.
 
@@ -440,12 +456,38 @@ def _wire_command_hook(
     file is generated as a real, machine-local file (never symlinked into the
     repo), so the resolved absolute paths stay off the synced tree. Existing keys
     are preserved (raw load + merge, so ``_comment_*`` docs survive) and the
-    injection is idempotent: a repeated run (including
-    ``--relink``) that finds an ``event_name`` entry already referencing this
-    script path — compared path-normalized — is a no-op, unless the recorded
-    interpreter ``command`` has drifted from the current ``sys.executable`` (e.g.
-    a Python upgrade), in which case it is re-wired in place rather than
-    duplicated.
+    injection is idempotent.
+
+    A wired hook's identity is the *pair* (script path, compared
+    path-normalized, plus the containing group's ``matcher``), because
+    ``matcher`` is a property of the group, not of the entry. So a repeated run
+    (including ``--relink``) that finds an ``event_name`` entry referencing this
+    script *inside a group whose matcher agrees* is a no-op. It is re-wired in
+    place, never duplicated and never silently skipped, when either half has
+    drifted: the recorded interpreter ``command`` (e.g. a Python upgrade moved
+    ``sys.executable``) or the group's ``matcher``. Both are fixed in one pass.
+    Comparing on the script path alone was the older behaviour and it was wrong:
+    adding a matcher to an already-wired hook printed "already wired" and left
+    the old unscoped entry in place, still firing on every tool call.
+
+    ``matcher`` scopes a tool-event hook (``PreToolUse``/``PostToolUse``) to the
+    tools it cares about; ``None`` emits a bare ``{"hooks": [...]}`` group, which
+    is what event-scoped hooks (``Stop``, ``SessionStart``) want. A tool-scoped
+    hook wired without one fires on *every* tool call, which on a synchronous
+    hook is a latency tax on the whole session. The comparison is deliberately
+    narrow: an absent ``matcher`` key and an explicit ``null`` both mean "no
+    matcher", and anything else must match exactly. ``"*"`` and ``""`` are *not*
+    folded into "absent" — how Claude Code reads those is its business, and
+    guessing would make two differently-scoped hooks compare equal.
+
+    Re-scoping mutates the group in place only when our entry is its sole
+    occupant. A group shared with other hooks is left alone and our entry is
+    moved out into a correctly-matched group of its own, since rewriting a
+    shared group's ``matcher`` would silently re-scope somebody else's hook.
+    That move appends the new group at the end of the event's list, so our hook
+    now runs *after* the ones it used to sit beside — immaterial for ``Stop``,
+    but observable on a ``SessionStart``-style event whose hooks' stdout is
+    concatenated into the session context in list order.
 
     The wired entry carries ``"async": True`` only when ``use_async`` is set;
     otherwise the ``async`` key is omitted entirely.
@@ -483,8 +525,13 @@ def _wire_command_hook(
     if not isinstance(group_list, list):
         group_list = []
 
-    def matching_entry(group: object) -> dict | None:
-        """Return the entry in `group` that references our script (path-normalized)."""
+    def matching_entry(group: object) -> tuple[dict, dict] | None:
+        """Return (group, entry) for the entry in `group` referencing our script.
+
+        The *group* comes back with the entry because `matcher` lives on the
+        group, not the entry — a bare entry cannot answer whether the hook is
+        scoped the way we asked for.
+        """
         if not isinstance(group, dict):
             return None
         for entry in group.get("hooks", []) or []:
@@ -494,27 +541,46 @@ def _wire_command_hook(
             if isinstance(args, list) and any(
                 isinstance(a, str) and _norm_path(a) == norm_script for a in args
             ):
-                return entry
+                return group, entry
             cmd = entry.get("command")
             if isinstance(cmd, str) and _norm_path(cmd) == norm_script:
-                return entry
+                return group, entry
         return None
 
-    existing = next(
-        (e for e in (matching_entry(group) for group in group_list) if e is not None),
-        None,
+    found = [
+        m for m in (matching_entry(group) for group in group_list) if m is not None
+    ]
+    # Several groups may reference our script (a settings.json edited by hand, or
+    # left behind by the older matcher-blind wiring). Prefer one already scoped
+    # the way we want, so a correct wiring stays a no-op; otherwise take the
+    # first, which gets re-scoped below rather than duplicated alongside.
+    existing_group, existing = next(
+        ((g, e) for g, e in found if g.get("matcher") == matcher),
+        found[0] if found else (None, None),
     )
 
     if existing is not None:
         # Already wired for this script. Leave it untouched unless the recorded
-        # interpreter drifted (e.g. sys.executable moved after a Python upgrade),
-        # in which case re-point it in place so no stale interpreter lingers.
-        if existing.get("command") == interpreter:
+        # interpreter drifted (e.g. sys.executable moved after a Python upgrade)
+        # or the group's matcher no longer matches what we were asked to wire —
+        # either way re-point it in place so nothing stale or wrongly-scoped
+        # lingers. Both are repaired in the same pass.
+        interpreter_ok = existing.get("command") == interpreter
+        matcher_ok = existing_group.get("matcher") == matcher
+        if interpreter_ok and matcher_ok:
             print(f"  {event_name} hook already wired in {local_path} — leaving it")
             return
+        drift = [
+            label for label, ok in (("interpreter", interpreter_ok),
+                                    ("matcher", matcher_ok)) if not ok
+        ]
+        reason = " and ".join(drift) + " changed"
         if dry_run:
-            print(f"  would re-wire {event_name} hook in {local_path} (interpreter changed):")
-            print(f"      {existing.get('command')} -> {interpreter}")
+            print(f"  would re-wire {event_name} hook in {local_path} ({reason}):")
+            if not interpreter_ok:
+                print(f"      {existing.get('command')} -> {interpreter}")
+            if not matcher_ok:
+                print(f"      matcher {existing_group.get('matcher')!r} -> {matcher!r}")
             return
         existing["command"] = interpreter
         args = existing.get("args")
@@ -522,10 +588,27 @@ def _wire_command_hook(
             isinstance(a, str) and _norm_path(a) == norm_script for a in args
         )):
             existing["args"] = [script_str]
+        if not matcher_ok:
+            siblings = [e for e in existing_group.get("hooks") or [] if e is not existing]
+            if siblings:
+                # The group carries other hooks too. Rewriting its matcher would
+                # silently re-scope those, so move our entry out into a group of
+                # its own and leave theirs exactly as it was.
+                existing_group["hooks"] = siblings
+                group_list.append(_hook_group(matcher, [existing]))
+            else:
+                # Sole occupant: re-scope in place, rebuilding the key order so
+                # `matcher` still serialises ahead of `hooks`. Any other keys the
+                # group carries are preserved.
+                rest = {k: v for k, v in existing_group.items() if k != "matcher"}
+                existing_group.clear()
+                existing_group.update(_hook_group(matcher, rest.pop("hooks", [])))
+                existing_group.update(rest)
         hooks[event_name] = group_list
         settings["hooks"] = hooks
         local_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-        print(f"  re-wired {event_name} hook in {local_path}: {interpreter} {script_str}")
+        print(f"  re-wired {event_name} hook in {local_path} ({reason}): "
+              f"{interpreter} {script_str}")
         return
 
     entry: dict = {
@@ -535,12 +618,13 @@ def _wire_command_hook(
     }
     if use_async:
         entry["async"] = True
-    block = {"hooks": [entry]}
+    block = _hook_group(matcher, [entry])
 
     if dry_run:
         suffix = " (async)" if use_async else ""
+        scope = "" if matcher is None else f" [matcher: {matcher}]"
         print(f"  would wire {event_name} hook into {local_path}:")
-        print(f"      {interpreter} {script_str}{suffix}")
+        print(f"      {interpreter} {script_str}{suffix}{scope}")
         return
 
     group_list.append(block)
