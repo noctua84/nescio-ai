@@ -46,8 +46,12 @@ jobs:
       # already exists -- test_committed_pages_are_up_to_date, in
       # docs_site/test_gen_catalog.py (TestAgainstTheRealRepo). That test is not
       # wrong; it simply never runs in CI, which is why it went red on `main`
-      # when #90 landed and then sat red there, unnoticed, ever since. The
-      # alternative considered was a second `unittest discover -s docs_site`
+      # when #90 landed and then sat red there, unnoticed, for weeks -- until a
+      # human happened to look and regenerated the page by hand (a2f30bf). That
+      # is the loop this step closes: the assertion existed the whole time and
+      # nothing was asking it.
+      #
+      # The alternative considered was a second `unittest discover -s docs_site`
       # run, which would pick that test up along with the other 67 in
       # `docs_site/` (test_site_content.py included). Rejected here as wider
       # than the failure mode being fixed: a site-content failure would then red
