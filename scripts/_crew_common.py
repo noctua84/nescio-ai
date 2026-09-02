@@ -13,10 +13,13 @@ an optional flourish.
 ``apply_theme.py`` therefore consumes this module rather than owning it, and
 declares no roster facts of its own.
 
-Stdlib-only, no I/O: pure data plus two derivations over it.
+Stdlib-only, no I/O: pure data, one small value type describing it, and
+derivations over it.
 """
 
 from __future__ import annotations
+
+from typing import NamedTuple
 
 THEMES = ("functional", "philosophers")
 
@@ -83,13 +86,20 @@ THEME_INVARIANT_ROSTER = {
     "vision",
 }
 
-# Agents permitted to edit production code, by functional name. Adding to this
-# set is an architectural decision, not bookkeeping.
-CODE_WRITERS = {"builder", "builder-standard", "builder-simple", "qa-guard"}
+# Agents permitted to edit production code with no declared file boundary, by
+# functional name. Adding to this set is an architectural decision, not
+# bookkeeping.
+CODE_WRITERS = {"builder", "builder-standard", "builder-simple"}
 
 # Agents permitted to edit, but whose charters declare a hard file boundary
-# limiting *what* they may touch (tests only, docs only).
-BOUNDED_WRITERS = {"test-writer", "doc-writer"}
+# limiting *what* they may touch (tests only, docs only, everything except the
+# files that define the CI checks).
+#
+# A boundary may be stated either way round: `test-writer` and `doc-writer`
+# name the region they are confined *to*, `qa-guard` names the region it is
+# excluded *from*. Both shapes are pinned by BOUNDARY_SCOPE_TERMS below, but an
+# exclusion needs a term that carries the negation — see the note there.
+BOUNDED_WRITERS = {"test-writer", "doc-writer", "qa-guard"}
 
 # Agents barred from Edit by their frontmatter, but holding `Write` for one
 # narrow purpose their charter has to name: `planner` writes work plans under
@@ -111,21 +121,102 @@ WRITE_BOUNDED = {"planner", "reviewer"}
 # be one reword away from a check that silently passes on nothing.
 BOUNDARY_PHRASE = "Hard file boundary:"
 
+# The two shapes a boundary sentence can take, and the match mode each one
+# implies. An *inclusion* names the region an agent is confined **to**; an
+# *exclusion* names the region it is kept **out of**.
+#
+# The mode is derived from the shape rather than declared per entry on purpose:
+# an entry that could say `any` or `all` independently of its shape would be a
+# second thing to get right, and the one that was got wrong. Written this way an
+# entry reads as what it *is*, and how its terms combine follows mechanically.
+SHAPE_INCLUSION = "inclusion"
+SHAPE_EXCLUSION = "exclusion"
+
+# shape -> (how the terms combine, how to phrase that in a lint failure).
+# One table so the check and the message it prints cannot drift apart. An
+# unknown shape KeyErrors rather than quietly falling back to a mode.
+_SHAPE_RULES = {
+    SHAPE_INCLUSION: (any, "at least one of"),
+    SHAPE_EXCLUSION: (all, "every one of"),
+}
+
+# The words that make a scope term carry a negation, matched as whole words
+# within the term.
+#
+# Deliberately minimal: these are what a charter in this repo actually uses to
+# say "you may not", and every addition widens what counts as a negation —
+# the loosest direction this constant can drift, since it is the floor an
+# exclusion entry has to clear. `cannot` is listed beside `not` because the
+# match is word-level, not substring: `cannot` is one word, and a substring
+# rule would also accept `notation`.
+NEGATION_MARKERS = ("never", "not", "cannot")
+
+
+class BoundaryScope(NamedTuple):
+    """What a boundary sentence must say, and how its terms combine."""
+
+    shape: str
+    terms: tuple[str, ...]
+
+    def satisfied_by(self, sentence: str) -> bool:
+        """Does `sentence` declare this scope? Case-insensitive on both sides."""
+        combine, _ = _SHAPE_RULES[self.shape]
+        lowered = sentence.lower()
+        return combine(term.lower() in lowered for term in self.terms)
+
+    @property
+    def requirement(self) -> str:
+        """How to phrase this shape's match mode in a lint failure message."""
+        return _SHAPE_RULES[self.shape][1]
+
+
+def inclusion(*terms: str) -> BoundaryScope:
+    """A boundary naming the region the agent is confined to (any-of)."""
+    return BoundaryScope(SHAPE_INCLUSION, terms)
+
+
+def exclusion(*terms: str) -> BoundaryScope:
+    """A boundary naming the region the agent is kept out of (all-of)."""
+    return BoundaryScope(SHAPE_EXCLUSION, terms)
+
+
 # What each boundary sentence must actually *say*, by functional agent name.
 #
 # The phrase above is a nineteen-character prefix and nothing more: a charter
 # reading `Hard file boundary: none — edit whatever you like.` carries it and
-# declares the opposite. Each entry lists terms of which the sentence carrying
-# the phrase must contain at least one, so the lint pins the *scope* an agent
-# declares rather than the fact that it said something.
+# declares the opposite. Each entry pins the *scope* an agent declares, so the
+# lint checks what was said rather than that something was said.
+#
+# **Why the shape decides the mode.** An inclusion term names the region
+# itself, and a sentence carrying it cannot mean the opposite — so any-of is
+# safe, and `doc-writer` may say either "documentation" or "docs". An exclusion
+# term has to carry the negation, because the scope word appears in the
+# *revocation* too: `qa-guard` is bounded by what it may not touch, so under
+# any-of a tuple like `("may never edit", "check")` would certify `Hard file
+# boundary: you may edit the files that define the checks freely.` on "check"
+# alone — the failure `test_a_revoked_boundary_does_not_satisfy_the_lint` exists
+# to prevent, in a shape that test cannot see, because substring presence has no
+# view of polarity.
+#
+# All-of inverts that footgun. For an exclusion entry **every term added
+# tightens the check and none can loosen it**: widening the tuple can only
+# reject more sentences, where under any-of widening was a silent revocation.
+# That property is the whole point of the type.
+#
+# NEGATION_MARKERS is the other half of it. All-of over nothing but positive
+# terms still sees no polarity, so an exclusion entry must carry at least one
+# negation-bearing term. That is asserted over the constant as a whole in
+# `test_an_exclusion_boundary_needs_a_negation_bearing_scope_term`, so a second
+# exclusion agent inherits the requirement instead of needing its own pin.
 #
 # Keyed on the functional roster, like BOUNDED_WRITERS — the on-disk name is
 # resolved through `themed_name` where the file is opened, never here.
 BOUNDARY_SCOPE_TERMS = {
-    "test-writer": ("test",),
-    "doc-writer": ("documentation", "docs"),
-    "planner": (".sisyphus",),
-    "reviewer": ("report",),
+    "test-writer": inclusion("test"),
+    "doc-writer": inclusion("documentation", "docs"),
+    "qa-guard": exclusion("may never edit"),
+    "planner": inclusion(".sisyphus"),
+    "reviewer": inclusion("report"),
 }
 
 # The phrase an implementer's charter must carry to declare its write access.

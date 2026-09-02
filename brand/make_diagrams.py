@@ -246,6 +246,48 @@ def defs():
 # Diagram 1 — the crew
 # --------------------------------------------------------------------------
 
+# The specialist roster the crew diagram draws, in lifecycle order, headings
+# already upper-cased for the artwork. `orchestrator` is deliberately absent:
+# the diagram renders it as the centre stack, not as one of the columns, so
+# this list is the roster *minus* the coordinator.
+#
+# Module level rather than a local, so a test can read the roster the artwork
+# is drawn from without re-parsing rendered SVG text. This list and
+# `gen_catalog.AGENT_GROUPS` are two independent hardcoded copies of one fact —
+# both drifted behind `agents/` once already — and
+# `docs_site/test_site_content.py::CrewRosterTest` is what now ties the three
+# together. Blurbs are one-line paraphrases of each agent's `description`
+# frontmatter.
+CREW_GROUPS = [
+    ("DISCOVER", [
+        ("scout", "risk and intent triage; surfaces hidden assumptions"),
+        ("explore", "fast navigation of the codebase"),
+        ("librarian", "external research, returned with citations"),
+        ("vision", "diagrams, PDFs and images"),
+    ]),
+    ("PLAN AND CHALLENGE", [
+        ("planner", "requirement interview, work plan"),
+        ("validator", "is the plan executable? biased toward approval"),
+        ("critic", "devil's advocate, one bounded pass, pre-execution"),
+        ("advisor", "read-only guidance on tradeoffs"),
+    ]),
+    ("BUILD", [
+        ("builder", "complex tier on Opus; design judgment, or over 200 lines"),
+        ("builder-standard", "standard tier on Sonnet; 50-200 lines, some judgment"),
+        ("builder-simple", "simple tier on Haiku; mechanical work under 50 lines"),
+        ("test-writer", "writes tests for the intended interface, not the current output"),
+    ]),
+    ("VERIFY", [
+        ("qa-guard", "runs the project's CI checks; fixes mechanical failures"),
+        ("reviewer", "audits for bugs, regressions, security"),
+    ]),
+    ("DOCUMENT", [
+        ("doc-researcher", "maps existing docs: coverage, gaps, update targets"),
+        ("doc-writer", "writes the docs; may not touch implementation files"),
+    ]),
+]
+
+
 def diagram_crew():
     # 1000px, down from 1400. The docs article column is 938px at a 1440
     # viewport and 1032px at 1920, so the old canvas overhung the text column
@@ -275,14 +317,21 @@ def diagram_crew():
     # 93% and the middle read far too heavy.
     centre_scale = col_block / (ncols * 380 + (ncols - 1) * gap)
 
+    # The caption's count is DERIVED from the roster it labels, never typed.
+    # It read "nine specialists" over ten drawn cards for as long as the roster
+    # was sixteen — a hardcoded number in a caption is a claim about artwork it
+    # cannot see, and it goes stale the first time a card is added. Spelled as a
+    # word to match the sentence; the table covers any roster this canvas can
+    # physically hold.
+    specialists = sum(len(agents) for _, agents in CREW_GROUPS)
+    ones = ("zero", "one", "two", "three", "four", "five", "six", "seven",
+            "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty")
+    count_word = ones[specialists] if specialists < len(ones) else str(specialists)
+
     s.append(text(60, 52, "The crew", size=25, weight="700", fill=NODE_LABEL, anchor="start"))
-    # No count here, deliberately. The artwork draws the orchestrator and nine
-    # specialists; `agents/` holds seventeen. Stating either number makes the
-    # caption argue with something — the drawing, or docs/agents.md on the same
-    # site. The shape of the flow is what this diagram is actually for, so the
-    # caption says only that. Restore a count when the artwork carries the
-    # whole crew, not before.
-    s.append(text(60, 76, "Delegation goes down; every result comes back through the gate.",
+    s.append(text(60, 76, f"One orchestrator, {count_word} specialists. Delegation goes "
+                  "down; every result comes back through the gate.",
                   size=14.5, fill=BODY, anchor="start"))
 
     # Request
@@ -325,49 +374,74 @@ def diagram_crew():
     s.append(arrow(cx + arm, gy - 6, cx + arm, 262, color=ACCENT_CONNECTOR, head="accent"))
     s.append(text(cx + label_arm, gy - 14, "results", size=11.5, fill=ACCENT, anchor="start"))
 
-    # Groups
-    groups = [
-        ("TRIAGE & DISCOVERY", [
-            ("scout", "risk and intent triage; surfaces hidden assumptions"),
-            ("explore", "fast navigation of the codebase"),
-            ("librarian", "external research, returned with citations"),
-            ("vision", "diagrams, PDFs and images"),
-        ]),
-        ("PLAN & CHALLENGE", [
-            ("planner", "requirement interview, work plan"),
-            ("validator", "is the plan executable? biased toward approval"),
-            ("critic", "devil's advocate, one bounded pass, pre-execution"),
-            ("advisor", "read-only guidance on tradeoffs"),
-        ]),
-        ("VERIFY", [
-            ("reviewer", "audits for bugs, regressions, security"),
-        ]),
-    ]
+    # Groups — see CREW_GROUPS above for the roster and why it lives there.
+    groups = CREW_GROUPS
 
     # `col_w` / `gap` / `col_block` are set at the top of this function — the
     # centre stack is sized against the block and is drawn before we get here.
-    assert len(groups) == ncols, "col_block no longer describes these columns"
+    #
+    # The guard is now about capacity, not an exact fit: the roster is laid out
+    # as two bands of `ncols`, so it may run a column short — it does, band 2 is
+    # VERIFY, DOCUMENT and an empty third slot — but never a column long, which
+    # would silently drop a whole bucket off the canvas with nothing rendered to
+    # show for it.
+    assert len(groups) <= 2 * ncols, "the roster no longer fits two bands of columns"
     x0 = (W - col_block) / 2
     ytop = 432
-    col_bottom = ytop
 
-    for gi, (title, agents) in enumerate(groups):
-        gx = x0 + gi * (col_w + gap)
-        s.append(text(gx + col_w / 2, ytop - 12, title, size=11.5, weight="700",
-                      fill=MUTED, spacing="1.3"))
-        s.append(f'<line x1="{gx}" y1="{ytop - 4}" x2="{gx + col_w}" y2="{ytop - 4}" '
-                 f'stroke="{NODE_STROKE}" stroke-width="1"/>')
-        y = ytop + 16
-        for name, role in agents:
-            accent = name in ("validator", "critic", "scout")
-            card, h = agent_card(gx, y, col_w, name, role, accent=accent)
-            s.append(card)
-            y += h + 12
-        col_bottom = max(col_bottom, y)
+    # Vertical air between the bottom of band 1's tallest column and band 2's
+    # heading row. The card loop already leaves 12px of trailing gap, so this
+    # reads as ~56px of separation between the two bands.
+    band_gap = 44
 
-    # Note tucked under the sparse VERIFY column
+    def draw_band(band, band_top):
+        """Draw one row of up to `ncols` groups; return each column's bottom y."""
+        bottoms = []
+        for gi, (title, agents) in enumerate(band):
+            gx = x0 + gi * (col_w + gap)
+            s.append(text(gx + col_w / 2, band_top - 12, title, size=11.5, weight="700",
+                          fill=MUTED, spacing="1.3"))
+            s.append(f'<line x1="{gx}" y1="{band_top - 4}" x2="{gx + col_w}" '
+                     f'y2="{band_top - 4}" stroke="{NODE_STROKE}" stroke-width="1"/>')
+            y = band_top + 16
+            for name, role in agents:
+                accent = name in ("validator", "critic", "scout")
+                card, h = agent_card(gx, y, col_w, name, role, accent=accent)
+                s.append(card)
+                y += h + 12
+            bottoms.append(y)
+        return bottoms
+
+    band1 = draw_band(groups[:ncols], ytop)
+    # Band 2's top is *derived* from the tallest column of band 1. A literal y
+    # here would hold until the first card that gains a line of wrapped text,
+    # and then quietly draw band 2 through the bottom of band 1.
+    band2_top = max(band1) + band_gap
+    band2 = draw_band(groups[ncols:], band2_top)
+    col_bottom = max(band1 + band2)
+
+    # The note fills band 2's empty third slot. Five buckets in a six-slot grid
+    # leave exactly one hole, bottom-right — which is where the note sat before
+    # the reflow. It is the cheapest place for it, though no longer a free one:
+    # at 254px the note outruns both columns beside it and sets `col_bottom`
+    # itself, costing 78px of canvas. It was free until `test-writer` moved to
+    # BUILD and band 2 collapsed to two 2-card columns; before that VERIFY ran
+    # to within a pixel of the note's lower edge.
+    #
+    # Stacking it under a band-2 column instead was tried and measured, and is
+    # still worse by a wide margin. There is no longer an obvious host column —
+    # VERIFY (column 1) and DOCUMENT (column 2) both hold two cards and end 17px
+    # apart — and under either one the note clears the bottom of every card on
+    # the canvas, growing it 171px under VERIFY or 188px under DOCUMENT against
+    # the 78px the slot costs, with a column-deep void left beside it. Rejected
+    # on the rendering, and again on the re-measure.
+    #
+    # `band2_top` is shared with the draw_band call above rather than recomputed,
+    # and `+ 16` is the card loop's own top offset — so the note starts level
+    # with the first card of its band, not with the headings, and cannot drift
+    # away from the band it belongs to.
     nx = x0 + 2 * (col_w + gap)
-    ny = ytop + 16 + 84
+    ny = band2_top + 16
     note_chars = chars_wide(col_w - 2 * NOTE_PAD, 12.5)
     note = wrap("scout, validator and critic produce no work of their own. They exist "
                 "to interrogate the request and the plan before anyone acts on either "
