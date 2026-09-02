@@ -65,28 +65,51 @@ jobs:
   # described immediately below. The two are a package deal.
   #
   # INSTALL FAILURES ARE TOLERATED, BUT ANNOUNCED. The install step carries
-  # `continue-on-error`; the test step does not. That split is the whole design.
+  # `continue-on-error`; neither test step does. That split is the whole design.
   # A PyPI blip is not a defect in this repository, and a job nobody can retry
   # cheaply -- non-required, so a re-run means a human noticing a red X on a PR
   # that is otherwise fine and deciding it is worth the click -- should not
   # manufacture red PRs out of somebody else's CDN. A genuine test failure still
-  # reds the job, because the step that runs the suite fails hard. The retry and
+  # reds the job, because both steps that run a suite fail hard. The retry and
   # timeout flags come first: a transient failure should self-heal before it is
   # tolerated at all, so tolerance only ever applies to something that survived
   # five attempts.
+  #
+  # THE SUITE IS SPLIT BY DEPENDENCY so the tolerance reaches as little as
+  # possible. It is deliberately not one `discover -s docs_site`.
+  # test_gen_catalog.py imports only stdlib plus gen_catalog, which is itself
+  # stdlib-only, so it runs UNCONDITIONALLY -- no `if:` on its step. That is not
+  # tidiness: the strict roster guarantee described above lives in that module
+  # and nowhere else in CI, and while the whole suite sat behind the install
+  # gate, an unrelated PyPI outage silently skipped the one test protecting the
+  # published site's roster. test_site_content.py is the half that genuinely
+  # needs Material -- its 8 BuiltSiteTest cases shell out to a real
+  # `mkdocs build --strict` -- and only that half stays gated.
+  #
+  # Each step names its module with `-p` instead of discovering the directory,
+  # so test_gen_catalog.py runs exactly once; a bare `discover -s docs_site` in
+  # the second step would re-run all 32 of its cases. The two `-p` patterns must
+  # therefore cover docs_site/ between them: 32 + 48 = the 80 that a plain
+  # `discover -s docs_site` collects locally. Add a third test module to
+  # docs_site/ without adding a step here and it runs in neither.
   #
   # Not `continue-on-error` on the JOB. That would green real test failures too
   # and leave a check that reports nothing -- which is the defect the `roadmap`
   # job's comment below refuses by name, and the reason this job exists at all
   # is that docs_site/'s tests finally execute somewhere.
   #
-  # RESIDUAL RISK, stated plainly: a *persistent* install failure -- a yanked
-  # release, a rename, a pin that no longer resolves -- means this suite quietly
-  # stops running while the job keeps reporting green. The warning annotation
-  # and the step-summary line are the only things standing between that and
-  # nobody noticing, so they are load-bearing, not decoration. If you find
-  # yourself trimming CI noise, that annotation is not noise. If you see it on a
-  # PR, the docs_site/ tests did not run on that commit.
+  # RESIDUAL RISK, stated plainly, and now half the size it was: a *persistent*
+  # install failure -- a yanked release, a rename, a pin that no longer resolves
+  # -- means test_site_content.py quietly stops running while the job keeps
+  # reporting green. What is exposed is that module and only that module:
+  # MaterialPinTest, CrewRosterTest, and the 8 end-to-end BuiltSiteTest cases.
+  # What is no longer exposed is test_gen_catalog.py, the strict roster
+  # assertion included; it runs whatever the install did, which is the point of
+  # the split above. The warning annotation and the step-summary line are the
+  # only things standing between the remaining gap and nobody noticing, so they
+  # are load-bearing, not decoration. If you find yourself trimming CI noise,
+  # that annotation is not noise. If you see it on a PR, test_site_content.py
+  # did not run on that commit.
   #
   # And if this job is ever added to branch protection, the tolerance must be
   # removed in the same change. A required check that greens itself when its
@@ -105,21 +128,28 @@ jobs:
       - id: install
         continue-on-error: true
         run: pip install --retries 5 --timeout 30 mkdocs-material==9.7.7
+      # NO `if:` HERE, DELIBERATELY. test_gen_catalog.py imports stdlib plus
+      # gen_catalog, which is itself stdlib-only -- it does not care whether the
+      # step above worked. It holds the strict roster guarantee and nothing else
+      # does, so it must not be reachable by a PyPI outage.
+      - run: python -m unittest discover -s docs_site -p "test_gen_catalog.py" -v
       # `outcome` is the step's result BEFORE continue-on-error rewrites it;
       # `conclusion` would read `success` here no matter what happened, which is
       # exactly the silent-green failure mode being guarded against.
       - if: steps.install.outcome != 'success'
         run: |
-          echo "::warning title=docs_site suite did not run::Installing the pinned mkdocs-material failed after 5 retries. The docs_site/ tests were SKIPPED on this commit -- this job is green because the install broke, not because the suite passed. Re-run the job once PyPI is reachable."
+          echo "::warning title=docs_site site tests did not run::Installing the pinned mkdocs-material failed after 5 retries. test_site_content.py was SKIPPED on this commit -- MaterialPinTest, CrewRosterTest and the 8 BuiltSiteTest cases did not run. test_gen_catalog.py, including the roster equality assertion, did run and passed. Re-run the job once PyPI is reachable."
           {
-            echo "### :warning: \`docs-tests\`: suite skipped"
+            echo "### :warning: \`docs-tests\`: site tests skipped"
             echo
             echo "Installing the pinned \`mkdocs-material\` failed after 5 retries, so"
-            echo "\`unittest discover -s docs_site\` did **not** run on this commit."
-            echo "This job is green because the install broke, not because the tests passed."
+            echo "\`test_site_content.py\` did **not** run on this commit."
+            echo "\`test_gen_catalog.py\` is unaffected -- it needs no install and ran."
+            echo "This job is green for the site half because the install broke, not"
+            echo "because those tests passed."
           } >> "$GITHUB_STEP_SUMMARY"
       - if: steps.install.outcome == 'success'
-        run: python -m unittest discover -s docs_site -v
+        run: python -m unittest discover -s docs_site -p "test_site_content.py" -v
 
   # `uv.lock` records the project's own version, so it drifts from pyproject.toml
   # on every release. release-please keeps it in step via `extra-files` in
