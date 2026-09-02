@@ -436,6 +436,48 @@ If `qa-guard` returns `BLOCKED`: surface the blocker to the user before
 dispatching `reviewer`. A bug surfaced here is a `builder` task, not a
 review finding.
 
+### CI Gate Audit (after a `qa-guard` wave)
+
+`qa-guard` does not commit — it leaves fixes in the working tree and PHASE 6
+commits them wholesale. A `git log --grep` gate would therefore pass vacuously.
+Audit the diff instead.
+
+```bash
+git status --porcelain
+```
+Not `git diff --name-only`: that reports modifications to *tracked* files only,
+and the cheapest way to move the checks to meet the code is a **new** file —
+an untracked `conftest.py`, `pytest.ini`, `ruff.toml`, `.flake8` or `mypy.ini`
+silences a check without modifying anything the diff can see. `git status
+--porcelain` covers modified, staged and untracked in one command. Do not
+"simplify" it back.
+
+```bash
+d=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^-\s*(assert|self\.assert|expect|it\()')
+a=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^\+\s*(assert|self\.assert|expect|it\()')
+[ "$d" -gt "$a" ] && echo "REJECT: net -$((d-a)) assertions"
+```
+Net count, not raw deletions: formatting is `qa-guard`'s first fix category, and
+when `black` splits a long `assert` across lines the diff carries a `-assert`
+line for work that removed nothing. A control that cries wolf on its own agent's
+main workflow gets ignored, and then it detects nothing. The pathspecs are
+case-insensitive and cover `spec` as well as `test`, because `qa-guard` is told
+not to assume a stack — `TestFoo.java` and `foo_spec.rb` slip past a bare
+`'*test*'`. `git diff HEAD`, not `git diff`: a staged deletion is invisible
+to plain `git diff`, and this check must stay consistent with the `git status
+--porcelain` above it, which already covers staged changes.
+
+Reject a `PASSED` verdict when the working tree shows: any path under
+`.github/workflows/`; `azure-pipelines.yml`; `.pre-commit-config.yaml`; a
+`[tool.*]` section of `pyproject.toml` or `setup.cfg`; a `Makefile` or
+`package.json` scripts target; a new check-config file of any kind; a net
+removal of assertions or a deleted test function; or a new entry under
+`[project.dependencies]`. Name the file, ask for a revert, re-dispatch.
+
+This catches edits made via Bash, which no permission rule can see: `qa-guard`
+must hold `Bash` to run the checks at all, and a shell redirect or `sed -i`
+rewrites a check file without ever going through `Edit`.
+
 ### Step 2: QA Audit
 ```
 Agent(
