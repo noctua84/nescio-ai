@@ -1,14 +1,15 @@
 # .github/workflows/tests.yml
 name: tests
 
-# The `schedule` and `workflow_dispatch` triggers exist for the `roadmap` job
-# below -- it is the only job that needs them. `tests` and `lockfile` will fire
+# The `schedule` and `workflow_dispatch` triggers exist for the two jobs that
+# want them, `docs-tests` and `roadmap` below. `tests` and `lockfile` will fire
 # on the weekly cron too; that is accepted rather than worked around. They are
 # cheap, and a weekly independent confirmation that the suite still passes
 # against a fresh runner image is a feature, not noise. Deliberately NOT done:
 # narrowing `push:` to `branches: [main]`, which would silently change when
-# `tests` and `lockfile` run. The main-only condition lives on the one job that
-# wants it, as a job-level `if:`.
+# `tests` and `lockfile` run. The main-only condition lives on each job that
+# wants it, as a job-level `if:` -- `docs-tests` and `roadmap` carry the same
+# expression, and they are the only jobs that carry one at all.
 on:
   push:
   pull_request:
@@ -31,9 +32,32 @@ jobs:
   # into derived instances, which never receive `docs_site/`, so a test there
   # importing gen_catalog would break `python -m unittest` for every downstream
   # user. Discovering the second root in a second job is the way that boundary
-  # stays intact and the tests still run. What runs here and nowhere else: the
-  # catalog roster equality assertion, MaterialPinTest, CrewRosterTest, and the
-  # end-to-end BuiltSiteTest cases.
+  # stays intact and the tests still run.
+  #
+  # WHAT THIS JOB IS: a maintainer-facing drift detector for the docs site, in
+  # the same family as `roadmap` below -- not a verdict on the change under
+  # review. What it covers, and nothing else in this repository does: the
+  # catalog generator against the committed pages (the strict roster equality
+  # assertion included), the crew and loop diagrams against their sources in
+  # brand/, the homepage and 404 copy, MaterialPinTest, CrewRosterTest, and the
+  # end-to-end BuiltSiteTest cases that shell out to a real
+  # `mkdocs build --strict` and then assert what landed in site/.
+  #
+  # TRIGGERS: push-to-main, the weekly cron, and manual dispatch -- NOT
+  # `pull_request`, for the same reason `roadmap` gives below: a PR run would
+  # catch almost none of this drift while inheriting all of its false positives.
+  # Docs drift is produced by a merge, not by the diff under review -- an agent
+  # added on one branch goes missing from a catalog regenerated on another, so
+  # the commit that made the site stale is usually not the commit being
+  # reviewed, and a post-merge run sees every case a PR run would have seen and
+  # then some. What a PR run WOULD reliably find is a contributor who added an
+  # agent and did not touch docs_site/ -- precisely the case this branch removed
+  # from the required `tests` job on purpose (see below). Non-required means it
+  # could not block them; it would still red their PR, and a red X everybody
+  # learns to scroll past is worse than no check at all. That is how the defect
+  # survived in the first place:
+  # docs_site/test_gen_catalog.py::test_committed_pages_are_up_to_date existed
+  # the whole time and no trigger was asking it.
   #
   # CATALOG DRIFT IS DELIBERATELY NOT A MERGE GATE, and this is the job that
   # holds the guarantee instead. An earlier revision of this file ran
@@ -51,29 +75,37 @@ jobs:
   # directions) lives in docs_site/test_gen_catalog.py and runs here, where
   # maintainers see it and contributors are not gated by it.
   #
-  # PRECONDITION: this job must NOT be added to main's required status checks,
-  # for the opposite reason to the `roadmap` job below. It installs from PyPI --
-  # mkdocs-material is needed by the end-to-end BuiltSiteTest cases, which
-  # shell out to a real `mkdocs build --strict` -- and a network install inside
-  # the blocking gate means a PyPI blip reds every open PR. Nothing about the
-  # catalog needs to block a merge (see above), so nothing is lost by leaving
-  # this job advisory.
+  # THE TRADE THIS ACCEPTS: a docs regression is caught after the merge that
+  # caused it rather than before. Affordable, because the site is presentation
+  # and the deploy does not depend on what was committed --
+  # .github/workflows/docs.yml regenerates the catalog before it builds, so the
+  # published site self-heals either way. What is at stake here is the committed
+  # sources agreeing with the generator, which is a maintenance concern with no
+  # deadline, not a broken deploy. A red on main names the merge that did it.
   #
-  # Making this job required is a branch-protection change in GitHub settings.
-  # No commit in this repository can perform it, so if you want it, do it there
-  # -- and pin or vendor the install first, and delete the install tolerance
-  # described immediately below. The two are a package deal.
+  # "MAKE THIS REQUIRED" IS NOW STRUCTURALLY IMPOSSIBLE, not merely discouraged.
+  # A required status check is resolved against a pull request's head commit,
+  # and a job that never runs on `pull_request` reports no status there at all;
+  # adding `docs-tests` to main's protection would leave every PR waiting
+  # forever on a check that cannot arrive. The trigger enforces what the old
+  # version of this comment could only ask for. Anyone who wants this as a merge
+  # gate has to restore `pull_request` first -- and then two things become
+  # mandatory in the same change, because this job installs from PyPI for the
+  # BuiltSiteTest cases: pin or vendor the install, and delete the install
+  # tolerance described immediately below. A required check that greens itself
+  # when its install fails converts somebody else's outage into a gate that
+  # certifies nothing while looking like it certified everything.
   #
   # INSTALL FAILURES ARE TOLERATED, BUT ANNOUNCED. The install step carries
   # `continue-on-error`; neither test step does. That split is the whole design.
   # A PyPI blip is not a defect in this repository, and a job nobody can retry
-  # cheaply -- non-required, so a re-run means a human noticing a red X on a PR
-  # that is otherwise fine and deciding it is worth the click -- should not
-  # manufacture red PRs out of somebody else's CDN. A genuine test failure still
-  # reds the job, because both steps that run a suite fail hard. The retry and
-  # timeout flags come first: a transient failure should self-heal before it is
-  # tolerated at all, so tolerance only ever applies to something that survived
-  # five attempts.
+  # cheaply -- non-required, so a re-run means a maintainer noticing a red X on
+  # a main or cron run and deciding it is worth the click -- should not
+  # manufacture red history out of somebody else's CDN. A genuine test failure
+  # still reds the job, because both steps that run a suite fail hard. The retry
+  # and timeout flags come first: a transient failure should self-heal before it
+  # is tolerated at all, so tolerance only ever applies to something that
+  # survived five attempts.
   #
   # THE DEPENDENCY SPLIT LIVES INSIDE THE TEST MODULE, NOT ON THE STEPS, so the
   # tolerance reaches as little as possible. NEITHER test step carries an `if:`
@@ -124,6 +156,16 @@ jobs:
   # self-hosted. A build that breaks without Material's help is exactly the
   # class of failure nothing else here can see.
   #
+  # That risk is smaller than it was, and the trigger change is why. A
+  # *persistent* breakage is the one a per-PR green hid best: the same skip
+  # recurring on every PR reads as normal, and nobody re-runs a job that is
+  # always like that. On a weekly cron there is no traffic to hide in -- the
+  # Monday run is the only signal, so a skip that is still there next Monday is
+  # a standing, dated record that the site has not been built in a week. The
+  # residual risk was listed here as unfixed; the `schedule` trigger closes the
+  # persistent half of it. The transient half stays: one bad Monday still looks
+  # like a green job with a warning nobody read.
+  #
   # What is NOT exposed any more is everything provable by reading the sources:
   # test_gen_catalog.py in full, the strict roster assertion included, and every
   # other class in test_site_content.py -- CrewRosterTest and MaterialPinTest
@@ -134,13 +176,13 @@ jobs:
   # warning annotation and the step-summary line are the only things standing
   # between that skip and nobody noticing, so they are load-bearing, not
   # decoration. If you find yourself trimming CI noise, that annotation is not
-  # noise. If you see it on a PR, the site was never built on that commit.
-  #
-  # And if this job is ever added to branch protection, the tolerance must be
-  # removed in the same change. A required check that greens itself when its
-  # install fails is worse than no check: it converts an outage into a merge
-  # gate that certifies nothing while looking like it certified everything.
+  # noise. If you see it on a main or cron run, the site was never built on that
+  # commit.
   docs-tests:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
