@@ -86,7 +86,37 @@ jobs:
   #
   # Making this job required is a branch-protection change in GitHub settings.
   # No commit in this repository can perform it, so if you want it, do it there
-  # -- and pin or vendor the install first.
+  # -- and pin or vendor the install first, and delete the install tolerance
+  # described immediately below. The two are a package deal.
+  #
+  # INSTALL FAILURES ARE TOLERATED, BUT ANNOUNCED. The install step carries
+  # `continue-on-error`; the test step does not. That split is the whole design.
+  # A PyPI blip is not a defect in this repository, and a job nobody can retry
+  # cheaply -- non-required, so a re-run means a human noticing a red X on a PR
+  # that is otherwise fine and deciding it is worth the click -- should not
+  # manufacture red PRs out of somebody else's CDN. A genuine test failure still
+  # reds the job, because the step that runs the suite fails hard. The retry and
+  # timeout flags come first: a transient failure should self-heal before it is
+  # tolerated at all, so tolerance only ever applies to something that survived
+  # five attempts.
+  #
+  # Not `continue-on-error` on the JOB. That would green real test failures too
+  # and leave a check that reports nothing -- which is the defect the `roadmap`
+  # job's comment below refuses by name, and the reason this job exists at all
+  # is that docs_site/'s tests finally execute somewhere.
+  #
+  # RESIDUAL RISK, stated plainly: a *persistent* install failure -- a yanked
+  # release, a rename, a pin that no longer resolves -- means this suite quietly
+  # stops running while the job keeps reporting green. The warning annotation
+  # and the step-summary line are the only things standing between that and
+  # nobody noticing, so they are load-bearing, not decoration. If you find
+  # yourself trimming CI noise, that annotation is not noise. If you see it on a
+  # PR, the docs_site/ tests did not run on that commit.
+  #
+  # And if this job is ever added to branch protection, the tolerance must be
+  # removed in the same change. A required check that greens itself when its
+  # install fails is worse than no check: it converts an outage into a merge
+  # gate that certifies nothing while looking like it certified everything.
   docs-tests:
     runs-on: ubuntu-latest
     steps:
@@ -97,8 +127,24 @@ jobs:
       # Same hard pin as .github/workflows/docs.yml, and for the same reason:
       # the custom schemes are coupled to Material's CSS variable names. Keep
       # the two in step.
-      - run: pip install mkdocs-material==9.7.7
-      - run: python -m unittest discover -s docs_site -v
+      - id: install
+        continue-on-error: true
+        run: pip install --retries 5 --timeout 30 mkdocs-material==9.7.7
+      # `outcome` is the step's result BEFORE continue-on-error rewrites it;
+      # `conclusion` would read `success` here no matter what happened, which is
+      # exactly the silent-green failure mode being guarded against.
+      - if: steps.install.outcome != 'success'
+        run: |
+          echo "::warning title=docs_site suite did not run::Installing the pinned mkdocs-material failed after 5 retries. The docs_site/ tests were SKIPPED on this commit -- this job is green because the install broke, not because the suite passed. Re-run the job once PyPI is reachable."
+          {
+            echo "### :warning: \`docs-tests\`: suite skipped"
+            echo
+            echo "Installing the pinned \`mkdocs-material\` failed after 5 retries, so"
+            echo "\`unittest discover -s docs_site\` did **not** run on this commit."
+            echo "This job is green because the install broke, not because the tests passed."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: steps.install.outcome == 'success'
+        run: python -m unittest discover -s docs_site -v
 
   # `uv.lock` records the project's own version, so it drifts from pyproject.toml
   # on every release. release-please keeps it in step via `extra-files` in
