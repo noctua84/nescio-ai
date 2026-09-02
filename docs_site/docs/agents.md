@@ -17,7 +17,7 @@ Agent names are identifiers, and are set in mono throughout.
 |---|---|
 | Coordinate | `orchestrator` |
 | Discover | `scout`, `explore`, `librarian`, `vision` |
-| Plan and challenge | `planner`, `validator`, `advisor`, `critic` |
+| Plan and challenge | `planner`, `validator`, `critic`, `advisor` |
 | Build | `builder`, `builder-standard`, `builder-simple`, `test-writer` |
 | Verify | `qa-guard`, `reviewer` |
 | Document | `doc-researcher`, `doc-writer` |
@@ -70,17 +70,17 @@ Work plan reviewer. Verifies plans are executable with valid references. Blocker
 
 **Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/validator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/validator.md)
 
-### `advisor`
-
-Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
-
-**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
-
 ### `critic`
 
 Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a single bounded pass — blind spots, shaky premises, overlooked alternatives, and PII/legal exposure — then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan risk triage), validator (executability), advisor (design direction), and reviewer (built-code audit).
 
 **Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
+
+### `advisor`
+
+Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
+
+**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
 
 ## Build
 
