@@ -14,15 +14,17 @@ Two ways to run it, both supported:
 
        python docs_site/gen_catalog.py
 
-   Exits non-zero (and writes nothing) if the catalog cannot be generated
-   faithfully. ``--check`` regenerates in memory and fails on any drift from
-   what is on disk, without writing.
+   This is what ``.github/workflows/docs.yml`` runs, so the published site is a
+   fresh render whatever state the committed pages are in. Exits non-zero (and
+   writes nothing) if the catalog cannot be generated faithfully. ``--check``
+   regenerates in memory and fails on any drift from what is on disk, without
+   writing.
 
-2. **From a MkDocs hook**, by importing :func:`generate`::
-
-       import gen_catalog
-       def on_pre_build(config):
-           gen_catalog.generate()
+2. **From a MkDocs hook**. This file is registered directly in the ``hooks:``
+   list of ``docs_site/mkdocs.yml``; its :func:`on_pre_build` calls
+   ``generate(check_only=True)``, so a build **verifies** the committed pages
+   and refuses on drift rather than rewriting them. See that function for why
+   the hook must not write.
 
    ``generate()`` returns ``{"agents": n, "skills": m}`` and raises
    :class:`CatalogError` on any problem, which fails the build.
@@ -30,6 +32,15 @@ Two ways to run it, both supported:
 The pages it writes -- ``docs/agents.md`` and ``docs/skills.md`` -- are
 **generated artefacts**. Do not hand-edit them; edit the frontmatter in
 ``agents/*.md`` / ``skills/*/SKILL.md``, or the grouping tables below.
+
+What raises, and what does not
+------------------------------
+Anything that would make the page *lie* raises :class:`CatalogError`: an
+unparseable definition, a missing required frontmatter field, a skill directory
+with no ``SKILL.md``, a count-guard mismatch. **Grouping never raises.** An
+agent or skill that no table routes is rendered under ``UNGROUPED_TITLE`` with a
+warning, and a routed name with nothing on disk warns too. The rationale is
+recorded in full above ``AGENT_GROUPS`` -- read it before making either fatal.
 
 Count-guard
 -----------
@@ -65,10 +76,31 @@ class CatalogError(RuntimeError):
 # Grouping
 #
 # Explicit, hand-curated, and derived from reading the actual files -- an
-# alphabetical dump of 43 entries is not scannable, and an invented taxonomy
-# would be worse. Anything not listed here still renders, under "Other", and
-# prints a warning: a new agent or skill must never silently vanish from the
-# page (the count-guard would fail the build if it did).
+# alphabetical dump of 50 entries is not scannable, and an invented taxonomy
+# would be worse.
+#
+# Both tables are *routing tables*, and both are LENIENT: an entry with no
+# definition on disk warns, and a definition no table routes warns and renders
+# under UNGROUPED_TITLE ("Other"). Nothing here raises over grouping.
+#
+# THAT LENIENCE IS DELIBERATE, AND IT IS NOT THE OLD BUG. Do not "fix" it back
+# to a build failure. An earlier revision made the agent side fatal in both
+# directions; the effect was that adding an agent obliged the contributor to
+# make an editorial judgement (pick a bucket) and commit a regenerated artefact,
+# or be refused -- on a docs site that is presentation, not part of running the
+# framework. A new agent nobody routed now appears under "Other" on a site that
+# still deploys, which is strictly better than the failure that argument was
+# aimed at: under the original defect (PR #90) six agents were routed nowhere
+# and the page silently OMITTED them. Lenient-plus-visible was never what broke;
+# what broke was a tracked artifact nobody regenerated. That is fixed elsewhere
+# -- .github/workflows/docs.yml regenerates before `mkdocs build`, so the
+# published page cannot go stale regardless of the committed copy.
+#
+# The strict promise still exists, it just is not enforced here. `AGENT_GROUPS`
+# equals `agents/*.md` as a set, asserted by
+# docs_site/test_gen_catalog.py::TestAgainstTheRealRepo, which runs in the
+# non-required `docs-tests` CI job: maintainers see the drift, contributors are
+# not gated by it.
 # --------------------------------------------------------------------------
 
 # Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
@@ -82,6 +114,10 @@ class CatalogError(RuntimeError):
 # auditing what was built. `qa-guard` is the one that audits, and it is a
 # CODE_WRITER in scripts/_crew_common.py, so it stays in "Verify" beside
 # `reviewer`.
+#
+# Every agent in agents/ should appear here exactly once. Nothing in this file
+# enforces that -- see the leniency note above; the set equality is asserted by
+# docs_site/test_gen_catalog.py instead.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
@@ -105,6 +141,9 @@ AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Plan and challenge", ["planner", "validator", "critic", "advisor"]),
     ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
     ("Verify", ["qa-guard", "reviewer"]),
+    # `doc-writer`'s charter says it does not write code, so Build was the only
+    # fit among the original five buckets and a poor one. Its own bucket keeps
+    # the research -> write pair adjacent.
     ("Document", ["doc-researcher", "doc-writer"]),
 ]
 
@@ -354,8 +393,19 @@ def discover_skills(repo_dir: Path) -> Catalog:
 ITEM_HEADING_RE = re.compile(r"^### `", re.MULTILINE)
 
 
-def _group(items: list[Item], groups: list[tuple[str, list[str]]]) -> tuple[list[tuple[str, list[Item]]], list[str]]:
-    """Bucket items by the curated tables; unlisted names fall to 'Other'."""
+def _group(
+    items: list[Item],
+    groups: list[tuple[str, list[str]]],
+) -> tuple[list[tuple[str, list[Item]]], list[str]]:
+    """Bucket items by the curated tables. Never raises over grouping.
+
+    A name in the table with no definition on disk warns; a definition no table
+    routes warns and renders under ``UNGROUPED_TITLE``. Both tables get the same
+    treatment -- there is no strict mode, deliberately. See the leniency note
+    above ``AGENT_GROUPS``: a rendered page carrying an unrouted entry under
+    'Other' is the outcome worth having, because the alternative on offer was
+    refusing to render the page at all.
+    """
     by_name = {item.name: item for item in items}
     placed: set[str] = set()
     grouped: list[tuple[str, list[Item]]] = []
@@ -380,6 +430,7 @@ def _group(items: list[Item], groups: list[tuple[str, list[str]]]) -> tuple[list
             grouped.append((title, bucket))
 
     leftover = [item for item in items if item.name not in placed]
+
     if leftover:
         warnings.append(
             "not in any grouping table, rendered under "
@@ -587,8 +638,31 @@ def generate(
 
 
 def on_pre_build(config) -> None:  # noqa: ANN001 - MkDocs hook signature
-    """MkDocs hook entry point, for `hooks:` in mkdocs.yml."""
-    generate()
+    """MkDocs hook entry point, for `hooks:` in mkdocs.yml. Checks, never writes.
+
+    Registered as `hooks: [gen_catalog.py]` -- this module sits at
+    `docs_site/gen_catalog.py`, not under `docs_site/hooks/`, and is pointed at
+    directly rather than being re-exported through a one-line shim in `hooks/`.
+    A shim there would have to put `docs_site/` on `sys.path` to import this
+    module, which is a worse thing to own than a path with a `/` fewer in it.
+    Like the other two hooks it resolves its own root from `__file__`
+    (`REPO_DIR`) and signals failure by raising, which fails the build.
+
+    WHY `check_only=True` AND NOT `generate()`
+    ------------------------------------------
+    `agents.md` and `skills.md` are generated artefacts that are also *tracked
+    source files* under `docs_dir`. A writing hook rewrites them mid-build:
+    measured on this repo, `mkdocs build` silently took the committed page from
+    11 item sections to 17 and exited 0. That is unacceptable twice over -- a
+    build must not mutate the working tree, and rewriting the page in the same
+    process that publishes it launders drift instead of reporting it. The
+    guarantee worth having is the opposite one: a build refuses when the
+    committed pages do not match a fresh render, and says so.
+
+    Regenerating is a deliberate act: run `python docs_site/gen_catalog.py` and
+    commit the result.
+    """
+    generate(check_only=True)
 
 
 def main(argv: list[str] | None = None) -> int:

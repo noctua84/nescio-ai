@@ -16,9 +16,62 @@ mostly Markdown (agents, skills, memory) plus small Python glue.
 
 ## Adding an agent
 
-Create `agents/<name>.md` with frontmatter (`name`, `description`, `model`, and
-`disallowedTools` or `tools`) and a prose charter. Keep the name functional and
-the mission single-purpose.
+An agent is registered in three places. The first two are load-bearing — the
+required `tests` job fails if you skip either. The third is the docs catalog,
+and it is **a courtesy, not a gate**.
+
+1. **Create `agents/<name>.md`** with frontmatter (`name`, `description`,
+   `model`, and `disallowedTools` or `tools`) and a prose charter. Keep the name
+   functional and the mission single-purpose.
+2. **Register it in `scripts/_crew_common.py`.** Add it to `PAIRS` if the
+   philosopher theme should rename it, or to `THEME_INVARIANT_ROSTER` if the
+   name stays put. Then add it to whichever write-policy set applies:
+   `CODE_WRITERS` for an agent that edits production code, `BOUNDED_WRITERS` for
+   one whose charter limits it to tests or docs, `WRITE_BOUNDED` for one barred
+   from `Edit` but holding `Write` for a single named purpose.
+3. **Optionally route it in `AGENT_GROUPS` in `docs_site/gen_catalog.py`.** That
+   table is a routing table, not a roster — pick the lifecycle bucket the agent
+   belongs in. **Skip it and nothing breaks.** The generator is lenient: an
+   unrouted agent still renders on the docs site, under an "Other" heading, with
+   a warning on the generator's stderr. A maintainer can bucket it later. Choose
+   a bucket if you have an opinion about where it reads best; that is the only
+   reason to.
+4. **Optionally regenerate the catalog and commit its output:**
+
+   ```
+   python docs_site/gen_catalog.py
+   ```
+
+   `docs_site/docs/agents.md` is a generated artefact — do not hand-edit it. But
+   a stale copy blocks nothing: no required CI job checks it for drift, and the
+   published site does not read it. `.github/workflows/docs.yml` regenerates the
+   pages before `mkdocs build`, so the deployed site is correct whether or not
+   you ran this. Running it just keeps the committed copy honest.
+
+   For maintainers reading this: the strict guarantee still exists, it just is
+   not in anyone's way. `docs_site/test_gen_catalog.py` asserts that
+   `AGENT_GROUPS` matches `agents/*.md` exactly, in both directions, and that
+   the committed pages are current. Both assertions run in the **`docs-tests`**
+   job, which is advisory and deliberately not a required check — so drift is
+   visible to the people who can fix it without standing between a contribution
+   and the merge button.
+5. **Run both suites.** There are two unittest roots; `discover -s tests` does
+   **not** reach the second one:
+
+   ```
+   PYTHONPATH=scripts python -m unittest discover -s tests
+   python -m unittest discover -s docs_site
+   ```
+
+   The `docs_site` suite and `mkdocs build` require the **functional** roster on
+   disk — the catalog is pinned to functional names by design — so if you have
+   run `python scripts/apply_theme.py philosophers` in this checkout, run
+   `python scripts/apply_theme.py functional` first. `discover -s tests` stays
+   green either way, which makes the failure look unrelated.
+
+The crew diagram (`brand/make_diagrams.py`, inlined on the docs homepage) is
+**not** regenerated from `agents/`. It draws a fixed subset and is a known
+manual follow-up, tracked separately — adding an agent does not update it.
 
 ## Adding a skill
 

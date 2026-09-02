@@ -1,14 +1,15 @@
 # .github/workflows/tests.yml
 name: tests
 
-# The `schedule` and `workflow_dispatch` triggers exist for the `roadmap` job
-# below -- it is the only job that needs them. `tests` and `lockfile` will fire
+# The `schedule` and `workflow_dispatch` triggers exist for the two jobs that
+# want them, `docs-tests` and `roadmap` below. `tests` and `lockfile` will fire
 # on the weekly cron too; that is accepted rather than worked around. They are
 # cheap, and a weekly independent confirmation that the suite still passes
 # against a fresh runner image is a feature, not noise. Deliberately NOT done:
 # narrowing `push:` to `branches: [main]`, which would silently change when
-# `tests` and `lockfile` run. The main-only condition lives on the one job that
-# wants it, as a job-level `if:`.
+# `tests` and `lockfile` run. The main-only condition lives on each job that
+# wants it, as a job-level `if:` -- `docs-tests` and `roadmap` carry the same
+# expression, and they are the only jobs that carry one at all.
 on:
   push:
   pull_request:
@@ -25,41 +26,203 @@ jobs:
         with:
           python-version: "3.13"
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
-      # `docs_site/docs/agents.md` and `docs_site/docs/skills.md` are generated
-      # *and* tracked -- rendered by docs_site/gen_catalog.py out of the YAML
-      # frontmatter of agents/*.md and skills/*/SKILL.md. Nothing forces the
-      # generator to be rerun when a definition changes, so a PR that adds an
-      # agent leaves the committed catalog describing the previous crew. That is
-      # not hypothetical: PR #90 added six agents without regenerating, and the
-      # page went on announcing "Nescio ships 11 agent definitions" while
-      # `agents/` held 17. This step is what turns that silent drift into a loud
-      # failure.
-      #
-      # Nothing else catches it. The `unittest discover -s tests` step above
-      # never reaches `docs_site/`, which is a separate suite root outside that
-      # discovery path. And the `mkdocs build --strict` in docs.yml renders
-      # whatever markdown is on disk -- neither hook wired in
-      # docs_site/mkdocs.yml (hooks/assets.py, hooks/inline_svg.py) imports
-      # gen_catalog, so a stale page builds perfectly happily.
-      #
-      # TRADE-OFF, recorded on purpose: this duplicates an assertion that
-      # already exists -- test_committed_pages_are_up_to_date, in
-      # docs_site/test_gen_catalog.py (TestAgainstTheRealRepo). That test is not
-      # wrong; it simply never runs in CI, which is why it went red on `main`
-      # when #90 landed and then sat red there, unnoticed, for weeks -- until a
-      # human happened to look and regenerated the page by hand (a2f30bf). That
-      # is the loop this step closes: the assertion existed the whole time and
-      # nothing was asking it.
-      #
-      # The alternative considered was a second `unittest discover -s docs_site`
-      # run, which would pick that test up along with the other 67 in
-      # `docs_site/` (test_site_content.py included). Rejected here as wider
-      # than the failure mode being fixed: a site-content failure would then red
-      # the `tests` job for a reason unrelated to catalog drift. The narrow step
-      # instead fails with a precise error naming the stale file. Widening to
-      # the full docs_site suite stays a reasonable future move -- it should
-      # just be a deliberate one, not a side effect of this guard.
-      - run: python docs_site/gen_catalog.py --check
+
+  # The docs_site/ tests are a second unittest root. `discover -s tests` above
+  # does not reach them, by design: `tests/` is on FRAMEWORK_PATHS and syncs
+  # into derived instances, which never receive `docs_site/`, so a test there
+  # importing gen_catalog would break `python -m unittest` for every downstream
+  # user. Discovering the second root in a second job is the way that boundary
+  # stays intact and the tests still run.
+  #
+  # WHAT THIS JOB IS: a maintainer-facing drift detector for the docs site, in
+  # the same family as `roadmap` below -- not a verdict on the change under
+  # review. What it covers, and nothing else in this repository does: the
+  # catalog generator against the committed pages (the strict roster equality
+  # assertion included), the crew and loop diagrams against their sources in
+  # brand/, the homepage and 404 copy, MaterialPinTest, CrewRosterTest, and the
+  # end-to-end BuiltSiteTest cases that shell out to a real
+  # `mkdocs build --strict` and then assert what landed in site/.
+  #
+  # TRIGGERS: push-to-main, the weekly cron, and manual dispatch -- NOT
+  # `pull_request`, for the same reason `roadmap` gives below: a PR run would
+  # catch almost none of this drift while inheriting all of its false positives.
+  # Docs drift is produced by a merge, not by the diff under review -- an agent
+  # added on one branch goes missing from a catalog regenerated on another, so
+  # the commit that made the site stale is usually not the commit being
+  # reviewed, and a post-merge run sees every case a PR run would have seen and
+  # then some. What a PR run WOULD reliably find is a contributor who added an
+  # agent and did not touch docs_site/ -- precisely the case this branch removed
+  # from the required `tests` job on purpose (see below). Non-required means it
+  # could not block them; it would still red their PR, and a red X everybody
+  # learns to scroll past is worse than no check at all. That is how the defect
+  # survived in the first place:
+  # docs_site/test_gen_catalog.py::test_committed_pages_are_up_to_date existed
+  # the whole time and no trigger was asking it.
+  #
+  # CATALOG DRIFT IS DELIBERATELY NOT A MERGE GATE, and this is the job that
+  # holds the guarantee instead. An earlier revision of this file ran
+  # `python docs_site/gen_catalog.py --check` as a step in the required `tests`
+  # job above; it was removed on purpose. The docs site is presentation -- it is
+  # not needed to run the framework -- and making catalog drift block a merge
+  # taxes every outside contribution with a subsystem the contributor does not
+  # care about: adding an agent would force them to also pick a bucket in
+  # `AGENT_GROUPS` (an editorial judgement, not a mechanical step) and commit a
+  # regenerated artefact, or be blocked. That produces worse documentation, not
+  # better. The site self-heals instead -- .github/workflows/docs.yml
+  # regenerates the pages before `mkdocs build`, so an unrouted agent shows up
+  # under "Other" on a site that still deploys rather than taking the deploy
+  # down. The strict promise (`AGENT_GROUPS` routes exactly `agents/*.md`, both
+  # directions) lives in docs_site/test_gen_catalog.py and runs here, where
+  # maintainers see it and contributors are not gated by it.
+  #
+  # THE TRADE THIS ACCEPTS: a docs regression is caught after the merge that
+  # caused it rather than before. Affordable, because the site is presentation
+  # and the deploy does not depend on what was committed --
+  # .github/workflows/docs.yml regenerates the catalog before it builds, so the
+  # published site self-heals either way. What is at stake here is the committed
+  # sources agreeing with the generator, which is a maintenance concern with no
+  # deadline, not a broken deploy. A red on main names the merge that did it.
+  #
+  # "MAKE THIS REQUIRED" IS NOW STRUCTURALLY IMPOSSIBLE, not merely discouraged.
+  # A required status check is resolved against a pull request's head commit,
+  # and a job that never runs on `pull_request` reports no status there at all;
+  # adding `docs-tests` to main's protection would leave every PR waiting
+  # forever on a check that cannot arrive. The trigger enforces what the old
+  # version of this comment could only ask for. Anyone who wants this as a merge
+  # gate has to restore `pull_request` first -- and then two things become
+  # mandatory in the same change, because this job installs from PyPI for the
+  # BuiltSiteTest cases: pin or vendor the install, and delete the install
+  # tolerance described immediately below. A required check that greens itself
+  # when its install fails converts somebody else's outage into a gate that
+  # certifies nothing while looking like it certified everything.
+  #
+  # INSTALL FAILURES ARE TOLERATED, BUT ANNOUNCED. The install step carries
+  # `continue-on-error`; neither test step does. That split is the whole design.
+  # A PyPI blip is not a defect in this repository, and a job nobody can retry
+  # cheaply -- non-required, so a re-run means a maintainer noticing a red X on
+  # a main or cron run and deciding it is worth the click -- should not
+  # manufacture red history out of somebody else's CDN. A genuine test failure
+  # still reds the job, because both steps that run a suite fail hard. The retry
+  # and timeout flags come first: a transient failure should self-heal before it
+  # is tolerated at all, so tolerance only ever applies to something that
+  # survived five attempts.
+  #
+  # THE DEPENDENCY SPLIT LIVES INSIDE THE TEST MODULE, NOT ON THE STEPS, so the
+  # tolerance reaches as little as possible. NEITHER test step carries an `if:`
+  # -- both run whatever the install did. test_gen_catalog.py imports stdlib
+  # plus gen_catalog, which is itself stdlib-only. test_site_content.py is
+  # stdlib plus gen_catalog at module level too; the one class that needs
+  # Material, BuiltSiteTest, imports mkdocs inside its own setUpClass and raises
+  # unittest.SkipTest when that import fails. So a broken install costs exactly
+  # that class: MaterialPinTest, CrewRosterTest, DiagramSourcesTest,
+  # DiagramLayoutTest, DiagramModalTest, HeroTest and OverridesTest all still
+  # run, and all still fail hard.
+  #
+  # It was not always so. test_site_content.py used to sit behind
+  # `if: steps.install.outcome == 'success'`, which meant a PyPI outage skipped
+  # the entire module -- CrewRosterTest, which pins the catalog's roster against
+  # brand/make_diagrams.py, and MaterialPinTest, which guards the two-workflow
+  # version pin, included. Neither has anything to do with Material being
+  # downloadable. Dropping that `if:` left the gate exactly where the dependency
+  # actually is, one class deep, instead of a whole file wide.
+  #
+  # Each step names its module with `-p` instead of discovering the directory,
+  # so test_gen_catalog.py runs exactly once; a bare `discover -s docs_site` in
+  # the second step would re-run every one of its cases. The two `-p` patterns
+  # must therefore cover docs_site/ between them -- every module a plain
+  # `discover -s docs_site` collects needs a step here. Add a third test module
+  # to docs_site/ without adding a step and it runs in neither.
+  #
+  # No test counts are quoted anywhere in this comment, deliberately. Nothing in
+  # CI asserts them, so they rot silently on the next test added --
+  # docs_site/test_gen_catalog.py::test_no_hardcoded_counts_in_the_generator
+  # holds gen_catalog.py to precisely that rule, and this file should not be
+  # exempt from it. Describe the split by dependency; the runner prints the
+  # numbers.
+  #
+  # Not `continue-on-error` on the JOB. That would green real test failures too
+  # and leave a check that reports nothing -- which is the defect the `roadmap`
+  # job's comment below refuses by name, and the reason this job exists at all
+  # is that docs_site/'s tests finally execute somewhere.
+  #
+  # RESIDUAL RISK, stated plainly, and now as small as this design can make it:
+  # a *persistent* install failure -- a yanked release, a rename, a pin that no
+  # longer resolves -- means BuiltSiteTest skips itself while the job keeps
+  # reporting green. What that costs is the only end-to-end coverage there is: a
+  # real `mkdocs build --strict` against the real config and hooks, plus the
+  # assertions about what actually landed in site/ -- diagrams inlined as
+  # `<svg>`, the modal script shipped and referenced, 404 at the site root, the
+  # footer on every page, no external request anywhere in the build, the faces
+  # self-hosted. A build that breaks without Material's help is exactly the
+  # class of failure nothing else here can see.
+  #
+  # That risk is smaller than it was, and the trigger change is why. A
+  # *persistent* breakage is the one a per-PR green hid best: the same skip
+  # recurring on every PR reads as normal, and nobody re-runs a job that is
+  # always like that. On a weekly cron there is no traffic to hide in -- the
+  # Monday run is the only signal, so a skip that is still there next Monday is
+  # a standing, dated record that the site has not been built in a week. The
+  # residual risk was listed here as unfixed; the `schedule` trigger closes the
+  # persistent half of it. The transient half stays: one bad Monday still looks
+  # like a green job with a warning nobody read.
+  #
+  # What is NOT exposed any more is everything provable by reading the sources:
+  # test_gen_catalog.py in full, the strict roster assertion included, and every
+  # other class in test_site_content.py -- CrewRosterTest and MaterialPinTest
+  # among them. Those run whatever the install did, which is the point of the
+  # split above.
+  #
+  # A skip is not a pass, and the job's green tick cannot tell them apart. The
+  # warning annotation and the step-summary line are the only things standing
+  # between that skip and nobody noticing, so they are load-bearing, not
+  # decoration. If you find yourself trimming CI noise, that annotation is not
+  # noise. If you see it on a main or cron run, the site was never built on that
+  # commit.
+  docs-tests:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Same hard pin as .github/workflows/docs.yml, and for the same reason:
+      # the custom schemes are coupled to Material's CSS variable names. Keep
+      # the two in step.
+      - id: install
+        continue-on-error: true
+        run: pip install --retries 5 --timeout 30 mkdocs-material==9.7.7
+      # NO `if:` HERE, DELIBERATELY. test_gen_catalog.py imports stdlib plus
+      # gen_catalog, which is itself stdlib-only -- it does not care whether the
+      # step above worked. It holds the strict roster guarantee and nothing else
+      # does, so it must not be reachable by a PyPI outage.
+      - run: python -m unittest discover -s docs_site -p "test_gen_catalog.py" -v
+      # `outcome` is the step's result BEFORE continue-on-error rewrites it;
+      # `conclusion` would read `success` here no matter what happened, which is
+      # exactly the silent-green failure mode being guarded against.
+      - if: steps.install.outcome != 'success'
+        run: |
+          echo "::warning title=docs_site site was never built on this commit::Installing the pinned mkdocs-material failed after 5 retries, so BuiltSiteTest skipped itself -- no real 'mkdocs build --strict' ran and nothing checked what shipped into site/. Every other docs_site test did run and pass: test_gen_catalog.py in full, and the rest of test_site_content.py including MaterialPinTest and CrewRosterTest. Re-run the job once PyPI is reachable."
+          {
+            echo "### :warning: \`docs-tests\`: the site was never built"
+            echo
+            echo "Installing the pinned \`mkdocs-material\` failed after 5 retries, so"
+            echo "\`BuiltSiteTest\` **skipped itself**: no real \`mkdocs build --strict\`"
+            echo "ran on this commit, and nothing checked what shipped into \`site/\`."
+            echo
+            echo "Everything else ran and passed -- \`test_gen_catalog.py\` in full, and"
+            echo "every other class in \`test_site_content.py\`, \`MaterialPinTest\` and"
+            echo "\`CrewRosterTest\` included. This job is green for the end-to-end half"
+            echo "because the install broke, not because those cases passed."
+          } >> "$GITHUB_STEP_SUMMARY"
+      # NO `if:` HERE EITHER, DELIBERATELY -- see the dependency-split comment
+      # above. Only BuiltSiteTest needs Material, and it self-skips on
+      # ImportError; gating the whole module on the install would take
+      # MaterialPinTest and CrewRosterTest down with a PyPI outage.
+      - run: python -m unittest discover -s docs_site -p "test_site_content.py" -v
 
   # `uv.lock` records the project's own version, so it drifts from pyproject.toml
   # on every release. release-please keeps it in step via `extra-files` in
