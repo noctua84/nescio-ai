@@ -112,7 +112,7 @@ Test authorship specialist. Writes and extends tests for implemented code — ve
 
 ### `qa-guard`
 
-CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
+CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Hard file boundary: may never edit the files that define the checks. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
 
 **Model** `claude-sonnet-5` · [`agents/qa-guard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/qa-guard.md)
 
