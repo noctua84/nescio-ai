@@ -41,13 +41,27 @@ jobs:
       # has quietly reverted to the stock palette.
       - run: pip install mkdocs-material==9.7.7
 
-      # Post-merge backstop for the catalog pages. The same `--check` runs in
-      # the required `tests` job, so anything reaching main has already passed
-      # it -- but this workflow also fires on workflow_dispatch and on direct
-      # pushes to main, and a stale catalog must not be publishable by either.
-      # Run BEFORE the build: gen_catalog's own pre-build hook would catch the
-      # same drift, but buried in mkdocs output rather than as its own red step.
-      - run: python docs_site/gen_catalog.py --check
+      # Regenerate the catalog pages, do not merely check them. This step used
+      # to be `gen_catalog.py --check`, which failed the DEPLOY when the
+      # committed `docs_site/docs/agents.md` was stale -- so a contributor who
+      # added an agent without rerunning the generator took the whole site down
+      # rather than leaving one page untidy. Catalog drift is not a merge gate
+      # any more (see the `docs-tests` comment in tests.yml); the corollary is
+      # that the deploy must self-heal, and it does: whatever is committed, what
+      # gets published is a fresh render of `agents/*.md` and `skills/*/SKILL.md`.
+      # An agent nobody routed in `AGENT_GROUPS` lands under "Other" and the
+      # site still ships.
+      #
+      # This writes into the runner's ephemeral checkout only. Nothing is
+      # committed, and the tracked pages stay the source of truth for local
+      # work; `docs_site/test_gen_catalog.py` is what tells maintainers the
+      # committed copy has drifted.
+      #
+      # ORDER MATTERS: this must run BEFORE `mkdocs build`. The `gen_catalog.py`
+      # hook registered in docs_site/mkdocs.yml is check-only and raises on
+      # drift, which would fail the build; regenerating first means the hook
+      # sees current pages and passes. Do not reorder these two steps.
+      - run: python docs_site/gen_catalog.py
 
       - run: mkdocs build -f docs_site/mkdocs.yml --strict
 

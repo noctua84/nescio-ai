@@ -79,6 +79,12 @@ hooks:
   # working tree and laundering the very drift it should report. Regenerating
   # stays a deliberate act: `python docs_site/gen_catalog.py`, then commit.
   #
+  # ADVISORY, NOT A GATE. This is the local developer signal — it tells you the
+  # committed pages have drifted, on the machine where you can fix it. It gates
+  # nothing: catalog drift no longer blocks a merge, and the deploy in
+  # .github/workflows/docs.yml regenerates the pages before calling `mkdocs
+  # build` rather than refusing, so this hook always sees current pages there.
+  #
   # Path has no `hooks/` prefix because the module lives at
   # docs_site/gen_catalog.py — it is the generator, imported by
   # test_gen_catalog.py and run as a CLI, not a hook that happens to live in

@@ -25,64 +25,39 @@ jobs:
         with:
           python-version: "3.13"
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
-      # `docs_site/docs/agents.md` and `docs_site/docs/skills.md` are generated
-      # *and* tracked -- rendered by docs_site/gen_catalog.py out of the YAML
-      # frontmatter of agents/*.md and skills/*/SKILL.md. Nothing forces the
-      # generator to be rerun when a definition changes, so a PR that adds an
-      # agent leaves the committed catalog describing the previous crew. That is
-      # not hypothetical: PR #90 added six agents without regenerating, and the
-      # page went on announcing "Nescio ships 11 agent definitions" while
-      # `agents/` held 17. This step is what turns that silent drift into a loud
-      # failure.
-      #
-      # Nothing else catches it. The `unittest discover -s tests` step above
-      # never reaches `docs_site/`, which is a separate suite root outside that
-      # discovery path. And the `mkdocs build --strict` in docs.yml renders
-      # whatever markdown is on disk -- neither hook wired in
-      # docs_site/mkdocs.yml (hooks/assets.py, hooks/inline_svg.py) imports
-      # gen_catalog, so a stale page builds perfectly happily.
-      #
-      # TRADE-OFF, recorded on purpose: this duplicates an assertion that
-      # already exists -- test_committed_pages_are_up_to_date, in
-      # docs_site/test_gen_catalog.py (TestAgainstTheRealRepo). That test is not
-      # wrong; it simply never runs in CI, which is why it went red on `main`
-      # when #90 landed and then sat red there, unnoticed, for weeks -- until a
-      # human happened to look and regenerated the page by hand (a2f30bf). That
-      # is the loop this step closes: the assertion existed the whole time and
-      # nothing was asking it.
-      #
-      # The alternative considered was a second `unittest discover -s docs_site`
-      # run, which would pick that test up along with the other 67 in
-      # `docs_site/` (test_site_content.py included). Rejected here as wider
-      # than the failure mode being fixed: a site-content failure would then red
-      # the `tests` job for a reason unrelated to catalog drift. The narrow step
-      # instead fails with a precise error naming the stale file. Widening to
-      # the full docs_site suite stays a reasonable future move -- it should
-      # just be a deliberate one, not a side effect of this guard.
-      - run: python docs_site/gen_catalog.py --check
 
-  # RECONCILED with the step above, which was added on main independently and
-  # whose comment rejects "a second `unittest discover -s docs_site` run" as
-  # wider than the drift it guards. That objection was aimed at putting the
-  # discovery INSIDE this required job, where a site-content failure would red
-  # `tests` for an unrelated reason. This is a separate, non-required job, so it
-  # cannot do that -- the narrow `--check` above remains the only catalog gate
-  # that blocks a merge. What this adds is the rest of docs_site/: the themed-
-  # roster refusal, MaterialPinTest, and main's own CrewRosterTest, none of
-  # which the `--check` step exercises and none of which ran anywhere before.
   # The docs_site/ tests are a second unittest root. `discover -s tests` above
   # does not reach them, by design: `tests/` is on FRAMEWORK_PATHS and syncs
   # into derived instances, which never receive `docs_site/`, so a test there
   # importing gen_catalog would break `python -m unittest` for every downstream
   # user. Discovering the second root in a second job is the way that boundary
-  # stays intact and the tests still run.
+  # stays intact and the tests still run. What runs here and nowhere else: the
+  # catalog roster equality assertion, MaterialPinTest, CrewRosterTest, and the
+  # 8 end-to-end BuiltSiteTest cases.
+  #
+  # CATALOG DRIFT IS DELIBERATELY NOT A MERGE GATE, and this is the job that
+  # holds the guarantee instead. An earlier revision of this file ran
+  # `python docs_site/gen_catalog.py --check` as a step in the required `tests`
+  # job above; it was removed on purpose. The docs site is presentation -- it is
+  # not needed to run the framework -- and making catalog drift block a merge
+  # taxes every outside contribution with a subsystem the contributor does not
+  # care about: adding an agent would force them to also pick a bucket in
+  # `AGENT_GROUPS` (an editorial judgement, not a mechanical step) and commit a
+  # regenerated artefact, or be blocked. That produces worse documentation, not
+  # better. The site self-heals instead -- .github/workflows/docs.yml
+  # regenerates the pages before `mkdocs build`, so an unrouted agent shows up
+  # under "Other" on a site that still deploys rather than taking the deploy
+  # down. The strict promise (`AGENT_GROUPS` routes exactly `agents/*.md`, both
+  # directions) lives in docs_site/test_gen_catalog.py and runs here, where
+  # maintainers see it and contributors are not gated by it.
   #
   # PRECONDITION: this job must NOT be added to main's required status checks,
   # for the opposite reason to the `roadmap` job below. It installs from PyPI --
   # mkdocs-material is needed by the 8 end-to-end BuiltSiteTest cases, which
   # shell out to a real `mkdocs build --strict` -- and a network install inside
-  # the blocking gate means a PyPI blip reds every open PR. The drift check that
-  # genuinely must block lives in `tests` above and needs no install at all.
+  # the blocking gate means a PyPI blip reds every open PR. Nothing about the
+  # catalog needs to block a merge (see above), so nothing is lost by leaving
+  # this job advisory.
   #
   # Making this job required is a branch-protection change in GitHub settings.
   # No commit in this repository can perform it, so if you want it, do it there

@@ -14,9 +14,11 @@ Two ways to run it, both supported:
 
        python docs_site/gen_catalog.py
 
-   Exits non-zero (and writes nothing) if the catalog cannot be generated
-   faithfully. ``--check`` regenerates in memory and fails on any drift from
-   what is on disk, without writing.
+   This is what ``.github/workflows/docs.yml`` runs, so the published site is a
+   fresh render whatever state the committed pages are in. Exits non-zero (and
+   writes nothing) if the catalog cannot be generated faithfully. ``--check``
+   regenerates in memory and fails on any drift from what is on disk, without
+   writing.
 
 2. **From a MkDocs hook**. This file is registered directly in the ``hooks:``
    list of ``docs_site/mkdocs.yml``; its :func:`on_pre_build` calls
@@ -30,6 +32,15 @@ Two ways to run it, both supported:
 The pages it writes -- ``docs/agents.md`` and ``docs/skills.md`` -- are
 **generated artefacts**. Do not hand-edit them; edit the frontmatter in
 ``agents/*.md`` / ``skills/*/SKILL.md``, or the grouping tables below.
+
+What raises, and what does not
+------------------------------
+Anything that would make the page *lie* raises :class:`CatalogError`: an
+unparseable definition, a missing required frontmatter field, a skill directory
+with no ``SKILL.md``, a count-guard mismatch. **Grouping never raises.** An
+agent or skill that no table routes is rendered under ``UNGROUPED_TITLE`` with a
+warning, and a routed name with nothing on disk warns too. The rationale is
+recorded in full above ``AGENT_GROUPS`` -- read it before making either fatal.
 
 Count-guard
 -----------
@@ -68,19 +79,28 @@ class CatalogError(RuntimeError):
 # alphabetical dump of 50 entries is not scannable, and an invented taxonomy
 # would be worse.
 #
-# The two tables are NOT the same kind of object, and the difference is
-# deliberate:
+# Both tables are *routing tables*, and both are LENIENT: an entry with no
+# definition on disk warns, and a definition no table routes warns and renders
+# under UNGROUPED_TITLE ("Other"). Nothing here raises over grouping.
 #
-#   AGENT_GROUPS is a *routing table*, not a roster. It is checked strictly in
-#   both directions (`_group(..., strict=True)`): every agent on disk must be
-#   routed, and every name routed must exist on disk. It therefore equals
-#   `agents/*.md` as a set, by construction. An agent that is not listed does
-#   NOT fall through to "Other" -- it fails the build, loudly, with the name in
-#   the message. That is the point: the previous behaviour let six agents sit
-#   in an "Other" bucket behind a warning nothing read.
+# THAT LENIENCE IS DELIBERATE, AND IT IS NOT THE OLD BUG. Do not "fix" it back
+# to a build failure. An earlier revision made the agent side fatal in both
+# directions; the effect was that adding an agent obliged the contributor to
+# make an editorial judgement (pick a bucket) and commit a regenerated artefact,
+# or be refused -- on a docs site that is presentation, not part of running the
+# framework. A new agent nobody routed now appears under "Other" on a site that
+# still deploys, which is strictly better than the failure that argument was
+# aimed at: under the original defect (PR #90) six agents were routed nowhere
+# and the page silently OMITTED them. Lenient-plus-visible was never what broke;
+# what broke was a tracked artifact nobody regenerated. That is fixed elsewhere
+# -- .github/workflows/docs.yml regenerates before `mkdocs build`, so the
+# published page cannot go stale regardless of the committed copy.
 #
-#   SKILL_GROUPS stays lenient. It curates 33 entries with a different churn
-#   profile, and an unlisted skill still renders under "Other" with a warning.
+# The strict promise still exists, it just is not enforced here. `AGENT_GROUPS`
+# equals `agents/*.md` as a set, asserted by
+# docs_site/test_gen_catalog.py::TestAgainstTheRealRepo, which runs in the
+# non-required `docs-tests` CI job: maintainers see the drift, contributors are
+# not gated by it.
 # --------------------------------------------------------------------------
 
 # Lifecycle order: coordinate -> discover -> plan and challenge -> build ->
@@ -95,8 +115,9 @@ class CatalogError(RuntimeError):
 # CODE_WRITER in scripts/_crew_common.py, so it stays in "Verify" beside
 # `reviewer`.
 #
-# Every agent in agents/ must appear here exactly once -- see the strictness
-# note above; this table is checked against the directory in both directions.
+# Every agent in agents/ should appear here exactly once. Nothing in this file
+# enforces that -- see the leniency note above; the set equality is asserted by
+# docs_site/test_gen_catalog.py instead.
 AGENT_GROUPS: list[tuple[str, list[str]]] = [
     ("Coordinate", ["orchestrator"]),
     ("Discover", ["scout", "explore", "librarian", "vision"]),
@@ -372,55 +393,33 @@ def discover_skills(repo_dir: Path) -> Catalog:
 ITEM_HEADING_RE = re.compile(r"^### `", re.MULTILINE)
 
 
-#: Appended to every strict-mode failure. A themed checkout is the one way to
-#: hit this error without having actually added or removed an agent, and the
-#: symptom (seventeen unrouted philosopher names) does not look like its cause.
-#:
-#: Deliberately a static string: `scripts/apply_theme.py` is NOT imported to
-#: detect the condition. `docs_site/` must build with nothing from `scripts/`
-#: on PYTHONPATH, and a hint costs nothing to keep true.
-THEME_HINT = (
-    "If the philosopher theme is applied to this checkout, run "
-    "`python scripts/apply_theme.py functional` before regenerating -- the "
-    "published catalog ships the functional names."
-)
-
-
 def _group(
     items: list[Item],
     groups: list[tuple[str, list[str]]],
-    *,
-    strict: bool = False,
 ) -> tuple[list[tuple[str, list[Item]]], list[str]]:
-    """Bucket items by the curated tables.
+    """Bucket items by the curated tables. Never raises over grouping.
 
-    Lenient (the default, used for skills): a name in the table with no
-    definition on disk warns; a definition no table routes warns and renders
-    under 'Other'.
-
-    Strict (``strict=True``, used for agents): both of those are fatal, so the
-    table is pinned to equal the directory listing as a *set*. One-way pinning
-    would not be enough -- it would leave the refusal of a themed roster
-    emergent rather than enforced, and a future author could publish
-    philosopher names to the public site by routing both name sets.
+    A name in the table with no definition on disk warns; a definition no table
+    routes warns and renders under ``UNGROUPED_TITLE``. Both tables get the same
+    treatment -- there is no strict mode, deliberately. See the leniency note
+    above ``AGENT_GROUPS``: a rendered page carrying an unrouted entry under
+    'Other' is the outcome worth having, because the alternative on offer was
+    refusing to render the page at all.
     """
     by_name = {item.name: item for item in items}
     placed: set[str] = set()
     grouped: list[tuple[str, list[Item]]] = []
     warnings: list[str] = []
-    unmatched: list[str] = []
 
     for title, names in groups:
         bucket: list[Item] = []
         for name in names:
             item = by_name.get(name)
             if item is None:
-                unmatched.append(name)
-                if not strict:
-                    warnings.append(
-                        f"grouping table lists '{name}' under '{title}', but no such "
-                        f"definition exists -- drop it from gen_catalog.py"
-                    )
+                warnings.append(
+                    f"grouping table lists '{name}' under '{title}', but no such "
+                    f"definition exists -- drop it from gen_catalog.py"
+                )
                 continue
             if name in placed:
                 warnings.append(f"'{name}' is listed in more than one group")
@@ -431,24 +430,6 @@ def _group(
             grouped.append((title, bucket))
 
     leftover = [item for item in items if item.name not in placed]
-
-    if strict and (leftover or unmatched):
-        problems: list[str] = []
-        if leftover:
-            problems.append(
-                "no group routes these definitions: "
-                + ", ".join(sorted(i.name for i in leftover))
-            )
-        if unmatched:
-            problems.append(
-                "these names are routed but have no definition on disk: "
-                + ", ".join(sorted(unmatched))
-            )
-        raise CatalogError(
-            "AGENT_GROUPS must list exactly the definitions on disk -- no more, "
-            "no fewer. " + "; ".join(problems) + ". Update AGENT_GROUPS in "
-            "docs_site/gen_catalog.py. " + THEME_HINT
-        )
 
     if leftover:
         warnings.append(
@@ -498,7 +479,7 @@ def _skill_meta(item: Item) -> str:
 
 
 def render_agents(catalog: Catalog) -> tuple[str, list[str]]:
-    grouped, warnings = _group(catalog.items, AGENT_GROUPS, strict=True)
+    grouped, warnings = _group(catalog.items, AGENT_GROUPS)
     count = len(catalog.items)
     lines = [
         GENERATED_BANNER,
