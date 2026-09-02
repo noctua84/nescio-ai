@@ -16,8 +16,9 @@ mostly Markdown (agents, skills, memory) plus small Python glue.
 
 ## Adding an agent
 
-An agent is registered in three places, and two of them fail the build if you
-skip them.
+An agent is registered in three places. The first two are load-bearing — the
+required `tests` job fails if you skip either. The third is the docs catalog,
+and it is **a courtesy, not a gate**.
 
 1. **Create `agents/<name>.md`** with frontmatter (`name`, `description`,
    `model`, and `disallowedTools` or `tools`) and a prose charter. Keep the name
@@ -28,18 +29,32 @@ skip them.
    `CODE_WRITERS` for an agent that edits production code, `BOUNDED_WRITERS` for
    one whose charter limits it to tests or docs, `WRITE_BOUNDED` for one barred
    from `Edit` but holding `Write` for a single named purpose.
-3. **Route it in `AGENT_GROUPS` in `docs_site/gen_catalog.py`.** That table is a
-   routing table, not a roster: it is checked strictly in both directions, so an
-   unrouted agent **fails the build** rather than falling into an "Other"
-   bucket. Pick the lifecycle bucket it belongs in.
-4. **Regenerate the catalog and commit its output:**
+3. **Optionally route it in `AGENT_GROUPS` in `docs_site/gen_catalog.py`.** That
+   table is a routing table, not a roster — pick the lifecycle bucket the agent
+   belongs in. **Skip it and nothing breaks.** The generator is lenient: an
+   unrouted agent still renders on the docs site, under an "Other" heading, with
+   a warning on the generator's stderr. A maintainer can bucket it later. Choose
+   a bucket if you have an opinion about where it reads best; that is the only
+   reason to.
+4. **Optionally regenerate the catalog and commit its output:**
 
    ```
    python docs_site/gen_catalog.py
    ```
 
-   `docs_site/docs/agents.md` is a generated artefact — do not hand-edit it. The
-   required `tests` CI job runs `gen_catalog.py --check` and fails on drift.
+   `docs_site/docs/agents.md` is a generated artefact — do not hand-edit it. But
+   a stale copy blocks nothing: no required CI job checks it for drift, and the
+   published site does not read it. `.github/workflows/docs.yml` regenerates the
+   pages before `mkdocs build`, so the deployed site is correct whether or not
+   you ran this. Running it just keeps the committed copy honest.
+
+   For maintainers reading this: the strict guarantee still exists, it just is
+   not in anyone's way. `docs_site/test_gen_catalog.py` asserts that
+   `AGENT_GROUPS` matches `agents/*.md` exactly, in both directions, and that
+   the committed pages are current. Both assertions run in the **`docs-tests`**
+   job, which is advisory and deliberately not a required check — so drift is
+   visible to the people who can fix it without standing between a contribution
+   and the merge button.
 5. **Run both suites.** There are two unittest roots; `discover -s tests` does
    **not** reach the second one:
 
