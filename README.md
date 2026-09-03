@@ -104,13 +104,28 @@ and changes nothing if it can't.
 | `scout` | Pre-plan risk/intent triage — surfaces assumptions and likely failure points. |
 | `planner` | Interviews for requirements and writes the work plan. |
 | `validator` | Checks a plan is executable before work starts. |
-| `builder` | Implements one scoped task from a plan — the only agent that writes production code. Verifies before reporting. |
+| `builder` | Implements one scoped task from a plan — the complex/unclassified tier. Verifies before reporting. |
+| `builder-standard` | Same contract as `builder`, for tasks the plan classifies `standard`; runs on Sonnet. |
+| `builder-simple` | Same contract as `builder`, for mechanical tasks the plan classifies `simple`; runs on Haiku. |
+| `test-writer` | Writes and extends tests against the intended interface; may not touch implementation files. |
+| `qa-guard` | Discovers and runs the project's CI checks, fixing mechanical failures until they pass; may never edit the files that define the checks. |
 | `advisor` | Read-only architecture/design advice for hard tradeoffs. |
 | `reviewer` | QA audit of implemented code — bugs, regressions, security. |
 | `critic` | Devil's advocate — challenges the approach before it's built. |
 | `librarian` | External docs / OSS research with cited sources. |
 | `explore` | Fast codebase search. |
 | `vision` | Reads media (PDFs, images, diagrams, screenshots) and returns the extracted data; read-only. |
+| `doc-researcher` | Maps the existing docs — coverage, gaps, update targets; writes nothing. |
+| `doc-writer` | Writes docs from `doc-researcher`'s findings; may not touch implementation files. |
+
+Nine agents can write files, in two tiers. Six may also *edit* existing ones:
+`builder` and its two tiers change production code with no declared limit, while
+`test-writer`, `doc-writer` and `qa-guard` are held to their declared file
+boundaries by their charters — tests only, docs only, and never the files that
+define the CI checks. Frontmatter has no path-scoped form, so those boundaries
+are prose, not enforcement. Three more may create files but not edit any:
+`orchestrator`, `planner` (work plans under `.sisyphus/`) and `reviewer` (its
+audit report). The remaining eight are read-only.
 
 ## Skills
 
@@ -140,16 +155,32 @@ refreshed during `/harvest-memory`, and the input for a planned autonomy dial.
 ## Optional: the philosopher theme
 
 The agent names above are functional on purpose. If you'd like personality, an
-optional theme renames the thinker/advisor agents after Graeco-Roman philosophers
-(`planner`→`plato`, `advisor`→`aristotle`, `reviewer`→`pyrrho`, `critic`→
-`socrates`, `builder`→`archimedes`) — tracing the Socrates → Plato → Aristotle
-lineage, plus Pyrrho the skeptic, plus Archimedes the engineer and craftsman
-(not part of that lineage, which is fitting for the agent that builds rather
-than reasons).
+optional theme renames the thinker, builder and craft agents after Graeco-Roman
+philosophers:
+
+| functional | philosopher | why |
+| --- | --- | --- |
+| `planner` | `plato` | the Socrates → Plato → Aristotle lineage |
+| `advisor` | `aristotle` | " |
+| `critic` | `socrates` | " |
+| `reviewer` | `pyrrho` | the skeptic |
+| `builder` | `archimedes` | the engineer and craftsman — deliberately outside that lineage, which suits the agent that builds rather than reasons |
+| `test-writer` | `euclid` | proofs, laid out step by step |
+| `qa-guard` | `cato` | the censor, who checked what others shipped |
+| `doc-researcher` | `callimachus` | catalogued the library of Alexandria |
+| `doc-writer` | `cicero` | the prose stylist |
+
+The two builder cost tiers follow `builder`, so eleven files are renamed in all:
+the nine pairs above plus `builder-simple.md`→`archimedes-simple.md` and
+`builder-standard.md`→`archimedes-standard.md`.
+
+The remaining agents — `orchestrator`, `scout`, `validator`, `librarian`,
+`explore`, `vision` — keep their functional names under both themes.
 
 Apply it with `python scripts/apply_theme.py philosophers` (and
 `python scripts/apply_theme.py functional` to revert). It renames the agent files,
 frontmatter, and all cross-references; it's idempotent and reversible.
+`--dry-run` prints what it would do without touching anything.
 
 ## Prerequisites
 

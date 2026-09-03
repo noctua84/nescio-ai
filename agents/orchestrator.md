@@ -22,7 +22,7 @@ You manage the full development lifecycle by dispatching specialized agents and 
 - Run verification commands (tests, linting, type checks)
 
 ### What You Don't Do
-- Write production code (delegate to `builder`)
+- Write production code (delegate to `builder` or its `-simple` / `-standard` tiers)
 - Make architectural decisions alone (consult `advisor`)
 - Skip user approval gates
 
@@ -238,15 +238,48 @@ Approve plan and begin execution?
 3. **Full context per agent** — each agent gets the complete task description, relevant file paths, and acceptance criteria (they have no memory of this conversation)
 4. **Verify after each task** — read changed files to confirm the work matches the plan
 
+### Documentation parallel track
+
+Dispatch `doc-researcher` in the same wave as the first `[impl]` agent. It maps
+the documentation landscape while implementation runs, so the doc-writing step
+in DELIVER has a ready brief when the code is done:
+
+```
+Agent(
+  subagent_type: "doc-researcher",
+  prompt: "
+    ## What changed
+    [Description of the feature or change being implemented]
+
+    ## Project docs entry point
+    [README, docs/ index, or mkdocs config path]
+
+    Return a coverage map, gap list, and update targets for doc-writer.
+  "
+)
+```
+
 ### Scope-Drift Reflex (before each wave)
 
 Before dispatching a wave, restate the **original task** in one line and confirm the wave's tasks still serve it. If an activity is 2+ steps removed from the original goal, or is "nice-to-have" rather than "must-have," stop and surface the drift to the user — name the chain (A → B → C → you-are-here) and the cut-back point. Cheap insurance against long waves wandering off the goal.
 
 ### Per-Task Dispatch
 
+Select the builder variant from the task's complexity tier in the plan:
+
+| Tier | Agent |
+|---|---|
+| `simple` | `builder-simple` |
+| `standard` | `builder-standard` |
+| `complex` or unclassified | `builder` |
+
+The tier is planner's estimate — do not reclassify here. If `builder-simple`
+returns `BLOCKED` because a task proved more complex than expected, re-dispatch
+as `builder` (the task stays `simple` in the plan).
+
 ```
 Agent(
-  subagent_type: "builder",
+  subagent_type: "builder | builder-standard | builder-simple",
   prompt: "
     ## Task: [title]
     
@@ -271,6 +304,8 @@ Agent(
     - Before committing, confirm HEAD is attached to the branch above:
       `git symbolic-ref -q HEAD` — if detached, `git switch <branch>` first.
       A detached-HEAD commit succeeds but lands on no branch and is lost.
+    - Prefix every commit: `[impl]` for production code, `[fix]` for bug fixes,
+      `[chore]` for tooling-only — e.g. `feat: [impl] add refresh handler`
   "
 )
 ```
@@ -295,11 +330,60 @@ Agent(
      missing fact; a second implementer returns either another `BLOCKED` or the
      guess `builder` is forbidden to make. Get the answer, then re-dispatch.
 5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
-   into a running list you carry to DELIVER. `builder` is the only agent that
-   actually reads and edits the code, so its incidental findings are the
-   highest-value thing it produces after the code itself — today's findings are
-   the brief for tomorrow's spawned task. Do not act on them now (that is scope
-   drift); do not drop them either.
+   into a running list you carry to DELIVER. `builder` and its tiers actually
+   read and edit the code, so their incidental findings are the highest-value
+   thing they produce after the code itself — today's findings are the brief
+   for tomorrow's spawned task. Do not act on them now (that is scope drift);
+   do not drop them either.
+
+### Test Phase Dispatch
+
+After each `[impl]` wave completes, dispatch `test-writer` for a separate
+`[test]` phase:
+
+```
+Agent(
+  subagent_type: "test-writer",
+  prompt: "
+    ## Task: [title] — write tests
+
+    ## Context
+    [What this project does, what the implementation does]
+    **Branch**: [the branch this work must land on]
+
+    ## What to Test
+    [The intended interface, types, and contracts — not the current behaviour]
+
+    ## Implementation Files
+    [Paths of the files just written by builder]
+
+    ## Test Directories
+    [Where tests live in this repo]
+
+    ## Acceptance Criteria
+    [What the test suite should cover]
+  "
+)
+```
+
+Apply the Regression Gate after this phase completes (see below).
+
+### Regression Gate (after `[test]` phases)
+
+When a `test-writer` agent has committed a `[test]` wave, verify before
+accepting the verdict that no implementation file paths appear in those commits:
+
+```bash
+# identify the [test] commits
+git log --oneline --grep='\[test\]' <base>..<head>
+# check which files each one touched
+git diff-tree --no-commit-id -r <sha> --name-only
+```
+
+If any path outside the project's test directories appears in the diff, reject
+the verdict and re-dispatch with an explicit boundary reminder: name the file
+that was touched, ask `test-writer` to revert it, document the issue in
+`<blocked-on>`, and return `BLOCKED`.
 
 **Progress update to user:**
 
@@ -330,12 +414,69 @@ Agent(
 
 **Goal**: Ensure everything works together and meets the original requirements.
 
-### Step 1: Run Automated Checks
-Use Bash to run:
-- Test suite (if it exists)
-- Linter / formatter
-- Type checker
-- Build command
+### Step 1: CI Gate — dispatch `qa-guard`
+
+```
+Agent(
+  subagent_type: "qa-guard",
+  prompt: "
+    ## Context
+    [What this project is]
+    **Branch**: [current branch]
+
+    ## What to Check
+    Discover and run all CI checks for this project. Fix mechanical failures.
+    Return PASSED when all checks pass, BLOCKED if you hit a genuine bug or
+    an out-of-mandate failure.
+  "
+)
+```
+
+If `qa-guard` returns `BLOCKED`: surface the blocker to the user before
+dispatching `reviewer`. A bug surfaced here is a `builder` task, not a
+review finding.
+
+### CI Gate Audit (after a `qa-guard` wave)
+
+`qa-guard` does not commit — it leaves fixes in the working tree and PHASE 6
+commits them wholesale. A `git log --grep` gate would therefore pass vacuously.
+Audit the diff instead.
+
+```bash
+git status --porcelain
+```
+Not `git diff --name-only`: that reports modifications to *tracked* files only,
+and the cheapest way to move the checks to meet the code is a **new** file —
+an untracked `conftest.py`, `pytest.ini`, `ruff.toml`, `.flake8` or `mypy.ini`
+silences a check without modifying anything the diff can see. `git status
+--porcelain` covers modified, staged and untracked in one command. Do not
+"simplify" it back.
+
+```bash
+d=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^-\s*(assert|self\.assert|expect|it\()')
+a=$(git diff HEAD -U0 -- ':(icase)*test*' ':(icase)*spec*' | grep -cE '^\+\s*(assert|self\.assert|expect|it\()')
+[ "$d" -gt "$a" ] && echo "REJECT: net -$((d-a)) assertions"
+```
+Net count, not raw deletions: formatting is `qa-guard`'s first fix category, and
+when `black` splits a long `assert` across lines the diff carries a `-assert`
+line for work that removed nothing. A control that cries wolf on its own agent's
+main workflow gets ignored, and then it detects nothing. The pathspecs are
+case-insensitive and cover `spec` as well as `test`, because `qa-guard` is told
+not to assume a stack — `TestFoo.java` and `foo_spec.rb` slip past a bare
+`'*test*'`. `git diff HEAD`, not `git diff`: a staged deletion is invisible
+to plain `git diff`, and this check must stay consistent with the `git status
+--porcelain` above it, which already covers staged changes.
+
+Reject a `PASSED` verdict when the working tree shows: any path under
+`.github/workflows/`; `azure-pipelines.yml`; `.pre-commit-config.yaml`; a
+`[tool.*]` section of `pyproject.toml` or `setup.cfg`; a `Makefile` or
+`package.json` scripts target; a new check-config file of any kind; a net
+removal of assertions or a deleted test function; or a new entry under
+`[project.dependencies]`. Name the file, ask for a revert, re-dispatch.
+
+This catches edits made via Bash, which no permission rule can see: `qa-guard`
+must hold `Bash` to run the checks at all, and a shell redirect or `sed -i`
+rewrites a check file without ever going through `Edit`.
 
 ### Step 2: QA Audit
 ```
@@ -392,6 +533,30 @@ Spin any of these out as their own task?
 ```
 
 Omit the section only when every report said "None".
+
+### Documentation Update (if applicable)
+
+If the plan included documentation updates, dispatch `doc-writer` with the
+`doc-researcher` findings gathered during EXECUTE:
+
+```
+Agent(
+  subagent_type: "doc-writer",
+  prompt: "
+    ## What changed
+    [Description of the implementation just completed]
+
+    ## Research findings
+    [Paste the full <doc-research> block from doc-researcher]
+
+    ## Branch
+    [Current branch — doc-writer commits with [docs] prefix]
+  "
+)
+```
+
+If `doc-writer` returns `BLOCKED`: the block names a code fix needed before the
+doc can be written — that is a `builder` task; add it to the findings list.
 
 ### Present Options
 

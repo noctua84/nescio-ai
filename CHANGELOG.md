@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.4.0](https://github.com/noctua84/nescio-ai/compare/v1.3.1...v1.4.0) (2026-08-30)
+
+
+### Features
+
+* **docs:** fit the diagrams to the column and open them full size ([9ae3904](https://github.com/noctua84/nescio-ai/commit/9ae39043e80e047b62765f92ff263ea3655eb3c7))
+* **docs:** fit the diagrams to the column and open them full size ([178c8a0](https://github.com/noctua84/nescio-ai/commit/178c8a006274dfe19f7fc4dbf5be008eaee3911e))
+* **harvest:** add a promotion receipt and a stamp rollback tool ([1355202](https://github.com/noctua84/nescio-ai/commit/1355202d670f7b93c337bd36464185e7d2c3f4a0))
+* **harvest:** declare the trails a harvest reads up front ([0e09886](https://github.com/noctua84/nescio-ai/commit/0e09886799377af8dd5518cbff4e790db1fe495b))
+* **roadmap:** add the fetch layer and network reconciliation checks ([824126d](https://github.com/noctua84/nescio-ai/commit/824126db550a8d1e484e3ef0e704c5fb3c553f27))
+* **roadmap:** automatic drift check against open issues and milestones ([#60](https://github.com/noctua84/nescio-ai/issues/60)) ([84f742a](https://github.com/noctua84/nescio-ai/commit/84f742a7b0a476998e3245d707556fe06b20cef3))
+* **roadmap:** guard README's roadmap section against issue state ([6348d40](https://github.com/noctua84/nescio-ai/commit/6348d408ee8ead96813a110e465c90f4ea63e355))
+* **scripts:** add the roadmap drift checker's parser, offline checks, and CLI ([f18e6d7](https://github.com/noctua84/nescio-ai/commit/f18e6d7b6d54e817c794d07afac475442384b6ab))
+
+
+### Bug Fixes
+
+* **brand:** rebalance the crew diagram's centre stack ([a180586](https://github.com/noctua84/nescio-ai/commit/a1805867013c5e479be31059e63fcbc9cf0f163d))
+* **harvest:** stamp only the trails a harvest declared it read ([7bee607](https://github.com/noctua84/nescio-ai/commit/7bee607a2f3285e8100f88dd05e08055ba097b6b))
+* **harvest:** stamp only the trails the harvest declared it read ([26a954d](https://github.com/noctua84/nescio-ai/commit/26a954d44e96d46ca5413dadb6598029ba4a23ee))
+* **sync:** compare framework files as text, not bytes ([79efff9](https://github.com/noctua84/nescio-ai/commit/79efff9adebaeb0d63dd5a9c71f097960d8b3c48))
+* **sync:** compare framework files as text, not bytes ([d52af12](https://github.com/noctua84/nescio-ai/commit/d52af128cd2aa14943aad43520193d8d36197d7b)), closes [#100](https://github.com/noctua84/nescio-ai/issues/100)
+
+
+### Documentation
+
+* **case-studies:** add orchestration failure-modes case study ([2beb76e](https://github.com/noctua84/nescio-ai/commit/2beb76e78c552d5d3b31143b4853435b7e1b1242))
+* **case-studies:** name the mechanism behind the concurrency failure ([7a06e00](https://github.com/noctua84/nescio-ai/commit/7a06e000a29a7d76ba935f46ad34d4eee3aa0a70))
+* **case-studies:** name the mechanism behind the concurrency failure ([9e4bbfd](https://github.com/noctua84/nescio-ai/commit/9e4bbfd186c9fe5167273ee42fab27cf4410e89f))
+* **case-studies:** three scope decisions, all correct, none the same rule ([1614eea](https://github.com/noctua84/nescio-ai/commit/1614eea7e70b32aca6230d0782d6fc389e54baea))
+* **case-studies:** three scope decisions, all correct, none the same rule ([b6f2e21](https://github.com/noctua84/nescio-ai/commit/b6f2e21fe0ad97128ed262f993a725f7165b70ba))
+* **case-studies:** what the crew caught, and what it cost the orchestrator to learn it ([c9aed56](https://github.com/noctua84/nescio-ai/commit/c9aed569319347d7fb212442f4b91c0bb8fcf255))
+* **harvest:** rewrite the watermark steps and record ADR 0003 ([7d0562b](https://github.com/noctua84/nescio-ai/commit/7d0562be5d0594b2d350c28b2c11871ea7b896ed))
+* **issues:** migrate to issue forms and document what earns a roadmap line ([ca1f546](https://github.com/noctua84/nescio-ai/commit/ca1f546f1e21dabf38cb273bae1fed3fe393bc12))
+* **memory:** record ADRs 0001-0002 on frameworks and memory retrieval ([71248b9](https://github.com/noctua84/nescio-ai/commit/71248b94e06b30d52ece457045468dac6ee6a0d0))
+* **memory:** record ADRs 0001-0002 on frameworks and memory retrieval ([3a2fa97](https://github.com/noctua84/nescio-ai/commit/3a2fa979d5207e5dc4f53a610478725ef64b6a1e))
+* **plans:** track the drift-check plan under .sisyphus/ ([44e66ed](https://github.com/noctua84/nescio-ai/commit/44e66ed93fcac1318891998bf67de1a83403ee0c))
+* **roadmap:** document the drift check and the allow-list policy ([288a817](https://github.com/noctua84/nescio-ai/commit/288a817df293bed938f5fd6c737d43d61869eda0))
+* **roadmap:** reconcile against current implementation and open issues ([5281661](https://github.com/noctua84/nescio-ai/commit/5281661e1ab12f5e13ae42ccb17e6646e4f3d527))
+* **roadmap:** reconcile against current implementation and scope to planned features ([8bc71ac](https://github.com/noctua84/nescio-ai/commit/8bc71ac2dffb78737c7f353322fc6d12e9b17f63))
+* **specs:** propose six team workflow patterns from production team use ([e0264dd](https://github.com/noctua84/nescio-ai/commit/e0264ddcc63a4e7697f3c52691e8fbd52b058258))
+
 ## [1.3.1](https://github.com/noctua84/nescio-ai/compare/v1.3.0...v1.3.1) (2026-08-26)
 
 
