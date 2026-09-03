@@ -471,6 +471,16 @@ def promote(
 
     # Regenerate the MEMORY.md index for each touched directory so it never drifts
     # from the notes on disk. A single reindex failure must not fail the promote.
+    #
+    # `regenerate` returns (rc, summary_lines) and its rc is DELIBERATELY discarded
+    # here. Since #102 it can return 2 — malformed index markers, meaning the owned
+    # block's extent is unknowable and the file was left byte-identical. That is a
+    # refusal to write, not a failed promote: the notes and the ledger are already
+    # on disk, so failing the promote would report a write that did happen as a
+    # write that did not. Because `regenerate` never raises on that condition, it
+    # arrives as a `⚠ malformed index markers:` line in `idx_summary` and is
+    # surfaced to the operator through the summary rather than swallowed by the
+    # `except` below — which stays reserved for genuine, unexpected failures.
     for d in sorted(touched_dirs):
         if dry_run:
             summary.append(f"would reindex {d}/MEMORY.md")

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import promote_learnings as pl  # noqa: E402
 import _learning_common as lc  # noqa: E402
+import wiki_index  # noqa: E402
 
 
 LEDGER_SEED = (
@@ -453,6 +454,125 @@ class ReindexTest(unittest.TestCase):
             self.assertFalse((repo / "memory" / "feedback" / "sample-learning.md").exists())
             self.assertFalse((repo / "memory" / "feedback" / "MEMORY.md").exists())
             self.assertTrue(any("would reindex" in s for s in summary), summary)
+
+
+class UnattendedReindexTest(unittest.TestCase):
+    """Issue #102 / `ai-os#138`: the unattended reindex must not destroy a
+    hand-curated MEMORY.md.
+
+    ``promote()`` reindexes every touched directory at
+    ``scripts/promote_learnings.py:479`` — inside a ``try/except Exception``
+    whose return code is discarded. That call site is where the downstream
+    damage actually happened: nine ADR links across four folders, plus
+    hand-written prose, replaced by the output of a non-recursive note walk with
+    nobody watching. The other tests of this fix drive ``wiki_index`` directly;
+    these two drive the real unattended path, end to end.
+    """
+
+    # The `ai-os#138` shape: orientation prose plus links into an `adr/`
+    # subdirectory, none of which a non-recursive walk of this folder emits.
+    CURATED = (
+        "# Feedback index\n"
+        "\n"
+        "Hand-written orientation: read the ADRs before the notes.\n"
+        "\n"
+        "- [ADR 0007 — retry budgets](adr/0007-retry-budgets.md) — why the cap exists\n"
+        "- [ADR 0011 — idempotency keys](adr/0011-idempotency-keys.md) — the payment path\n"
+    )
+
+    def _seed_index(self, repo: Path, text: str) -> Path:
+        """Write memory/feedback/MEMORY.md with exactly these bytes.
+
+        ``newline=""`` because byte-for-byte survival is the subject here: the
+        default translation would write CRLF on Windows and quietly change what
+        "unchanged" means.
+        """
+        index = repo / "memory" / "feedback" / "MEMORY.md"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text(text, encoding="utf-8", newline="")
+        return index
+
+    def test_curated_index_survives_a_real_promote(self):
+        # (g) The `ai-os#138` reproduction, through promote_learnings.py:479.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            index = self._seed_index(repo, self.CURATED)
+
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo)
+            self.assertEqual(rc, 0, summary)
+
+            out = index.read_bytes()
+            # Every curated byte survives, and survives as a *prefix*: the
+            # generated block is added after the hand-written content, never in
+            # place of it. This is the assertion the old generator failed.
+            self.assertTrue(
+                out.startswith(self.CURATED.encode("utf-8")),
+                f"curated content was not preserved verbatim — got {out!r}",
+            )
+            text = out.decode("utf-8")
+            self.assertIn("adr/0007-retry-budgets.md", text)
+            self.assertIn("adr/0011-idempotency-keys.md", text)
+
+            # The promoted note is indexed, in a block that sits below the prose.
+            self.assertIn(wiki_index.GENERATED_BEGIN, text)
+            self.assertIn(wiki_index.GENERATED_END, text)
+            block = text[
+                text.index(wiki_index.GENERATED_BEGIN):
+                text.index(wiki_index.GENERATED_END)
+            ]
+            self.assertIn("sample-learning.md", block)
+            self.assertGreater(
+                text.index(wiki_index.GENERATED_BEGIN),
+                text.index("adr/0011-idempotency-keys.md"),
+            )
+            # The append path announces itself rather than acting silently.
+            self.assertTrue(
+                any("⚠" in s and "appended" in s for s in summary), summary
+            )
+
+    def test_malformed_markers_survive_and_keep_the_promote_rc_at_zero(self):
+        # (h) A broken index must not fail a promotion, and must not be written.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            # A begin marker with no end: the block's extent is unknowable, so
+            # the generator refuses. Appending would duplicate the block on every
+            # run; truncating at EOF would eat the tail prose.
+            malformed = (
+                "# Feedback index\n"
+                "\n"
+                f"{wiki_index.GENERATED_BEGIN}\n"
+                "\n"
+                "- [stale](gone.md) — someone deleted the end marker by hand\n"
+                "\n"
+                "Hand-written tail that a truncate-at-EOF repair would eat.\n"
+            )
+            index = self._seed_index(repo, malformed)
+            before = index.read_bytes()
+
+            nom = _nom()
+            rc, summary = pl.promote([nom], repo_dir=repo)
+
+            # The promote itself succeeds. regenerate()'s rc 2 is deliberately
+            # discarded at promote_learnings.py:479 — a broken index is not a
+            # failed promotion — and the note and ledger still land.
+            self.assertEqual(rc, 0, summary)
+            self.assertTrue((repo / "memory" / nom["target"]).is_file())
+
+            # Not one byte of the broken index was touched.
+            self.assertEqual(index.read_bytes(), before)
+
+            # The condition reaches the operator as a summary line...
+            self.assertTrue(
+                any("⚠" in s and "malformed" in s for s in summary), summary
+            )
+            # ...and not as an exception swallowed by the best-effort handler,
+            # which would have reported it as "reindex failed" instead.
+            self.assertFalse(
+                any("reindex failed" in s for s in summary), summary
+            )
 
 
 class ProvenanceInBlockTest(unittest.TestCase):
