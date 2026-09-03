@@ -44,6 +44,13 @@ jobs:
   # end-to-end BuiltSiteTest cases that shell out to a real
   # `mkdocs build --strict` and then assert what landed in site/.
   #
+  # It also carries test_ci_coverage.py, which is not about the docs site at
+  # all: it is the guard that every unittest root in this repository is actually
+  # executed by some step in this directory. It lives in docs_site/ because that
+  # directory is off FRAMEWORK_PATHS and already reads these workflow files
+  # (MaterialPinTest); its module docstring argues why not tests/, and states
+  # what being in a non-required job costs it.
+  #
   # TRIGGERS: push-to-main, the weekly cron, and manual dispatch -- NOT
   # `pull_request`, for the same reason `roadmap` gives below: a PR run would
   # catch almost none of this drift while inheriting all of its false positives.
@@ -127,14 +134,21 @@ jobs:
   # downloadable. Dropping that `if:` left the gate exactly where the dependency
   # actually is, one class deep, instead of a whole file wide.
   #
-  # Each of the two docs_site steps names its module with `-p` instead of
-  # discovering the directory, so test_gen_catalog.py runs exactly once; a bare
-  # `discover -s docs_site` in the second of them would re-run every one of its
-  # cases. Those two `-p` patterns must therefore cover docs_site/ between them
-  # -- every module a plain `discover -s docs_site` collects needs a step here.
-  # Add a further test module to docs_site/ without adding a step and it runs in
-  # neither. The rule is about the docs_site steps and only those: the `brand`
-  # step is a separate discovery root and no `-p` pattern here reaches it.
+  # Each docs_site step names its module with `-p` instead of discovering the
+  # directory, so test_gen_catalog.py runs exactly once; a bare
+  # `discover -s docs_site` alongside them would re-run every one of its cases.
+  # Those `-p` patterns must therefore cover docs_site/ between them -- every
+  # module a plain `discover -s docs_site` collects needs a step here. Add a
+  # further test module to docs_site/ without adding a step and it runs in none
+  # of them.
+  #
+  # That was an unenforced rule stated in a comment until
+  # docs_site/test_ci_coverage.py, which reads these steps and fails on any test
+  # module in the repository that no workflow runs -- these `-p` patterns
+  # included, and itself included. The comment now describes a check rather than
+  # asking for a habit. The rule is about the docs_site steps and only those:
+  # the `brand` step is a separate discovery root and no `-p` pattern here
+  # reaches it.
   #
   # No test counts are quoted anywhere in this comment, deliberately. Nothing in
   # CI asserts them, so they rot silently on the next test added --
@@ -233,6 +247,25 @@ jobs:
       # skip is the documented consequence of the policy, not a gap in coverage
       # waiting to be closed.
       - run: python -m unittest discover -s brand -v
+      # THIS STEP IS THE ONE THAT NOTICES WHEN A STEP IS MISSING.
+      # docs_site/test_ci_coverage.py reads this directory and fails when a
+      # test module exists in the repository that no step runs. That is the
+      # defect behind both `docs_site/` running nowhere and `brand/` running
+      # nowhere, above: a suite nothing invokes is indistinguishable from a
+      # suite that passes, and neither fix left anything behind that would
+      # catch the third one. Both were found by hand, months apart.
+      #
+      # It needs a `-p` step of its own for precisely the reason it exists --
+      # the docs_site steps name their modules rather than discovering the
+      # directory -- and it reports ITSELF as uncovered if this line is ever
+      # deleted. What it cannot do is report anything on a pull request, for
+      # the same trigger reason the whole job cannot; its module docstring
+      # says so plainly rather than leaving a reader to infer it.
+      #
+      # Stdlib only, so it belongs up here with the `brand` step rather than
+      # below the install, where the absence of a dependency is structural
+      # instead of merely asserted.
+      - run: python -m unittest discover -s docs_site -p "test_ci_coverage.py" -v
       # Same hard pin as .github/workflows/docs.yml, and for the same reason:
       # the custom schemes are coupled to Material's CSS variable names. Keep
       # the two in step.
