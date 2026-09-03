@@ -24,6 +24,18 @@ the least intrusive spot for a mostly-prose file. Placement is a one-time
 decision: once the markers exist, they can be moved anywhere in the file by hand
 and every later run rewrites them in place.
 
+Malformed markers (issue #121). `compose()` classifies before it splices, and
+**refuses** — writes nothing, returns `None`, surfaces a `⚠` — whenever the
+block's extent is unknowable: a begin without an end, an end without a begin,
+reversed markers, or duplicates. Testing marker *presence* and splicing with
+`.index()` was the original defect: an orphaned begin marker fell to the append
+branch, and the *next* run spliced from that orphan through the appended block,
+destroying every hand-written byte in between. Two runs to lose the content, and
+the file then looked healthy, so it was never re-reported. Recognition is
+whole-line and fence-aware, shared with `wiki_index.py` via `_marker_block.py`,
+so a file that merely *documents* the markers — quoted inline, or shown in a
+```-fenced example — is not mistaken for the block itself.
+
 ## Repo attribution
 
 `git_root` is the *worktree* root, so grouping on it raw yields ~86 buckets for
@@ -72,6 +84,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
 import record_stop as rs  # noqa: E402
 from _learning_common import parse_ledger  # noqa: E402
+from _marker_block import MarkerBlock  # noqa: E402
 
 # Path normalisation and repo attribution live in `_trail_scope`, so every tool
 # that has to decide which repo a trail belongs to buckets it identically. On the
@@ -94,6 +107,14 @@ DEFAULT_MEMORY_ROOT = REPO_DIR / "memory"
 # rewritten on each run; everything outside is left byte-for-byte alone.
 GENERATED_BEGIN = "<!-- readiness:generated start -->"
 GENERATED_END = "<!-- readiness:generated end -->"
+
+# The whole-line, fence-aware marker machinery, bound to this script's pair.
+# `_marker_block` owns the recognition rules and the `none`/`ok`/`malformed`
+# classification — shared with `wiki_index.py` so the two generators cannot
+# drift into disagreeing about what a marker is; everything below owns what goes
+# *inside* the block. Module-level because the marker-line regex is compiled in
+# the constructor.
+_BLOCK = MarkerBlock(GENERATED_BEGIN, GENERATED_END)
 
 # Structure mirrors memory/repo/EXAMPLE/readiness.md minus its example-only
 # blockquote. Used only when an existing memory/repo/<name>/ dir has no
@@ -337,6 +358,12 @@ def _split_raw_frontmatter(text: str) -> tuple[str, str]:
     Mirrors `promote_learnings._split_raw_frontmatter`: the frontmatter keeps its
     enclosing `---` lines and trailing newline, and is `""` when none opens the
     file.
+
+    LF-delimited frontmatter only. A CRLF file therefore reports "no
+    frontmatter" and its `last_updated` is left alone — which is the safe
+    outcome, not a gap: `_bump_last_updated` rejoins with `\\n`, so firing it on
+    CRLF frontmatter would rewrite those bytes outside the markers, and the
+    invariant forbids that far more strongly than it requires a date bump.
     """
     if not text.startswith("---\n"):
         return "", text
@@ -368,13 +395,29 @@ def _bump_last_updated(fm_raw: str, today: str) -> str:
     return fm_raw
 
 
-def compose(existing_text: str | None, stats: dict, today: str) -> str:
-    """Return the file's new full text. Only the generated block may change.
+def compose(
+    existing_text: str | None, stats: dict, today: str
+) -> tuple[str | None, str]:
+    """Merge the generated block into `existing_text`; `None` means "write nothing".
 
-    Three cases:
+    Returns (new_text_or_None, disposition) where disposition is one of
+    `created` / `spliced` / `appended` / `malformed:<reason>` — the same shape
+    `wiki_index.compose` returns, because the two scripts now share a marker
+    module and having them express refusal differently is where the next
+    divergence would start.
+
+    Four cases:
       - absent file → seeded template + block appended
-      - markers present → the block between them is replaced in place
-      - no markers → the block is appended at the end, everything else untouched
+      - markers `ok` → the block between them is replaced in place
+      - markers `none` → the block is appended, everything else untouched
+      - markers `malformed` → **refuse**: return `None` and let the caller
+        surface it. The block's extent is unknowable, appending would duplicate
+        it forever, and truncating could delete prose, so a human resolves it.
+
+    Classification happens *before* any position is located: the counts decide,
+    and only then is a span taken. That ordering is the fix for #121 — the
+    version that tested marker presence and spliced with `.index()` mis-handled
+    orphaned, duplicated, reversed and nested markers without complaint.
 
     `last_updated` is bumped only when the composed text would otherwise differ
     from `existing_text`, so a second run on unchanged input is a no-op.
@@ -383,53 +426,72 @@ def compose(existing_text: str | None, stats: dict, today: str) -> str:
 
     if existing_text is None:
         seeded = SEED_TEMPLATE.format(today=today, repo=stats["repo"])
-        return seeded + "\n" + block
+        return seeded + "\n" + block, "created"
 
-    if GENERATED_BEGIN in existing_text and GENERATED_END in existing_text:
-        begin = existing_text.index(GENERATED_BEGIN)
-        end = existing_text.index(GENERATED_END) + len(GENERATED_END)
-        if end < len(existing_text) and existing_text[end] == "\n":
-            end += 1  # the marker's own trailing newline belongs to the block
-        merged = existing_text[:begin] + block + existing_text[end:]
+    kind, reason = _BLOCK.classify(existing_text)
+    if kind == "malformed":
+        return None, f"malformed:{reason}"
+
+    if kind == "ok":
+        start, stop = _BLOCK.span(existing_text)
+        merged = existing_text[:start] + block + existing_text[stop:]
+        disposition = "spliced"
     else:
         prefix = existing_text
-        if prefix and not prefix.endswith("\n"):
+        # `\r` as well as `\n`: with newline="" on the read a CRLF file arrives
+        # with its terminators intact, and a lone `\r` is a line ending too.
+        if prefix and not prefix.endswith(("\n", "\r")):
             prefix += "\n"
         merged = prefix + "\n" + block
+        disposition = "appended"
 
     # Bump last_updated only if something else actually changed, so re-running on
     # an unchanged trail leaves the file byte-identical instead of churning it.
     if merged == existing_text:
-        return merged
+        return merged, disposition
     fm_raw, rest = _split_raw_frontmatter(merged)
-    return _bump_last_updated(fm_raw, today) + rest
+    return _bump_last_updated(fm_raw, today) + rest, disposition
 
 
 def plan_repo(stats: dict, memory_root: Path, today: str) -> dict:
     """Decide what would happen to one repo's readiness.md — no writes.
 
     Statuses: `skipped-no-dir` (memory/repo/<name>/ absent — never created),
-    `seed` (dir exists, file missing), `update`, `unchanged`.
+    `seed` (dir exists, file missing), `update`, `unchanged`,
+    `skipped-unreadable`, and `skipped-malformed` (#121 — `compose` refused;
+    `reason` names why). Every skipped status carries `new_text: None`, which is
+    the second condition `apply_plan` checks before writing anything.
+
+    `reason` is present on every entry and empty except on `skipped-malformed`,
+    so a `--json` consumer sees one shape rather than an optional key.
     """
     repo_dir = Path(memory_root) / "repo" / stats["repo"]
     path = repo_dir / "readiness.md"
+    base = {**stats, "path": str(path), "reason": ""}
 
     if not repo_dir.is_dir():
-        return {**stats, "path": str(path), "status": "skipped-no-dir", "new_text": None}
+        return {**base, "status": "skipped-no-dir", "new_text": None}
 
     if not path.is_file():
-        return {**stats, "path": str(path), "status": "seed",
-                "new_text": compose(None, stats, today)}
+        new_text, _ = compose(None, stats, today)
+        return {**base, "status": "seed", "new_text": new_text}
 
     try:
-        existing = path.read_text(encoding="utf-8")
+        # newline="" on the read AND the write disables universal-newline
+        # translation, so the comparison below is against what is actually on
+        # disk and "\n" is never expanded to os.linesep on Windows (issues
+        # #83/#84). `MarkerBlock.span` bounds whole lines, so it stays exact
+        # under `\n`, `\r\n` and a lone `\r` alike.
+        existing = path.read_text(encoding="utf-8", newline="")
     except OSError:
-        return {**stats, "path": str(path), "status": "skipped-unreadable",
-                "new_text": None}
+        return {**base, "status": "skipped-unreadable", "new_text": None}
 
-    new_text = compose(existing, stats, today)
+    new_text, disposition = compose(existing, stats, today)
+    if new_text is None:  # #121: the one and only refusal path
+        return {**base, "status": "skipped-malformed", "new_text": None,
+                "reason": disposition.partition(":")[2]}
     status = "unchanged" if new_text == existing else "update"
-    return {**stats, "path": str(path), "status": status, "new_text": new_text}
+    return {**base, "status": status, "new_text": new_text}
 
 
 def plan(
@@ -453,13 +515,15 @@ def apply_plan(entries: list[dict]) -> list[dict]:
     """Write the planned text for every `seed`/`update` entry; return them.
 
     The only path ever written is `memory/repo/<name>/readiness.md`, and only for
-    a directory that already exists.
+    a directory that already exists. A `skipped-malformed` entry is excluded
+    twice over — by its status and by its `new_text is None` — so a refusal
+    cannot reach the disk through either half of this guard.
     """
     written: list[dict] = []
     for entry in entries:
         if entry["status"] not in ("seed", "update") or entry["new_text"] is None:
             continue
-        Path(entry["path"]).write_text(entry["new_text"], encoding="utf-8")
+        Path(entry["path"]).write_text(entry["new_text"], encoding="utf-8", newline="")
         written.append(entry)
     return written
 
@@ -472,6 +536,7 @@ _STATUS_LABEL = {
     "unchanged": "= same  ",
     "skipped-no-dir": "- skip  ",
     "skipped-unreadable": "! skip  ",
+    "skipped-malformed": "⚠ refuse",
 }
 
 
@@ -487,7 +552,16 @@ def render_report(entries: list[dict], *, applied: bool) -> str:
     lines: list[str] = []
     verb = "wrote" if applied else "would write"
     changed = sum(1 for e in entries if e["status"] in ("seed", "update"))
+    refused = [e for e in entries if e["status"] == "skipped-malformed"]
     lines.append(f"{len(entries)} repo(s) in the trail; {verb} {changed}.")
+    if refused:
+        # Loud at the top as well as beside the entry: a refusal needs a human,
+        # and main() deliberately still exits 0 (this script runs from
+        # /harvest-memory, not CI), so the report is the whole signal.
+        lines.append(
+            f"⚠ {len(refused)} refused: malformed readiness markers; "
+            "nothing was written for those repos."
+        )
     lines.append("")
     for entry in entries:
         label = _STATUS_LABEL.get(entry["status"], entry["status"])
@@ -503,6 +577,12 @@ def render_report(entries: list[dict], *, applied: bool) -> str:
             lines.append(
                 f"             (no {Path(entry['path']).parent.as_posix()}/ — "
                 "skipped; directories are never created)"
+            )
+        if entry["status"] == "skipped-malformed":
+            lines.append(
+                f"             ⚠ malformed readiness markers: {entry['path']} "
+                f"({entry['reason']}); refusing to write — the block's extent "
+                "is unknowable, so a human resolves it"
             )
     lines.append("")
     lines.append(
@@ -559,6 +639,14 @@ def main(argv=None) -> int:
                 "reason": "no clean-vs-flagged verdict is captured by the trail or "
                           "the ledger; deriving one from transcript_path is separate work",
             },
+            # Every refusal is already visible per-repo as
+            # status=skipped-malformed plus its reason; this is the same fact
+            # hoisted to the top level so a consumer cannot miss it by only
+            # looking at counts. main() still exits 0 — see render_report.
+            "refused": [
+                {"repo": e["repo"], "path": e["path"], "reason": e["reason"]}
+                for e in entries if e["status"] == "skipped-malformed"
+            ],
             "repos": [
                 {k: v for k, v in e.items() if k != "new_text"} for e in entries
             ],

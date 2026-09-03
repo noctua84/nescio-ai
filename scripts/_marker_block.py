@@ -136,12 +136,14 @@ class MarkerBlock:
         """Classify a file's markers as `none` / `ok` / `malformed` (D7).
 
         Counts first, and only compares positions once the counts prove there is
-        exactly one of each. `compute_readiness.compose()` (:388-398) tests
-        marker *presence* and splices with `.index()`, so a begin marker with no
-        end falls to its append branch and duplicates the block on every run.
-        Refusing is the deliberate improvement over that precedent: with a begin
-        and no end the block's extent is unknowable — appending duplicates,
-        truncating at EOF may delete prose — so a human resolves it.
+        exactly one of each. Both generators previously tested marker *presence*
+        and spliced with `.index()`, so a begin marker with no end fell to the
+        append branch and the *next* run spliced from the orphan through the
+        appended block, destroying everything between (#102 in
+        `wiki_index.regenerate`, #121 in `compute_readiness.compose`). Refusing
+        is the deliberate improvement: with a begin and no end the block's
+        extent is unknowable — appending duplicates, truncating at EOF may
+        delete prose — so a human resolves it.
 
         Counting and position-finding both go through `marker_lines`, so the two
         can never disagree about what is a marker — a disagreement would mean

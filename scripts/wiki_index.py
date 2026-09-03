@@ -15,8 +15,11 @@ therefore document the convention — quote both markers in a sentence, or show
 the block in a ```-fenced example — without the generator treating the quoted
 text as its own block and deleting everything between the two mentions. Those
 recognition rules, and the `none`/`ok`/`malformed` classification below, live in
-`_marker_block.py` so `compute_readiness.py` can share them rather than grow a
-second copy (issue #121); what goes *inside* the block stays here.
+`_marker_block.py`, which `compute_readiness.compose()` now shares rather than
+keeping a second copy (issue #121); what goes *inside* the block stays here.
+Both scripts express refusal identically — `compose()` returns
+`(None, "malformed:<reason>")` — so the shared module cannot drift into two
+contracts.
 
 Adopting a marker-less file (issue #102). A `MEMORY.md` that predates the
 markers is replaced by the block **only** when every non-blank line in it is
@@ -58,7 +61,7 @@ from _wiki_common import REPO_DIR, iter_notes, load_stores
 
 # Markers delimiting the block this script OWNS. Everything between them is
 # rewritten on each run; everything outside is left byte-for-byte alone.
-# Namespaced to match `readiness:generated` (compute_readiness.py:95-96).
+# Namespaced to match `compute_readiness.GENERATED_BEGIN` / `GENERATED_END`.
 GENERATED_BEGIN = "<!-- memory-index:generated start -->"
 GENERATED_END = "<!-- memory-index:generated end -->"
 
