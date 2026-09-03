@@ -1,5 +1,6 @@
 ---
 last_updated: 2026-01-01
+description: EXAMPLE readiness summary (the autonomy-dial input)
 ---
 
 # <repo-name> — readiness

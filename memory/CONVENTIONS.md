@@ -82,3 +82,45 @@ residue.
 condition, do not merge — flag `> [!contradiction]` on the concept and keep both
 repo notes. Corroboration strengthens a concept; inversion forks it into an open
 question.
+
+## Folder indexes
+
+A folder's `MEMORY.md` is **yours to write**. `scripts/wiki_index.py` owns only
+the block between these two markers:
+
+    <!-- memory-index:generated start -->
+    <!-- memory-index:generated end -->
+
+Everything between them is rewritten on every run; **everything outside them is
+preserved byte-for-byte**. Put orientation prose, headings, hand-curated link
+lists and anything else above or below the block and the generator will not
+touch it. (Before issue #102 the script replaced the whole file, which destroyed
+hand-written content unattended.)
+
+**Adopting a marker-less file.** A `MEMORY.md` that predates the markers is
+replaced by the block only when **every non-blank line in it is byte-identical
+to a line this run would emit**. Anything else — a heading, a sentence, an
+annotated bullet, a link into a subfolder — makes the file "not ours": the block
+is *appended*, nothing is removed, and the run prints a `⚠` line saying so. The
+test is line identity, not "does this look generated": a bullet like
+`- [START HERE — read first](auth-model.md) — ask Markus first` has a generated
+shape and a generated target, and only byte-identity notices the human's
+annotation.
+
+**Hand-curated ordering is not preserved in the adopt case.** The test is
+order-insensitive set membership, so a file whose lines are all generated lines
+but deliberately reordered *is* adopted, and comes back in generator order
+(sorted by filename). This is the one thing adoption can lose, and only in a file
+that contains nothing but generated lines. To pin an order, write the list
+outside the markers — then it is preserved text, not a candidate for adoption.
+
+**The block omits what the surrounding text already links.** Any note whose file
+is already linked outside the markers is left out of the generated block, so
+appending a block to a hand-maintained list never doubles it. The flip side: a
+note mentioned in passing in prose stays out of the block. It is still linked, so
+the index is not lying and `wiki_lint` still counts it as referenced.
+
+**Malformed markers stop the run.** A begin without an end, an end without a
+begin, reversed markers or duplicates make the block's extent unknowable. The
+file is left untouched and the run exits 2 with a `⚠ malformed index markers:`
+line — a human resolves it.

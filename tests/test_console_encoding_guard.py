@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import mark_adopted  # noqa: E402
 import repo_hygiene_apply  # noqa: E402
+import wiki_index  # noqa: E402
 
 from hooks import harvest_nudge, record_stop as rs  # noqa: E402
 
@@ -81,6 +82,20 @@ class RepoHygieneApplyGuardTest(unittest.TestCase):
         self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
         # Branch names and git output echoed by this tool may be non-ASCII.
         stream.write("→\n")
+
+
+class WikiIndexGuardTest(unittest.TestCase):
+    def test_main_reconfigures_stdout_before_printing(self):
+        # An unresolvable --dir returns 1 on the early error path, before the
+        # generator writes anything to disk.
+        rc, stream = _run_with_cp1252_stdout(
+            wiki_index.main, ["wiki_index.py", "--dir", "no-such-directory-xyz"]
+        )
+        self.assertEqual(rc, 1)
+        self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
+        # The summary lines this script prints on the success path carry — and ⚠.
+        # They are encodable on this stream now.
+        stream.write("⚠\n")
 
 
 class HarvestNudgeGuardTest(unittest.TestCase):
