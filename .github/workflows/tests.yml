@@ -27,12 +27,13 @@ jobs:
           python-version: "3.13"
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
 
-  # The docs_site/ tests are a second unittest root. `discover -s tests` above
-  # does not reach them, by design: `tests/` is on FRAMEWORK_PATHS and syncs
-  # into derived instances, which never receive `docs_site/`, so a test there
-  # importing gen_catalog would break `python -m unittest` for every downstream
-  # user. Discovering the second root in a second job is the way that boundary
-  # stays intact and the tests still run.
+  # The docs_site/ tests are a second unittest root, and brand/ is a third --
+  # this job runs both. `discover -s tests` above reaches neither, by design:
+  # `tests/` is on FRAMEWORK_PATHS and syncs into derived instances, which never
+  # receive `docs_site/` or `brand/`, so a test there importing gen_catalog would
+  # break `python -m unittest` for every downstream user. Discovering the other
+  # roots in a second job is the way that boundary stays intact and the tests
+  # still run.
   #
   # WHAT THIS JOB IS: a maintainer-facing drift detector for the docs site, in
   # the same family as `roadmap` below -- not a verdict on the change under
@@ -126,12 +127,14 @@ jobs:
   # downloadable. Dropping that `if:` left the gate exactly where the dependency
   # actually is, one class deep, instead of a whole file wide.
   #
-  # Each step names its module with `-p` instead of discovering the directory,
-  # so test_gen_catalog.py runs exactly once; a bare `discover -s docs_site` in
-  # the second step would re-run every one of its cases. The two `-p` patterns
-  # must therefore cover docs_site/ between them -- every module a plain
-  # `discover -s docs_site` collects needs a step here. Add a third test module
-  # to docs_site/ without adding a step and it runs in neither.
+  # Each of the two docs_site steps names its module with `-p` instead of
+  # discovering the directory, so test_gen_catalog.py runs exactly once; a bare
+  # `discover -s docs_site` in the second of them would re-run every one of its
+  # cases. Those two `-p` patterns must therefore cover docs_site/ between them
+  # -- every module a plain `discover -s docs_site` collects needs a step here.
+  # Add a further test module to docs_site/ without adding a step and it runs in
+  # neither. The rule is about the docs_site steps and only those: the `brand`
+  # step is a separate discovery root and no `-p` pattern here reaches it.
   #
   # No test counts are quoted anywhere in this comment, deliberately. Nothing in
   # CI asserts them, so they rot silently on the next test added --
@@ -189,6 +192,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      # brand/ IS THE THIRD UNITTEST ROOT, AND UNTIL THIS STEP IT RAN NOWHERE.
+      # `discover -s tests` does not reach it and nothing else asked for it, so
+      # the design system's own suite sat in the repository green on a laptop and
+      # never once executed by CI -- the same shape of defect as
+      # test_committed_pages_are_up_to_date, which existed the whole time with no
+      # trigger behind it.
+      #
+      # WHY THIS JOB AND NOT THE REQUIRED `tests` JOB ABOVE: it is the same
+      # presentation-versus-framework line the "CATALOG DRIFT IS DELIBERATELY NOT
+      # A MERGE GATE" paragraph draws, applied to the subsystem that draws the
+      # site. brand/ is the docs site's design system. Every consumer of it lives
+      # in docs_site/ -- hooks/assets.py, hooks/inline_svg.py, gen_catalog.py,
+      # test_site_content.py -- and nothing in scripts/ or agents/ imports it. It
+      # is deliberately NOT on FRAMEWORK_PATHS, so a derived downstream instance
+      # never receives brand/ at all. Making it a merge gate would gate a
+      # contributor on a subsystem their install does not contain.
+      #
+      # NO `if:`, AND ABOVE THE INSTALL ON PURPOSE. brand/ is stdlib-only, so it
+      # wants nothing the step below downloads -- and standing here, before
+      # anything is installed, is what makes that structurally obvious instead of
+      # merely asserted in a comment. It runs whatever the `continue-on-error`
+      # install did, which is the rule the dependency-split paragraph above
+      # states: THE DEPENDENCY SPLIT LIVES INSIDE THE TEST MODULE, NOT ON THE
+      # STEPS.
+      #
+      # This step discovers a directory (`-s brand`) rather than naming a module
+      # with `-p`, unlike the two docs_site steps below it, and that is safe here
+      # precisely because brand/ is a separate discovery root: nothing it collects
+      # is reachable by a `-s docs_site` pattern, so there is no double-run to
+      # avoid and no pattern roster to keep in step. Add a test module to brand/
+      # and it runs. That is the whole of the difference.
+      #
+      # brand/test_favicons.py::TestNoTruncatedRender SELF-SKIPS WHEN PILLOW IS
+      # ABSENT, AND THAT IS THE INTENDED STATE. Do not "fix" it by installing
+      # Pillow here. Pillow is not a repository dependency and the rasterisers are
+      # local-only by design -- brand/render_diagrams.py says so in as many words,
+      # "LOCAL-ONLY -- deliberately not run in CI". This repository is stdlib-only
+      # on purpose, and a step that installs nothing is what holds it to that. The
+      # skip is the documented consequence of the policy, not a gap in coverage
+      # waiting to be closed.
+      - run: python -m unittest discover -s brand -v
       # Same hard pin as .github/workflows/docs.yml, and for the same reason:
       # the custom schemes are coupled to Material's CSS variable names. Keep
       # the two in step.
