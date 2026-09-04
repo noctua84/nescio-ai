@@ -56,12 +56,28 @@ def _seed_trail(trail_dir: Path, name: str, records, *, watermark=None):
     return path
 
 
-def _make_repo_mem(memory_root: Path, name: str, *, readiness: str | None = None):
+def _write_bytes(path: Path, text: str, *, crlf: bool = False):
+    """Write ``text`` with line endings under exact control.
+
+    ``Path.write_text`` translates "\\n" to ``os.linesep``, which on Windows
+    would silently make every fixture CRLF while CI's Linux runner keeps them
+    LF — and since ``plan_repo`` reads with ``newline=""`` (#83/#84), that
+    difference is visible to the code under test. Mirrors the same helper in
+    ``tests/test_wiki_index.py``.
+    """
+    data = text.replace("\r\n", "\n")
+    if crlf:
+        data = data.replace("\n", "\r\n")
+    path.write_bytes(data.encode("utf-8"))
+
+
+def _make_repo_mem(memory_root: Path, name: str, *, readiness: str | None = None,
+                   crlf: bool = False):
     """Build ``memory_root/repo/<name>/``, optionally with a readiness.md."""
     repo_mem = memory_root / "repo" / name
     repo_mem.mkdir(parents=True, exist_ok=True)
     if readiness is not None:
-        (repo_mem / "readiness.md").write_text(readiness, encoding="utf-8")
+        _write_bytes(repo_mem / "readiness.md", readiness, crlf=crlf)
     return repo_mem
 
 
@@ -361,7 +377,8 @@ def _stats(repo="myrepo", **over):
 class ComposeTest(unittest.TestCase):
     def test_handwritten_prose_survives_a_run(self):
         """#25/#45 regression: whole-file overwrite discarded existing content."""
-        out = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        out, disposition = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "appended")
         for fragment in (
             "Three of the last five sessions ended clean.",
             "on the same flaky integration test.",
@@ -382,8 +399,11 @@ class ComposeTest(unittest.TestCase):
         self.assertGreater(len(out), len(HANDWRITTEN))
 
     def test_only_the_block_and_last_updated_change_on_a_second_pass(self):
-        first = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
-        second = cr.compose(first, _stats(turns=99, unharvested=0), "2026-08-21")
+        first, _ = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        second, disposition = cr.compose(
+            first, _stats(turns=99, unharvested=0), "2026-08-21"
+        )
+        self.assertEqual(disposition, "spliced")
         # Everything outside the markers is byte-identical apart from the one
         # permitted frontmatter field.
         def outside(text):
@@ -398,20 +418,20 @@ class ComposeTest(unittest.TestCase):
         self.assertNotIn("Turns recorded: 12", second)
 
     def test_running_twice_is_byte_identical(self):
-        first = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
-        second = cr.compose(first, _stats(), "2026-08-20")
+        first, _ = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        second, _ = cr.compose(first, _stats(), "2026-08-20")
         self.assertEqual(first, second)
 
     def test_unchanged_input_on_a_later_day_does_not_bump_last_updated(self):
         # last_updated is bumped only when the block actually changed, so a
         # re-run on an unchanged trail leaves the file byte-identical.
-        first = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
-        again = cr.compose(first, _stats(), "2026-09-01")
+        first, _ = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        again, _ = cr.compose(first, _stats(), "2026-09-01")
         self.assertEqual(first, again)
         self.assertIn("last_updated: 2026-08-20", again)
 
     def test_file_without_markers_gains_them_at_the_end(self):
-        out = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        out, _ = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
         self.assertTrue(out.index(cr.GENERATED_BEGIN) > out.index("## Notes"))
 
     def test_markers_are_rewritten_wherever_the_human_moved_them(self):
@@ -420,27 +440,29 @@ class ComposeTest(unittest.TestCase):
             f"{cr.GENERATED_BEGIN}\nstale content\n{cr.GENERATED_END}\n\n"
             "## Recurring flags",
         )
-        out = cr.compose(moved, _stats(), "2026-08-20")
+        out, disposition = cr.compose(moved, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "spliced")
         self.assertNotIn("stale content", out)
         self.assertLess(out.index(cr.GENERATED_BEGIN), out.index("## Recurring flags"))
         self.assertIn("Deep hand-written prose", out)
 
     def test_missing_last_updated_key_is_inserted_not_rewritten(self):
         text = "---\nname: myrepo\nnote: keep\n---\n\n# myrepo\n\nprose\n"
-        out = cr.compose(text, _stats(), "2026-08-20")
+        out, _ = cr.compose(text, _stats(), "2026-08-20")
         self.assertIn("name: myrepo", out)
         self.assertIn("note: keep", out)
         self.assertIn("last_updated: 2026-08-20", out)
 
     def test_file_without_frontmatter_is_not_given_one(self):
         text = "# myrepo\n\nprose only, no frontmatter\n"
-        out = cr.compose(text, _stats(), "2026-08-20")
+        out, _ = cr.compose(text, _stats(), "2026-08-20")
         self.assertFalse(out.startswith("---"))
         self.assertIn("prose only, no frontmatter", out)
         self.assertIn(cr.GENERATED_BEGIN, out)
 
     def test_absent_file_is_seeded_from_the_template(self):
-        out = cr.compose(None, _stats(), "2026-08-20")
+        out, disposition = cr.compose(None, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "created")
         self.assertIn("last_updated: 2026-08-20", out)
         self.assertIn("# myrepo — readiness", out)
         self.assertIn(cr.GENERATED_BEGIN, out)
@@ -471,6 +493,303 @@ class ComposeTest(unittest.TestCase):
             "tests/fixtures/example_readiness.md has drifted from "
             "memory/repo/EXAMPLE/readiness.md — re-copy one onto the other",
         )
+
+
+# ── #121: classify before splicing; refuse when the extent is unknowable ───
+
+# The prose a maintainer would actually put in a readiness.md — an operator
+# caveat the autonomy dial (#32) must not lose. Every test in this section
+# checks for this exact string, because losing it *is* the bug.
+EXEMPTION = "IMPORTANT: this repo is exempt from the autonomy dial. Ask Markus."
+
+MALFORMED_HEAD = (
+    "---\n"
+    "last_updated: 2026-08-01\n"
+    "---\n"
+    "\n"
+    "# myrepo — readiness\n"
+    "\n"
+    f"{EXEMPTION}\n"
+    "\n"
+)
+
+
+def _malformed_shapes():
+    """The five shapes whose block extent cannot be determined.
+
+    Keyed by name, valued `(text, expected_reason)`. Shared by the `compose`,
+    `plan_repo`/`apply_plan` and CLI tests below so the three can never drift
+    into covering different sets.
+    """
+    b, e = cr.GENERATED_BEGIN, cr.GENERATED_END
+    return {
+        "orphan-begin": (
+            MALFORMED_HEAD + f"{b}\n\nstale body\n",
+            "begin marker without an end marker",
+        ),
+        "orphan-end": (
+            MALFORMED_HEAD + f"stale body\n\n{e}\n",
+            "end marker without a begin marker",
+        ),
+        "reversed": (
+            MALFORMED_HEAD + f"{e}\nstale body\n{b}\n",
+            "end marker before begin marker",
+        ),
+        "duplicate-begin": (
+            MALFORMED_HEAD + f"{b}\na\n{b}\nb\n{e}\n",
+            "2 begin markers",
+        ),
+        "duplicate-end": (
+            MALFORMED_HEAD + f"{b}\na\n{e}\nb\n{e}\n",
+            "2 end markers",
+        ),
+    }
+
+
+class MalformedMarkerRefusalTest(unittest.TestCase):
+    def test_compose_refuses_every_malformed_shape(self):
+        for name, (text, reason) in _malformed_shapes().items():
+            with self.subTest(name):
+                new_text, disposition = cr.compose(text, _stats(), "2026-08-20")
+                self.assertIsNone(new_text)
+                self.assertEqual(disposition, f"malformed:{reason}")
+
+    def test_refusal_survives_every_line_ending(self):
+        for name, (text, reason) in _malformed_shapes().items():
+            for ending, conv in (
+                ("lf", lambda s: s),
+                ("crlf", lambda s: s.replace("\n", "\r\n")),
+                ("cr", lambda s: s.replace("\n", "\r")),
+            ):
+                with self.subTest(shape=name, ending=ending):
+                    new_text, disposition = cr.compose(
+                        conv(text), _stats(), "2026-08-20"
+                    )
+                    self.assertIsNone(new_text)
+                    self.assertEqual(disposition, f"malformed:{reason}")
+
+    def test_plan_reports_skipped_malformed_and_apply_writes_nothing(self):
+        for name, (text, reason) in _malformed_shapes().items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                trail, memory = root / "learning-trail", root / "memory"
+                _make_repo_mem(memory, "myrepo", readiness=text)
+                _seed_trail(trail, "a",
+                            [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+                path = memory / "repo" / "myrepo" / "readiness.md"
+                before = path.read_bytes()
+
+                entries = cr.plan(trail, memory, resolve_live=False, today=TODAY)
+                self.assertEqual(entries[0]["status"], "skipped-malformed")
+                self.assertIsNone(entries[0]["new_text"])
+                self.assertEqual(entries[0]["reason"], reason)
+
+                self.assertEqual(cr.apply_plan(entries), [])
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_a_second_apply_still_refuses_rather_than_self_healing(self):
+        """The refusal must be stable: no run may quietly repair the file.
+
+        The original bug's worst property was that it *stabilised* — two runs
+        destroyed the prose and the file then looked healthy, so it was never
+        re-reported. A refusal that persists is what keeps a human in the loop.
+        """
+        text, reason = _malformed_shapes()["orphan-begin"]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "myrepo", readiness=text)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+            before = path.read_bytes()
+            for run in (1, 2, 3):
+                entries = cr.plan(trail, memory, resolve_live=False, today=TODAY)
+                cr.apply_plan(entries)
+                self.assertEqual(entries[0]["status"], "skipped-malformed", f"run {run}")
+                self.assertEqual(entries[0]["reason"], reason, f"run {run}")
+                self.assertEqual(path.read_bytes(), before, f"run {run}")
+
+    def test_issue_121_three_run_reproduction(self):
+        """The exact sequence from issue #121, at the `compose` level.
+
+        Before the fix: run 1 saw one begin and no end, so the presence test
+        failed and it appended a whole second block below the orphan; run 2 then
+        saw both markers, spliced from the *first* begin to the *first* end, and
+        destroyed everything in between — including this prose. Recorded as
+        `begin=2 end=1 prose=True` / `begin=1 end=1 prose=False` / stable.
+        """
+        text = ("---\nlast_updated: 2026-08-01\n---\n\n# demo readiness\n\n"
+                + cr.GENERATED_BEGIN + "\n\n" + EXEMPTION + "\n")
+        original = text
+        for run in (1, 2, 3):
+            new_text, disposition = cr.compose(text, _stats(), "2026-08-29")
+            self.assertIsNone(new_text, f"run {run} wrote something")
+            self.assertEqual(
+                disposition,
+                "malformed:begin marker without an end marker",
+                f"run {run}",
+            )
+            # Nothing is written, so the next run sees the same input — the
+            # prose survives all three runs and the file never changes.
+            self.assertEqual(text, original, f"run {run}")
+            self.assertIn(EXEMPTION, text, f"run {run}")
+            self.assertEqual(text.count(cr.GENERATED_BEGIN), 1, f"run {run}")
+            self.assertEqual(text.count(cr.GENERATED_END), 0, f"run {run}")
+
+
+class MarkerRecognitionIsAnchoredTest(unittest.TestCase):
+    """A file may *document* the markers without being spliced by them."""
+
+    def test_markers_quoted_inline_in_prose_are_not_the_block(self):
+        text = (
+            "---\nlast_updated: 2026-08-01\n---\n\n# myrepo — readiness\n\n"
+            f"Put `{cr.GENERATED_BEGIN}` above the block and "
+            f"`{cr.GENERATED_END}` below it.\n"
+            f"{EXEMPTION}\n"
+        )
+        out, disposition = cr.compose(text, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "appended")
+        # The sentence is intact — neither mention was treated as a marker, so
+        # nothing between them was spliced away.
+        self.assertIn(f"Put `{cr.GENERATED_BEGIN}` above the block and", out)
+        self.assertIn(EXEMPTION, out)
+        # And the block that was appended is the only real one.
+        kind, _ = cr._BLOCK.classify(out)
+        self.assertEqual(kind, "ok")
+
+    def test_markers_inside_a_fenced_block_are_not_the_block(self):
+        text = (
+            "---\nlast_updated: 2026-08-01\n---\n\n# myrepo — readiness\n\n"
+            "The generated block looks like this:\n\n"
+            f"```\n{cr.GENERATED_BEGIN}\nexample body\n{cr.GENERATED_END}\n```\n\n"
+            f"{EXEMPTION}\n"
+        )
+        out, disposition = cr.compose(text, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "appended")
+        self.assertIn("example body", out)
+        self.assertIn(EXEMPTION, out)
+        self.assertEqual(cr._BLOCK.classify(out)[0], "ok")
+        # A second run splices the real block and still leaves the fenced
+        # example alone.
+        again, disposition = cr.compose(out, _stats(turns=99), "2026-08-21")
+        self.assertEqual(disposition, "spliced")
+        self.assertIn("example body", again)
+        self.assertIn(EXEMPTION, again)
+
+    def test_a_fenced_example_does_not_shadow_the_real_block(self):
+        text = (
+            "# myrepo\n\n"
+            f"```\n{cr.GENERATED_BEGIN}\nexample body\n{cr.GENERATED_END}\n```\n\n"
+            f"{cr.GENERATED_BEGIN}\nstale generated body\n{cr.GENERATED_END}\n\n"
+            f"{EXEMPTION}\n"
+        )
+        out, disposition = cr.compose(text, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "spliced")
+        self.assertNotIn("stale generated body", out)
+        self.assertIn("example body", out)
+        self.assertIn(EXEMPTION, out)
+
+
+class LineEndingsTest(unittest.TestCase):
+    """A CRLF readiness.md keeps its bytes outside the block (#83/#84)."""
+
+    def _apply(self, memory, trail):
+        cr.apply_plan(cr.plan(trail, memory, resolve_live=False, today=TODAY))
+
+    def test_crlf_file_is_spliced_without_mangling_the_prose(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            seeded = HANDWRITTEN + (
+                f"\n{cr.GENERATED_BEGIN}\nstale body\n{cr.GENERATED_END}\n"
+            )
+            _make_repo_mem(memory, "myrepo", readiness=seeded, crlf=True)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+
+            self._apply(memory, trail)
+            data = path.read_bytes()
+            self.assertNotIn(b"stale body", data)
+            # Every hand-written line kept its CRLF terminator; the write did
+            # not silently rewrite the file's line endings.
+            self.assertIn(
+                "Deep hand-written prose that the generator must never touch. "
+                "Ever.\r\n".encode("utf-8"),
+                data,
+            )
+            self.assertIn(b"custom_key: keep me\r\n", data)
+            self.assertIn(cr.GENERATED_BEGIN.encode("utf-8"), data)
+
+    def test_crlf_file_is_idempotent_after_the_first_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            seeded = HANDWRITTEN + (
+                f"\n{cr.GENERATED_BEGIN}\nstale body\n{cr.GENERATED_END}\n"
+            )
+            _make_repo_mem(memory, "myrepo", readiness=seeded, crlf=True)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+
+            self._apply(memory, trail)
+            first = path.read_bytes()
+            self._apply(memory, trail)
+            self.assertEqual(path.read_bytes(), first)
+            self.assertEqual(
+                cr.plan(trail, memory, resolve_live=False, today=TODAY)[0]["status"],
+                "unchanged",
+            )
+
+    def test_a_malformed_crlf_file_is_refused_byte_for_byte(self):
+        text, reason = _malformed_shapes()["duplicate-end"]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "myrepo", readiness=text, crlf=True)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+            before = path.read_bytes()
+            self.assertIn(b"\r\n", before)  # the fixture really is CRLF
+
+            entries = cr.plan(trail, memory, resolve_live=False, today=TODAY)
+            self.assertEqual(entries[0]["status"], "skipped-malformed")
+            self.assertEqual(entries[0]["reason"], reason)
+            cr.apply_plan(entries)
+            self.assertEqual(path.read_bytes(), before)
+
+
+class HealthyFileIsUnaffectedTest(unittest.TestCase):
+    """The refusal must not change anything for a well-formed file."""
+
+    def test_compose_twice_on_a_healthy_file_is_byte_identical(self):
+        seeded, _ = cr.compose(HANDWRITTEN, _stats(), "2026-08-20")
+        first, disposition = cr.compose(seeded, _stats(), "2026-08-20")
+        self.assertEqual(disposition, "spliced")
+        second, _ = cr.compose(first, _stats(), "2026-08-20")
+        self.assertEqual(first, second)
+        self.assertEqual(first, seeded)
+        self.assertIn("Deep hand-written prose", first)
+
+    def test_apply_three_times_is_byte_identical(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "myrepo", readiness=HANDWRITTEN)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+
+            snapshots = []
+            for _ in range(3):
+                cr.apply_plan(cr.plan(trail, memory, resolve_live=False, today=TODAY))
+                snapshots.append(path.read_bytes())
+            self.assertEqual(snapshots[0], snapshots[1])
+            self.assertEqual(snapshots[1], snapshots[2])
+            self.assertIn(b"Deep hand-written prose", snapshots[2])
 
 
 # ── the outcome summary must stay honest ───────────────────────────────────
@@ -691,6 +1010,100 @@ class MainTest(unittest.TestCase):
             self.assertEqual(entry["turns"], 1)
             # The rendered file text is never dumped into the JSON plan.
             self.assertNotIn("new_text", entry)
+
+    def _malformed_run(self, argv_extra, *, shape="orphan-begin"):
+        """Run the CLI against a repo whose readiness.md has malformed markers."""
+        text, reason = _malformed_shapes()[shape]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "myrepo", readiness=text)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            path = memory / "repo" / "myrepo" / "readiness.md"
+            before = path.read_bytes()
+            rc, out = self._run(
+                ["--trail-dir", str(trail), "--memory-root", str(memory)] + argv_extra
+            )
+            return rc, out, reason, path.read_bytes(), before
+
+    def test_malformed_markers_are_loud_in_the_report(self):
+        for shape in _malformed_shapes():
+            with self.subTest(shape):
+                rc, out, reason, after, before = self._malformed_run([], shape=shape)
+                # rc stays 0 on purpose: this script is invoked from
+                # /harvest-memory, not CI, and nothing here has a precedent for
+                # a non-zero readiness rc. The report is the whole signal.
+                self.assertEqual(rc, 0)
+                self.assertIn("⚠", out)
+                self.assertIn("refus", out)
+                self.assertIn(reason, out)
+                self.assertIn("myrepo", out)
+                self.assertEqual(after, before)
+
+    def test_apply_still_writes_nothing_for_a_malformed_file(self):
+        rc, out, reason, after, before = self._malformed_run(["--apply"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(after, before)
+        self.assertIn(EXEMPTION, after.decode("utf-8"))
+        self.assertIn(reason, out)
+        self.assertIn("⚠", out)
+        # The headline must not claim a write it did not make.
+        self.assertIn("wrote 0.", out)
+
+    def test_json_surfaces_the_refusal(self):
+        rc, out, reason, after, before = self._malformed_run(["--json"])
+        self.assertEqual(rc, 0)
+        payload = json.loads(out)
+        entry = payload["repos"][0]
+        self.assertEqual(entry["status"], "skipped-malformed")
+        self.assertEqual(entry["reason"], reason)
+        self.assertNotIn("new_text", entry)
+        # And hoisted to the top level, so a consumer reading only counts of
+        # written repos still cannot miss it.
+        self.assertEqual(len(payload["refused"]), 1)
+        self.assertEqual(payload["refused"][0]["repo"], "myrepo")
+        self.assertEqual(payload["refused"][0]["reason"], reason)
+        self.assertEqual(after, before)
+
+    def test_healthy_repos_report_no_refusals(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "myrepo", readiness=HANDWRITTEN)
+            _seed_trail(trail, "a",
+                        [_rec("2026-08-18T10:00:00+00:00", "C:/p/myrepo")])
+            rc, out = self._run([
+                "--trail-dir", str(trail), "--memory-root", str(memory), "--json",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(json.loads(out)["refused"], [])
+            self.assertEqual(json.loads(out)["repos"][0]["reason"], "")
+
+    def test_a_malformed_repo_does_not_block_a_healthy_one(self):
+        """One bad file must not stop the other repos from being written."""
+        bad, reason = _malformed_shapes()["reversed"]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail, memory = root / "learning-trail", root / "memory"
+            _make_repo_mem(memory, "alpha", readiness=bad)
+            _make_repo_mem(memory, "beta", readiness=HANDWRITTEN)
+            _seed_trail(trail, "a", [
+                _rec("2026-08-18T10:00:00+00:00", "C:/p/alpha"),
+                _rec("2026-08-18T10:00:00+00:00", "C:/p/beta"),
+            ])
+            alpha = memory / "repo" / "alpha" / "readiness.md"
+            beta = memory / "repo" / "beta" / "readiness.md"
+            before = alpha.read_bytes()
+
+            rc, out = self._run([
+                "--trail-dir", str(trail), "--memory-root", str(memory), "--apply",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(alpha.read_bytes(), before)
+            self.assertIn(reason, out)
+            self.assertIn(cr.GENERATED_BEGIN, beta.read_text(encoding="utf-8"))
+            self.assertIn("Deep hand-written prose", beta.read_text(encoding="utf-8"))
 
     def test_trail_dir_defaults_to_claude_config_dir(self):
         with tempfile.TemporaryDirectory() as d:
