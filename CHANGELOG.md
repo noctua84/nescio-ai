@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.5.0](https://github.com/noctua84/nescio-ai/compare/v1.4.0...v1.5.0) (2026-09-04)
+
+
+### Features
+
+* **crew:** bound qa-guard's write scope and audit it by diff ([2bf6b6d](https://github.com/noctua84/nescio-ai/commit/2bf6b6d6fd470aa5600ae57b04189f697df1a789))
+* **crew:** bound qa-guard's write scope and audit it by diff ([caaa3a0](https://github.com/noctua84/nescio-ai/commit/caaa3a079bf7dab18e3321431a1928e9ab42267a))
+* **docs:** draw the full 17-agent roster in the crew diagram ([d923f62](https://github.com/noctua84/nescio-ai/commit/d923f62b4591b17160aaa39c19de4dc83486f936))
+* **docs:** draw the full 17-agent roster in the crew diagram ([ec21441](https://github.com/noctua84/nescio-ai/commit/ec21441a81d769a98db4c1b2a5162736414ba139))
+* **theme:** name the four new crew roles after philosophers ([c79dbac](https://github.com/noctua84/nescio-ai/commit/c79dbaca4850fe3f2743192769ab43b17fbd1ac3))
+
+
+### Bug Fixes
+
+* [impl] converge a desynced crew tree and pre-flight rename conflicts ([7c1fb80](https://github.com/noctua84/nescio-ai/commit/7c1fb801f342a66d3d28ea149bca6cebc8269f6c))
+* [impl] declare the bounded writers' file boundary in their charters ([5f83dfd](https://github.com/noctua84/nescio-ai/commit/5f83dfde4f462729c5e87a79dc800610ebba2905))
+* [impl] extract crew constants and fix theme tier corruption ([cfd7285](https://github.com/noctua84/nescio-ai/commit/cfd72851650667c1f5cc8c80dfdc00c482b34bc8))
+* [impl] make the write-boundary doc-lint bite, and fix Edit detection ([3c657a0](https://github.com/noctua84/nescio-ai/commit/3c657a05ecddf166038959420f0956716bba580e))
+* [impl] rewrite ALL-CAPS crew names when applying the theme ([1e0a5bd](https://github.com/noctua84/nescio-ai/commit/1e0a5bda10e11f6e6f89173c328243e5bab44cae))
+* [test] pin the theme properties the round trip cannot see ([6eda19e](https://github.com/noctua84/nescio-ai/commit/6eda19e05ff064a1f7601f238acb3629c53a1d08))
+* [test] rebuild the write-policy tests on the shared crew roster ([89e104b](https://github.com/noctua84/nescio-ai/commit/89e104bd0ba2f874729deeed3a5c6940340fa025))
+* **agents:** correct the write-access claim in the builder charters ([36d04aa](https://github.com/noctua84/nescio-ai/commit/36d04aab84b9e02f8bb314ba802f205ae5bf902e))
+* **agents:** correct the write-access claim in the builder charters ([a2f30bf](https://github.com/noctua84/nescio-ai/commit/a2f30bf1b441e25534866abeee23136cbe9c2486))
+* **agents:** correct the writer count after qa-guard left CODE_WRITERS ([4b83487](https://github.com/noctua84/nescio-ai/commit/4b834875536d5b5b0f1792e42c4a79ce3170e771))
+* correct README write-permission claim and guard vacuous tests ([63bc4fe](https://github.com/noctua84/nescio-ai/commit/63bc4fe496abe792bb5ae3f3ff54014ce0f16f47))
+* **crew:** close the blind spots in the qa-guard CI gate audit ([eef18fa](https://github.com/noctua84/nescio-ai/commit/eef18faaadf8b7947b67e9eb4ff7ec4cc1b2356d))
+* **crew:** derive the boundary match mode from the boundary's shape ([ac04470](https://github.com/noctua84/nescio-ai/commit/ac0447045c3d7e6cfe0856e4541b33e45686c6a9))
+* **crew:** make the CI gate assertion count staged-aware ([95c1784](https://github.com/noctua84/nescio-ai/commit/95c1784201257e6fa4412cd6151eb2e66286c431))
+* **crew:** teach the theme and the tests about the six new agents ([714ea43](https://github.com/noctua84/nescio-ai/commit/714ea4316deb908cc7da634757cd04d78c53b969))
+* **docs:** stop gating merges on catalog drift; make the site self-heal ([e3a6bfe](https://github.com/noctua84/nescio-ai/commit/e3a6bfef613a97c95ed7b24df6909c3b45e7cbc5))
+* **install:** make hook wiring matcher-aware ([bf5e50a](https://github.com/noctua84/nescio-ai/commit/bf5e50aeaee0c9127fa58657c2f7a4c881cddf1a))
+* **install:** make hook wiring matcher-aware ([eb4c46e](https://github.com/noctua84/nescio-ai/commit/eb4c46e0539f1878726cbcbd4641e3d01de7cbb7))
+* **readiness:** classify markers before splicing, and refuse when malformed ([ceebae1](https://github.com/noctua84/nescio-ai/commit/ceebae1f7e64e51c17c09378a888ed20329f37ff))
+* **readiness:** classify markers before splicing, and refuse when malformed ([ecd9818](https://github.com/noctua84/nescio-ai/commit/ecd981878b297e99124a8f106e38a0e6ca17f917))
+* **tests:** reject a revoked write-access declaration ([7cf1b89](https://github.com/noctua84/nescio-ai/commit/7cf1b89798c21bbfcf6f7b43154b4b2e9b8bbdc1))
+* verify theme convergence and refuse an ambiguous tree ([3be082c](https://github.com/noctua84/nescio-ai/commit/3be082c447080eaa52ad521d3295194b765f413c))
+* **wiki:** stop wiki_index destroying hand-written MEMORY.md content ([b203aa6](https://github.com/noctua84/nescio-ai/commit/b203aa644da8be0294b3a0c9115a61534d7a8743))
+
+
+### Documentation
+
+* **brand:** drop the crew count from the diagram caption ([fae6510](https://github.com/noctua84/nescio-ai/commit/fae65101ca1954a8ced778ea876bbf65dfabde7f))
+* **brand:** re-measure the note-placement comment against the current layout ([d7cfc21](https://github.com/noctua84/nescio-ai/commit/d7cfc214969bb0d0583b101d199e6498c96a7c07))
+* **catalog:** regenerate after qa-guard's charter gained a boundary line ([e7387bb](https://github.com/noctua84/nescio-ai/commit/e7387bb8456cdaaac062f3361a8cd91466213a28))
+* **catalog:** regenerate agents.md from the pinned routing table ([1fdccd0](https://github.com/noctua84/nescio-ai/commit/1fdccd04f27bcc114008bcbed948f3e0de8e66e4))
+* **catalog:** regenerate the agent catalog after [#90](https://github.com/noctua84/nescio-ai/issues/90) ([04bf479](https://github.com/noctua84/nescio-ai/commit/04bf4799448ada1e2561af7a8e4c044b5067c845))
+* **ci:** correct the catalog-guard comment's history ([1c7c5c3](https://github.com/noctua84/nescio-ai/commit/1c7c5c33ba0c6de96314fe69d25cb8076eb065c0))
+* **contributing:** catalog routing is a courtesy, not a merge gate ([a13460b](https://github.com/noctua84/nescio-ai/commit/a13460bbe83ef8ca2dd82f96a985a32546c3f69b))
+* **contributing:** write down what registering an agent requires ([f3b64c3](https://github.com/noctua84/nescio-ai/commit/f3b64c3ab4566533767d6e82dfc25de53c724947))
+* document the six new crew members in the README ([c99f24e](https://github.com/noctua84/nescio-ai/commit/c99f24e14188666fd0ab82e94a3d512fe7356e60))
+* **plans:** record what was built, not what was proposed ([57b1c88](https://github.com/noctua84/nescio-ai/commit/57b1c885bac037479f529b9d908a91ade9736782))
+* **plans:** track the docs-catalog single-roster plan ([5e41a38](https://github.com/noctua84/nescio-ai/commit/5e41a38bcb1d05029533e2ded4e39226300109d0))
+* **plans:** track the philosopher-theme plan ([2bb2226](https://github.com/noctua84/nescio-ai/commit/2bb2226c65f641636ec3e65e2f62afea6da93f3f))
+* warn about themed checkouts and fix the BuiltSiteTest count ([cab8079](https://github.com/noctua84/nescio-ai/commit/cab8079798a322da41a24c5fb953a7e25cd54c54))
+
 ## [1.4.0](https://github.com/noctua84/nescio-ai/compare/v1.3.1...v1.4.0) (2026-08-30)
 
 
