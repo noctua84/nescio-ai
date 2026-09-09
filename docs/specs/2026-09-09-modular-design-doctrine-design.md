@@ -124,6 +124,11 @@ Commits use a new **`[refactor]`** prefix, joining the existing
 `[impl]` / `[fix]` / `[test]` / `[docs]` / `[chore]` phase brackets, and coexisting
 with conventional-commit format — `refactor: [refactor] extract billing pricing`.
 
+The doubling in `refactor: [refactor] …` is accepted, exactly as `fix: [fix] …`
+already is. The conventional type is a release-tooling necessity; the bracket is
+the phase-scoped review paper trail. Two audiences, not one redundant label — do
+not "clean this up."
+
 ### Shape catalogue
 
 Two to three lines each. Pointers, not doctrine. Applied only when the project
