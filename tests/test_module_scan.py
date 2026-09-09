@@ -7,12 +7,15 @@ are set inside each temp repo so this passes on a clean CI machine and on a
 developer box with global commit signing enabled.
 """
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -137,12 +140,18 @@ class TestLineCounting(ModuleScanTestCase):
 
 class TestReportAndExit(ModuleScanTestCase):
     def test_an_empty_repo_reports_cleanly_and_exits_zero(self):
-        self.assertEqual(module_scan.main(["--repo", str(self.repo)]), 0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = module_scan.main(["--repo", str(self.repo)])
+        self.assertEqual(rc, 0)
 
     def test_exit_is_zero_even_when_files_are_over(self):
         """It is a report, not a gate. A non-zero exit would make it a CI blocker."""
         _write(self.repo, "huge.py", 5000)
-        self.assertEqual(module_scan.main(["--repo", str(self.repo)]), 0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = module_scan.main(["--repo", str(self.repo)])
+        self.assertEqual(rc, 0)
 
     def test_json_output_shape_is_stable(self):
         _write(self.repo, "huge.py", 1200)
@@ -158,6 +167,18 @@ class TestReportAndExit(ModuleScanTestCase):
         result = module_scan.scan(self.repo, 400, ())
         self.assertEqual(result["scanned"], 2)
         self.assertEqual(len(result["over"]), 1)
+
+
+class TestMissingGit(unittest.TestCase):
+    """tracked_files must survive missing git executable."""
+
+    def test_tracked_files_returns_empty_list_when_git_is_unavailable(self):
+        """When git is not on PATH, tracked_files returns [] rather than raising."""
+        repo = Path("/nonexistent")
+        with mock.patch("module_scan.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("git not found")
+            result = module_scan.tracked_files(repo)
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":

@@ -98,12 +98,15 @@ def tracked_files(repo: Path) -> list[str]:
     `-z` because a filename may legally contain a newline; splitting on `\\n`
     would corrupt such a path into two.
     """
-    proc = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=repo,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=repo,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return []
     if proc.returncode != 0:
         return []
     raw = proc.stdout.decode("utf-8", errors="surrogateescape")
@@ -168,7 +171,7 @@ def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:
 
 
 def format_report(result: dict, top: int | None) -> str:
-    """Human-readable report. Mirrors the layout of repo_hygiene_scan.py."""
+    """Format the scan result as a human-readable report for terminal output."""
     over = result["over"]
     if top is not None:
         over = over[:top]
