@@ -43,6 +43,7 @@ exist yet. A green CI run against this repository is therefore not evidence that
 any of them works. These injected-state tests are.
 """
 
+import atexit
 import contextlib
 import io
 import json
@@ -60,6 +61,24 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import check_roadmap_drift as crd  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "roadmap"
+
+
+# ── the downstream-instance guard (#128) ────────────────────────────────────
+# `scripts/sync_from_upstream.py` overlay-copies this whole `tests/` directory
+# (plus `scripts/`, `hooks/`, `conftest.py`) into private downstream instances,
+# but never this repo's own `ROADMAP.md`, and an instance's `README.md` is its
+# own file with no `## Roadmap` section. `check_roadmap_drift.py` polices this
+# repo's docs specifically, so any test that inspects the real files — rather
+# than a fixture — only makes sense here, and must skip rather than fail
+# everywhere else. One mechanism, reused rather than repeated per class.
+
+def _skip_unless_framework_repo() -> None:
+    """Skip the caller's test unless this repo's own `ROADMAP.md` is present."""
+    if not crd.DEFAULT_ROADMAP.exists():
+        raise unittest.SkipTest(
+            f"{crd.DEFAULT_ROADMAP} does not exist — not the nescio-ai "
+            "framework repo (see #128)"
+        )
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -91,8 +110,47 @@ def _all_findings(name: str) -> list:
     return [f for _, fs in crd.run_offline_checks(_entries(name)) for f in fs]
 
 
+_GOOD_README_TEXT = (
+    "# Placeholder\n\n"
+    "## Roadmap\n\n"
+    "See [ROADMAP.md](ROADMAP.md) for where this project is headed.\n"
+)
+
+_GOOD_README_PATH: str | None = None
+
+
+def _good_readme_path() -> str:
+    """Path to a throwaway README `check_readme` is silent on.
+
+    `main()` reads *some* README on every path it takes — `--offline`
+    included, see its call site — so any `_run_main` caller that is not
+    itself testing README content still needs one `check_readme` passes, or
+    it fails on whatever this ambient repository's real `README.md` happens
+    to say: clean inside nescio-ai today, but a synced downstream instance's
+    own README carries no `## Roadmap` section at all (#128). Built once, on
+    first use, and removed at interpreter exit; nothing here writes into the
+    repo.
+    """
+    global _GOOD_README_PATH
+    if _GOOD_README_PATH is None:
+        fd, path = tempfile.mkstemp(prefix="roadmap_drift_readme_", suffix=".md")
+        with open(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_GOOD_README_TEXT)
+        atexit.register(lambda: Path(path).unlink(missing_ok=True))
+        _GOOD_README_PATH = path
+    return _GOOD_README_PATH
+
+
 def _run_main(argv: list[str]) -> tuple[int, str, str]:
-    """Invoke `main()` with stdout and stderr captured."""
+    """Invoke `main()` with stdout and stderr captured.
+
+    Defaults `--readme` to a synthetic file `check_readme` is clean on when
+    the caller did not pass one — see `_good_readme_path`. Callers that care
+    about README content (the README-guard tests) pass `--readme` explicitly,
+    which leaves this alone.
+    """
+    if "--readme" not in argv:
+        argv = [*argv, "--readme", _good_readme_path()]
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         rc = crd.main(argv)
@@ -511,6 +569,28 @@ class OfflineCheckTest(unittest.TestCase):
 # exercise it at both depths: the function directly, and through `--readme`.
 
 
+def _skip_unless_real_readme_has_roadmap_section() -> None:
+    """Skip unless the real README carries the `## Roadmap` section it guards.
+
+    A synced downstream instance's `README.md` exists but is its own,
+    unrelated file with no such section (#128) — `check_readme` correctly
+    reports drift on it, which is not what these two tests are about.
+    """
+    if not crd.DEFAULT_README.exists():
+        raise unittest.SkipTest(f"{crd.DEFAULT_README} does not exist")
+    text = crd.DEFAULT_README.read_text(encoding="utf-8")
+    has_section = any(
+        crd._section_title(m.group(1)) == crd.README_SECTION
+        for m in (crd._SECTION_RE.match(line) for line in text.splitlines())
+        if m
+    )
+    if not has_section:
+        raise unittest.SkipTest(
+            f"{crd.DEFAULT_README} has no `## {crd.README_SECTION}` section "
+            "(see #128)"
+        )
+
+
 def _readme(section_body: str, *, heading: str = "## Roadmap") -> str:
     """A minimal README with one `## Roadmap` section and neighbours either side.
 
@@ -553,6 +633,7 @@ class ReadmeGuardTest(unittest.TestCase):
 
     def test_the_real_readme_passes(self):
         """The reference state. If this fails, the repo has real drift."""
+        _skip_unless_real_readme_has_roadmap_section()
         text = crd.DEFAULT_README.read_text(encoding="utf-8")
         self.assertEqual([str(f) for f in crd.check_readme(text)], [])
 
@@ -578,6 +659,7 @@ class ReadmeGuardTest(unittest.TestCase):
 
     def test_an_issue_reference_injected_into_the_real_readme_fires(self):
         """The regression that matters: the actual file, minimally perturbed."""
+        _skip_unless_real_readme_has_roadmap_section()
         text = crd.DEFAULT_README.read_text(encoding="utf-8")
         injected = text.replace(
             "## Roadmap\n", "## Roadmap\n\n" + _ISSUE_BULLET, 1
@@ -697,9 +779,11 @@ class ReadmeGuardWiringTest(unittest.TestCase):
         self.assertIn(f"PASS  {crd.README_CHECK}", out)
 
     def test_an_unreadable_readme_exits_error(self):
+        """About the README error path, not the real ROADMAP.md — a fixture
+        roadmap exercises it identically and works outside this repo too."""
         with tempfile.TemporaryDirectory() as d:
             rc, out, err = _run_main(
-                ["--offline", "--roadmap", str(crd.DEFAULT_ROADMAP),
+                ["--offline", "--roadmap", str(FIXTURES / "clean.md"),
                  "--readme", str(Path(d) / "no-such-file.md")]
             )
         self.assertEqual(rc, crd.EXIT_ERROR, out + err)
@@ -829,7 +913,7 @@ class HermeticityTest(unittest.TestCase):
         """
         gh = shutil.which("gh")
         with mock.patch.object(crd, "fetch_issue_state", _exploding_fetch):
-            rc, out, err = _run_main(["--offline", "--roadmap", str(crd.DEFAULT_ROADMAP)])
+            rc, out, err = _run_main(["--offline", "--roadmap", str(FIXTURES / "clean.md")])
         self.assertEqual(
             rc, crd.EXIT_PASS, f"gh={gh!r}\n{out}{err}"
         )
@@ -1627,6 +1711,7 @@ class RealRoadmapTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        _skip_unless_framework_repo()
         cls.text = crd.DEFAULT_ROADMAP.read_text(encoding="utf-8")
         cls.lines = cls.text.splitlines()
         cls.entries, cls.notes = crd.parse_roadmap(cls.text)
