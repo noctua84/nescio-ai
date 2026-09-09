@@ -1,7 +1,10 @@
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -336,6 +339,72 @@ class ConftestSyncTest(unittest.TestCase):
                 sys.modules["_sync128_marker"] = saved_module
 
 
+class SelfReplacementTest(unittest.TestCase):
+    """`_self_was_replaced` detects a sync overwriting its own running script.
+
+    `scripts` is a framework path, so a downstream instance's `--apply` run can
+    rewrite the very file Python is executing. These tests exercise the helper
+    directly against a fabricated `dest`, patching the module's `__file__` to
+    point inside it rather than risking anything near the real script on disk.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        _make_checkout(self.up)
+        _make_checkout(self.dst)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_true_when_running_script_is_among_the_applied_files(self):
+        running = self.dst / "scripts" / "sync_from_upstream.py"
+        _write(running, "# old copy\n")
+
+        with patch.object(sfu, "__file__", str(running)):
+            replaced = sfu._self_was_replaced(
+                self.dst, added=[], updated=["scripts/sync_from_upstream.py"]
+            )
+        self.assertTrue(replaced)
+
+    def test_false_when_running_script_is_outside_the_applied_files(self):
+        # The upstream-checkout-against-a-remote-dest case: the script executing
+        # lives outside `dest` entirely, so it can never be among the files a
+        # sync into `dest` just wrote.
+        running = self.up / "scripts" / "sync_from_upstream.py"
+        _write(running, "# upstream's own copy\n")
+        _write(self.dst / "scripts" / "sync_from_upstream.py", "# unrelated dest copy\n")
+
+        with patch.object(sfu, "__file__", str(running)):
+            replaced = sfu._self_was_replaced(
+                self.dst, added=[], updated=["scripts/sync_from_upstream.py"]
+            )
+        self.assertFalse(replaced)
+
+    def test_false_when_applied_files_do_not_include_the_script(self):
+        running = self.dst / "scripts" / "sync_from_upstream.py"
+        _write(running, "# old copy\n")
+
+        with patch.object(sfu, "__file__", str(running)):
+            replaced = sfu._self_was_replaced(
+                self.dst, added=["agents/explore.md"], updated=[]
+            )
+        self.assertFalse(replaced)
+
+    def test_oserror_from_resolve_is_treated_as_not_replaced(self):
+        def _boom(self, strict=False):
+            raise OSError("simulated resolve failure")
+
+        with patch.object(sfu, "__file__", str(self.dst / "scripts" / "sync_from_upstream.py")):
+            with patch.object(Path, "resolve", _boom):
+                replaced = sfu._self_was_replaced(
+                    self.dst, added=[], updated=["scripts/sync_from_upstream.py"]
+                )
+        self.assertFalse(replaced)
+
+
 class MainCliTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -369,6 +438,45 @@ class MainCliTest(unittest.TestCase):
         rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
         self.assertEqual(rc, 0)
         self.assertTrue((self.dst / "skills" / "s" / "SKILL.md").exists())
+
+    def test_apply_warns_when_the_run_replaced_the_running_script(self):
+        # `scripts` is a framework path: an --apply run that syncs a new copy of
+        # sync_from_upstream.py into dest is overwriting the file Python is
+        # executing. Patch __file__ so the running "script" resolves inside
+        # dest, matching a real downstream-instance sync.
+        _write(self.up / "scripts" / "sync_from_upstream.py", "# new upstream copy\n")
+        running = self.dst / "scripts" / "sync_from_upstream.py"
+        _write(running, "# old copy\n")
+
+        with patch.object(sfu, "__file__", str(running)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
+        self.assertEqual(rc, 0)
+        self.assertIn("overwrote scripts/sync_from_upstream.py itself", out.getvalue())
+
+    def test_apply_does_not_warn_when_the_script_was_not_replaced(self):
+        _write(self.up / "skills" / "s" / "SKILL.md", "new\n")
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("overwrote scripts/sync_from_upstream.py itself", out.getvalue())
+
+    def test_dry_run_never_warns_about_self_replacement(self):
+        # Even in the shape that would trigger the warning on --apply, a dry
+        # run writes nothing and so can never replace anything.
+        _write(self.up / "scripts" / "sync_from_upstream.py", "# new upstream copy\n")
+        running = self.dst / "scripts" / "sync_from_upstream.py"
+        _write(running, "# old copy\n")
+
+        with patch.object(sfu, "__file__", str(running)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst)])
+        self.assertEqual(rc, 0)
+        self.assertNotIn("overwrote scripts/sync_from_upstream.py itself", out.getvalue())
 
 
 if __name__ == "__main__":
