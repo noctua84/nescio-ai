@@ -50,10 +50,10 @@ style, file layout. **Follow existing patterns over inventing better ones**, eve
 when you would have chosen differently on a blank page.
 
 **Check the length of any existing file your task will add to.** Over 400 lines —
-or the project's `## Architecture` override — run the three tests from the
-`modular-design` skill before you append, and report the outcome as described
-there. `python scripts/module_scan.py --json` gives you the numbers; `wc -l` will
-do for a single file.
+or the project's `## Architecture` override, passed as `--tripwire <N>` — run the
+three tests from the `modular-design` skill before you append, and report the
+outcome as described there. `python scripts/module_scan.py --json --tripwire <N>`
+gives you the numbers when an override applies; `wc -l` will do for a single file.
 
 ### 2. Test first where it applies
 If the repo has tests, write the failing test before the implementation. If it
@@ -110,6 +110,11 @@ Always end with exactly this block:
 $ <command you ran>
 <actual output, trimmed to the relevant lines>
 </verification>
+
+<module-check>
+For each existing file you added to: its length, and the tripwire verdict from
+the `modular-design` skill in one line. "N/A" if your task created only new files.
+</module-check>
 
 <deviations>
 Where you departed from the task as written, and why. "None" if none.

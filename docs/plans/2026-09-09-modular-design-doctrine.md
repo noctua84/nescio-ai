@@ -15,7 +15,7 @@
 - **Tests build real throwaway git repos** in `tempfile` dirs and run real `git`, per the house pattern in `tests/test_verify_commit_position.py`. Set `user.email`, `user.name`, and `commit.gpgsign=false` locally inside each temp repo; never touch global git config.
 - **Never name a crew agent inside a `SKILL.md`.** `scripts/apply_theme.py` renames `agents/*.md` only (`builder` → `archimedes` and back). A skill hardcoding `builder` goes stale the moment a theme is applied. Skills say "your implementer", "the reviewing agent", "the crew". Agent charters *may* name other agents — they are themed together.
 - **Default tripwire: `400` physical lines.** Strictly greater than — a 400-line file is not reported; a 401-line file is.
-- **`module_scan.py` always exits 0.** It is a report, not a gate.
+- **`module_scan.py` always exits 0 for any completed scan; a malformed invocation exits 2 via `argparse`.** It is a report, not a gate — a rejected command line is not a report, so it is not covered by that promise.
 - **Commit prefixes:** `[impl]` production code, `[fix]` bug fix, `[chore]` tooling/config, `[docs]` documentation, `[test]` tests, and the new `[refactor]` behaviour-preserving module split. The bracket coexists with conventional-commit type — `feat: [impl] …`. The doubling in `refactor: [refactor] …` is deliberate and must not be "cleaned up": the conventional type serves release tooling, the bracket serves the phase-scoped review paper trail.
 - **Spec of record:** `docs/specs/2026-09-09-modular-design-doctrine-design.md`.
 
@@ -28,10 +28,10 @@
 | `skills/modular-design/SKILL.md` | create | The three tests, the tripwire, the six-step split procedure, the shape catalogue. |
 | `skills/layered-api-design/SKILL.md` | create | endpoints / manager / repository, behind an explicit opt-in gate. |
 | `agents/planner.md` | modify | §Plan Structure Context line; §Maximise Parallelism extraction-first rule. |
-| `agents/builder.md` | modify | §You DO NOT, §5 Commit table row, §Anti-Patterns. |
-| `agents/builder-standard.md` | modify | Identical three edits. |
-| `agents/builder-simple.md` | modify | Identical three edits. |
-| `agents/reviewer.md` | modify | §5 Maintainability Assessment gains a module-boundary bullet. |
+| `agents/builder.md` | modify | §You DO NOT, §1 Orient (length check), §5 Commit table row, §Output Contract (module-check), §Anti-Patterns. |
+| `agents/builder-standard.md` | modify | Identical five edits. |
+| `agents/builder-simple.md` | modify | Identical five edits. |
+| `agents/reviewer.md` | modify | §1 Scope Definition gains the `[refactor]` bracket; §5 Maintainability Assessment gains a module-boundary bullet. |
 | `CLAUDE.md` | modify | Optional `## Architecture` section — the opt-in declaration. |
 | `README.md` | modify | Name the two new skills in the Skills paragraph. |
 | `docs_site/gen_catalog.py` | modify | Add both skills to the "Development workflow" group. |
@@ -71,12 +71,15 @@ are set inside each temp repo so this passes on a clean CI machine and on a
 developer box with global commit signing enabled.
 """
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -161,7 +164,9 @@ class TestExclusions(ModuleScanTestCase):
         blob = self.repo / "image.bin"
         blob.write_bytes(b"\x00\x01" * 5000)
         _git(self.repo, "add", "--", "image.bin")
-        self.assertEqual(self.paths_over(), [])
+        result = module_scan.scan(self.repo, 400, ())
+        self.assertEqual(result["over"], [])
+        self.assertEqual(result["scanned"], 0)
 
     def test_untracked_and_ignored_files_are_omitted(self):
         _write(self.repo, "tracked.py", 500)
@@ -201,12 +206,18 @@ class TestLineCounting(ModuleScanTestCase):
 
 class TestReportAndExit(ModuleScanTestCase):
     def test_an_empty_repo_reports_cleanly_and_exits_zero(self):
-        self.assertEqual(module_scan.main(["--repo", str(self.repo)]), 0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = module_scan.main(["--repo", str(self.repo)])
+        self.assertEqual(rc, 0)
 
     def test_exit_is_zero_even_when_files_are_over(self):
         """It is a report, not a gate. A non-zero exit would make it a CI blocker."""
         _write(self.repo, "huge.py", 5000)
-        self.assertEqual(module_scan.main(["--repo", str(self.repo)]), 0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = module_scan.main(["--repo", str(self.repo)])
+        self.assertEqual(rc, 0)
 
     def test_json_output_shape_is_stable(self):
         _write(self.repo, "huge.py", 1200)
@@ -222,6 +233,82 @@ class TestReportAndExit(ModuleScanTestCase):
         result = module_scan.scan(self.repo, 400, ())
         self.assertEqual(result["scanned"], 2)
         self.assertEqual(len(result["over"]), 1)
+
+
+class TestFormatReport(ModuleScanTestCase):
+    def test_clean_report_names_no_files_over(self):
+        _write(self.repo, "small.py", 10)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, None)
+        self.assertIn("no files over tripwire (>400 lines)", report)
+        self.assertIn("1 files scanned", report)
+
+    def test_top_truncates_rows_but_not_the_total(self):
+        _write(self.repo, "a.py", 1000)
+        _write(self.repo, "b.py", 900)
+        _write(self.repo, "c.py", 800)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, 2)
+        self.assertIn("a.py", report)
+        self.assertIn("b.py", report)
+        self.assertNotIn("c.py", report)
+        self.assertIn("3 files over, 3 scanned", report)
+
+    def test_top_zero_does_not_falsely_report_clean_when_files_are_over(self):
+        """Regression: `--top 0` truncates the displayed rows to nothing, but the
+        report must still say files are over -- not fall into the "clean" branch,
+        which is keyed on the full `over` list, not the truncated display."""
+        _write(self.repo, "huge.py", 5000)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, 0)
+        self.assertNotIn("no files over tripwire", report)
+        self.assertIn("1 files over, 1 scanned", report)
+        self.assertNotIn("huge.py", report)
+
+
+class TestArgumentValidation(unittest.TestCase):
+    """Validation happens before the repo is ever touched, so these do not need
+    the real-git-repo fixture from ModuleScanTestCase -- an arbitrary --repo
+    value is enough."""
+
+    def test_top_zero_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--top", "0"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--top", buf.getvalue())
+        self.assertIn("at least 1", buf.getvalue())
+
+    def test_top_negative_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--top", "-1"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--top", buf.getvalue())
+        self.assertIn("at least 1", buf.getvalue())
+
+    def test_negative_tripwire_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--tripwire", "-1"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--tripwire", buf.getvalue())
+        self.assertIn("must not be negative", buf.getvalue())
+
+
+class TestMissingGit(unittest.TestCase):
+    """tracked_files must survive missing git executable."""
+
+    def test_tracked_files_returns_empty_list_when_git_is_unavailable(self):
+        """When git is not on PATH, tracked_files returns [] rather than raising."""
+        repo = Path("/nonexistent")
+        with mock.patch("module_scan.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("git not found")
+            result = module_scan.tracked_files(repo)
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
@@ -255,9 +342,12 @@ Deliberate design decisions, each of which has a failure mode behind it:
     free, build output and virtualenvs never appear, and the tool is correct
     inside a git worktree without special-casing one.
 
-  * **Always exits 0.** This is a report, not a gate. The first person to pipe a
+  * **Always exits 0 for any completed scan; a malformed invocation exits 2 via
+    argparse.** This is a report, not a gate. The first person to pipe a
     non-zero-exiting scanner into a CI workflow turns an advisory number into a
     build failure by accident, and the number is not good enough to carry that.
+    A rejected command line is not a report, so it is not covered by that
+    promise -- argparse's usual exit 2 stands.
 
   * **Physical lines, counted on bytes.** Not logical lines, not statements. The
     count exists to prompt a human-legible judgment, so precision buys nothing
@@ -341,13 +431,23 @@ def tracked_files(repo: Path) -> list[str]:
     `-z` because a filename may legally contain a newline; splitting on `\\n`
     would corrupt such a path into two.
     """
-    proc = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=repo,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=repo,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        print(f"module_scan: could not run git in {repo}: {exc}", file=sys.stderr)
+        return []
     if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        print(
+            f"module_scan: `git ls-files` failed in {repo} (exit "
+            f"{proc.returncode}): {stderr}",
+            file=sys.stderr,
+        )
         return []
     raw = proc.stdout.decode("utf-8", errors="surrogateescape")
     return [name for name in raw.split("\0") if name]
@@ -411,10 +511,15 @@ def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:
 
 
 def format_report(result: dict, top: int | None) -> str:
-    """Human-readable report. Mirrors the layout of repo_hygiene_scan.py."""
+    """Format the scan result as a human-readable report for terminal output.
+
+    The "no files over" message is chosen from `result["over"]` (the full list),
+    never from the `--top`-truncated view -- otherwise `--top 0` (or any `--top`
+    smaller than the count) prints "no files over tripwire" while files are, in
+    fact, over it.
+    """
     over = result["over"]
-    if top is not None:
-        over = over[:top]
+    displayed = over if top is None else over[:top]
     lines = [""]
     if not over:
         lines.append(
@@ -427,11 +532,11 @@ def format_report(result: dict, top: int | None) -> str:
 
     lines.append(f"  over tripwire (>{result['tripwire']} lines)")
     lines.append("  " + "-" * 36)
-    for entry in over:
+    for entry in displayed:
         lines.append(f"  {entry['lines']:>5}  {entry['path']}")
     lines.append("")
     lines.append(
-        f"  {len(result['over'])} files over, {result['scanned']} scanned"
+        f"  {len(over)} files over, {result['scanned']} scanned"
     )
     lines.append(
         "  run the modular-design skill on any of these to get a proposed split"
@@ -468,6 +573,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # parser.error() exits with code 2, not 0 -- but that does not violate this
+    # module's "always exits 0" contract. That contract is about *reporting*: a
+    # scan that completes always reports rather than failing a CI gate. A
+    # malformed invocation (`--top 0`, a negative tripwire) never produces a
+    # report at all, so there is nothing for the contract to cover.
+    if args.top is not None and args.top < 1:
+        parser.error("--top must be at least 1")
+    if args.tripwire < 0:
+        parser.error("--tripwire must not be negative")
+
     result = scan(args.repo, args.tripwire, tuple(args.exclude))
 
     if args.json:
@@ -487,7 +602,7 @@ if __name__ == "__main__":
 python -m unittest tests.test_module_scan -v
 ```
 
-Expected: `OK` — 14 tests.
+Expected: `OK` — 21 tests.
 
 - [ ] **Step 5: Run the scanner on this repo and confirm the spec's success criterion**
 
@@ -630,9 +745,9 @@ correct to leave whole; reporting that as "cohesive" hides the veto and
 guarantees the next agent re-litigates it.
 
 Where it goes, if you are an agent implementing a task: a **proposed boundary**
-is a scopeable task and belongs in `<out-of-scope>`. A **declined split or a
-cohesive verdict is not a task** — state it in your report body instead, so the
-findings list stays a list of work and not a log of non-findings.
+is a scopeable task and belongs in `<out-of-scope>`. A **cohesive or
+declined-split verdict is not a task** — state it in `<module-check>` instead,
+so the findings list stays a list of work and not a log of non-findings.
 
 ## The split procedure
 
@@ -943,26 +1058,30 @@ git commit -m "feat: [impl] add layered-api-design skill, gated on project decla
 ### Task 4: Agent charter edits
 
 **Files:**
-- Modify: `agents/planner.md:66-95` (Plan Structure) and `agents/planner.md:112-117` (Maximise Parallelism)
-- Modify: `agents/builder.md:31-39`, `:66-78`, `:123-136`
-- Modify: `agents/builder-standard.md` — same three sections, same line numbers
-- Modify: `agents/builder-simple.md` — same three sections, same line numbers
-- Modify: `agents/reviewer.md:64-69` (§5 Maintainability Assessment)
+- Modify: `agents/planner.md:66-97` (Plan Structure) and `agents/planner.md:114-127` (Maximise Parallelism)
+- Modify: `agents/builder.md:39-42` (You DO NOT), `:52-56` (Orient), `:80-85` (Commit table), `:114-117` (Output Contract), `:153-154` (Anti-Patterns)
+- Modify: `agents/builder-standard.md` — same five sections, same line numbers
+- Modify: `agents/builder-simple.md` — same five sections, same line numbers
+- Modify: `agents/reviewer.md:27-30` (§1 Scope Definition commit-bracket list) and `agents/reviewer.md:64-72` (§5 Maintainability Assessment)
 - Test: `tests/test_agent_definitions.py` (existing — must still pass)
 
 **Interfaces:**
 - Consumes from Task 2: the skill name `modular-design` and the three test names.
-- Produces: the `[refactor]` commit bracket, referenced by Task 2's split procedure.
+- Produces: the `[refactor]` commit bracket, referenced by Task 2's split procedure, and the `<module-check>` output-contract element, referenced by Task 2's "Where it goes" guidance.
 
-**The three builder files are byte-identical apart from frontmatter and lines 16–17.** Apply the same three edits to all three, verbatim. Do not touch lines 16–17 — `tests/test_agent_definitions.py:952` pins the `standard` tier sentence exactly.
+**The three builder files are byte-identical apart from frontmatter and lines 16–17.** Apply the same five edits to all three, verbatim. Do not touch lines 16–17 — `tests/test_agent_definitions.py:952` pins the `standard` tier sentence exactly.
 
 - [ ] **Step 1: Add the extraction-first rule to the planner**
 
-In `agents/planner.md`, under `### Maximise Parallelism` (line 112), append this bullet to the existing list:
+In `agents/planner.md`, under `### Maximise Parallelism` (line 114), append this bullet to the existing list:
 
 ```markdown
-- Run `python scripts/module_scan.py --json` while decomposing. If a task would
-  add code to a file that appears over the tripwire (400 lines by default, or the
+- Run `python scripts/module_scan.py --json` while decomposing — pass
+  `--tripwire <N>` when the project's `## Architecture` section declares an
+  override, e.g. `python scripts/module_scan.py --json --tripwire 300`; the
+  scanner only reports files over whichever tripwire it is given, so a
+  declared override never reaches the JSON without it. If a task would add
+  code to a file that appears over the tripwire (400 lines by default, or the
   project's `## Architecture` override), schedule the extraction as its own
   **preceding** task, tiered `standard` or `complex`. An implementer will not
   split mid-task, so an unscheduled extraction never happens.
@@ -984,7 +1103,19 @@ its `CLAUDE.md` `## Architecture` section, if it has one, so implementers
 inherit it instead of re-deriving it.
 ```
 
-- [ ] **Step 2: Add the mid-task split prohibition to all three builder tiers**
+- [ ] **Step 2: Add the orient-time length check to all three builder tiers**
+
+In each of `agents/builder.md`, `agents/builder-standard.md`, `agents/builder-simple.md`, append this paragraph to `### 1. Orient before editing` (line 46). It goes here, first, because it is the first thing an agent encounters — and it closes the prior review's Critical finding that nothing measured a file before an agent appended to it:
+
+```markdown
+**Check the length of any existing file your task will add to.** Over 400 lines —
+or the project's `## Architecture` override, passed as `--tripwire <N>` — run the
+three tests from the `modular-design` skill before you append, and report the
+outcome as described there. `python scripts/module_scan.py --json --tripwire <N>`
+gives you the numbers when an override applies; `wc -l` will do for a single file.
+```
+
+- [ ] **Step 3: Add the mid-task split prohibition to all three builder tiers**
 
 In each of `agents/builder.md`, `agents/builder-standard.md`, `agents/builder-simple.md`, append to the `### You DO NOT` list (after line 38):
 
@@ -995,7 +1126,7 @@ In each of `agents/builder.md`, `agents/builder-standard.md`, `agents/builder-si
   `<out-of-scope>` — a named boundary is a scopeable task, a line count is not.
 ```
 
-- [ ] **Step 3: Add the `[refactor]` row to the commit table in all three builder tiers**
+- [ ] **Step 4: Add the `[refactor]` row to the commit table in all three builder tiers**
 
 In each of the three files, in `### 5. Commit`, change the table from:
 
@@ -1018,7 +1149,31 @@ to:
 | A behaviour-preserving module split | `[refactor]` |
 ```
 
-- [ ] **Step 4: Add the anti-pattern to all three builder tiers**
+- [ ] **Step 5: Add a `<module-check>` element to the Output Contract in all three builder tiers**
+
+The `modular-design` skill (Task 2) tells an agent to state a cohesive-or-declined
+verdict, but the contract says "Use the contract below. Nothing else." and had no
+element that fit one: `<out-of-scope>` is scopeable findings, and a verdict is not
+a task. In each of the three files, in `## Output Contract`, insert a new element
+between `</verification>` and `<deviations>`:
+
+```markdown
+<verification>
+$ <command you ran>
+<actual output, trimmed to the relevant lines>
+</verification>
+
+<module-check>
+For each existing file you added to: its length, and the tripwire verdict from
+the `modular-design` skill in one line. "N/A" if your task created only new files.
+</module-check>
+
+<deviations>
+Where you departed from the task as written, and why. "None" if none.
+</deviations>
+```
+
+- [ ] **Step 6: Add the anti-pattern to all three builder tiers**
 
 In each of the three files, append to `## Anti-Patterns (DO NOT DO)` (after line 136):
 
@@ -1027,7 +1182,7 @@ In each of the three files, append to `## Anti-Patterns (DO NOT DO)` (after line
   three tests → run it and report the boundary in `<out-of-scope>`
 ```
 
-- [ ] **Step 5: Add the module-boundary review dimension**
+- [ ] **Step 7: Add the module-boundary review dimension**
 
 In `agents/reviewer.md`, append to `### 5. Maintainability Assessment` (after line 68):
 
@@ -1038,7 +1193,29 @@ In `agents/reviewer.md`, append to `### 5. Maintainability Assessment` (after li
   incohesive, and a cohesive long file is not a defect.
 ```
 
-- [ ] **Step 6: Verify the three builder tiers still differ only where they should**
+- [ ] **Step 8: Add the `[refactor]` bracket to the reviewer's commit-scoping list**
+
+`agents/reviewer.md`'s `### 1. Scope Definition` already tells the reviewer to
+scope to the workflow phase under review by naming the typed-commit brackets; it
+needs `[refactor]` added to that list alongside the rest. Change:
+
+```markdown
+- **Scope to the workflow phase under review (typed-commit projects).** If the
+  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` commit
+  convention, identify the phase being reviewed and resolve its exact commits
+  before reading any diff:
+```
+
+to:
+
+```markdown
+- **Scope to the workflow phase under review (typed-commit projects).** If the
+  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` /
+  `[refactor]` commit convention, identify the phase being reviewed and resolve
+  its exact commits before reading any diff:
+```
+
+- [ ] **Step 9: Verify the three builder tiers still differ only where they should**
 
 ```bash
 diff agents/builder.md agents/builder-standard.md
@@ -1046,7 +1223,7 @@ diff agents/builder.md agents/builder-standard.md
 
 Expected: differences confined to lines 2, 3, 4 (frontmatter `name`, `description`, `model`) and lines 16–17 (the tier sentence). Any other difference means an edit was applied to one tier and not another.
 
-- [ ] **Step 7: Run the agent-definition lint suite**
+- [ ] **Step 10: Run the agent-definition lint suite**
 
 ```bash
 python -m unittest tests.test_agent_definitions -v
@@ -1054,7 +1231,7 @@ python -m unittest tests.test_agent_definitions -v
 
 Expected: `OK`. This suite pins the writer set, the write-access declarations, boundary sentences, and the exact `standard` tier sentence. A failure here means an edit landed in a pinned region.
 
-- [ ] **Step 8: Run the full suite**
+- [ ] **Step 11: Run the full suite**
 
 ```bash
 python -m unittest discover -s tests -v
@@ -1062,7 +1239,7 @@ python -m unittest discover -s tests -v
 
 Expected: `OK`.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add agents/planner.md agents/builder.md agents/builder-standard.md agents/builder-simple.md agents/reviewer.md
@@ -1221,7 +1398,7 @@ python scripts/module_scan.py --json | grep orchestrator
 ```
 
 - [ ] `module_scan.py --json` names `agents/orchestrator.md`
-- [ ] All three builder tiers carry the same three edits — `diff` shows only frontmatter and the tier sentence
+- [ ] All three builder tiers carry the same five edits — `diff` shows only frontmatter and the tier sentence
 - [ ] Neither `SKILL.md` names a crew agent (the grep in Tasks 2 and 3 is empty)
 - [ ] `CLAUDE.md` with the `## Architecture` section deleted causes no layering to be imposed — the gate at the top of `layered-api-design` is the only entry point
 - [ ] `docs_site/docs/skills.md` reports 35 skills, both grouped under Development workflow

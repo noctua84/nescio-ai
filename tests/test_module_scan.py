@@ -202,26 +202,37 @@ class TestFormatReport(ModuleScanTestCase):
         self.assertNotIn("huge.py", report)
 
 
-class TestArgumentValidation(ModuleScanTestCase):
+class TestArgumentValidation(unittest.TestCase):
+    """Validation happens before the repo is ever touched, so these do not need
+    the real-git-repo fixture from ModuleScanTestCase -- an arbitrary --repo
+    value is enough."""
+
     def test_top_zero_is_rejected(self):
         buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                module_scan.main(["--repo", str(self.repo), "--top", "0"])
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--top", "0"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--top", buf.getvalue())
+        self.assertIn("at least 1", buf.getvalue())
 
     def test_top_negative_is_rejected(self):
         buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                module_scan.main(["--repo", str(self.repo), "--top", "-1"])
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--top", "-1"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--top", buf.getvalue())
+        self.assertIn("at least 1", buf.getvalue())
 
     def test_negative_tripwire_is_rejected(self):
         buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                module_scan.main(
-                    ["--repo", str(self.repo), "--tripwire", "-1"]
-                )
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--tripwire", "-1"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--tripwire", buf.getvalue())
+        self.assertIn("must not be negative", buf.getvalue())
 
 
 class TestMissingGit(unittest.TestCase):

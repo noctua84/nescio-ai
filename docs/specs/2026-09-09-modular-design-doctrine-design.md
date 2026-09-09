@@ -132,7 +132,9 @@ not "clean this up."
 ### Shape catalogue
 
 Two to three lines each. Pointers, not doctrine. Applied only when the project
-declares the shape (§5) or already visibly uses it:
+declares the shape (§5). For layered service specifically, "already uses it"
+means all three layers present as distinct, layer-named trees — a lone
+`services/` directory is not evidence (§5's gate).
 
 - **layered service** → `skills/layered-api-design/`
 - **pipeline** — one stage per transform; an explicit data contract between stages
@@ -149,8 +151,11 @@ detection is a separate program from anything that changes files.
 - Default exclusions: migrations, lockfiles, generated sources (`*_pb2.py` and
   similar), minified assets, vendored trees.
 - Flags: `--tripwire N` (default 400), `--top N`, `--json` for agent consumption.
-- **Always exits 0.** It is a report, not a gate. A non-zero exit would make it a
-  CI blocker by accident the first time someone pipes it into a workflow.
+- **Always exits 0 for any completed scan; a malformed invocation exits 2 via
+  `argparse`.** It is a report, not a gate — a rejected command line is not a
+  report, so it is not covered by that promise. A non-zero exit on a *completed*
+  scan would make it a CI blocker by accident the first time someone pipes it
+  into a workflow.
 - Non-UTF-8 files are counted by byte-newlines rather than skipped or crashed on.
 
 Output:
@@ -171,9 +176,10 @@ Output:
 The skill opens with an explicit gate:
 
 > Applies only when the project declares layered-service architecture in its
-> `CLAUDE.md`, or already visibly uses it. Never inferred from "this is an HTTP
-> API." If the project has not declared a shape, use `modular-design` and follow
-> the structure that is already there.
+> `CLAUDE.md`, or already unmistakably uses one — all three layers present as
+> distinct, layer-named trees (a lone `services/` directory is not evidence).
+> Never inferred from "this is an HTTP API." If the project has not declared a
+> shape, use `modular-design` and follow the structure that is already there.
 
 Each layer is a thin wrapper over focused submodules — e.g. `managers/billing/`
 containing `pricing.py` and `invoicing.py` behind a thin `__init__.py` surface.

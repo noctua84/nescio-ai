@@ -12,9 +12,12 @@ Deliberate design decisions, each of which has a failure mode behind it:
     free, build output and virtualenvs never appear, and the tool is correct
     inside a git worktree without special-casing one.
 
-  * **Always exits 0.** This is a report, not a gate. The first person to pipe a
+  * **Always exits 0 for any completed scan; a malformed invocation exits 2 via
+    argparse.** This is a report, not a gate. The first person to pipe a
     non-zero-exiting scanner into a CI workflow turns an advisory number into a
     build failure by accident, and the number is not good enough to carry that.
+    A rejected command line is not a report, so it is not covered by that
+    promise -- argparse's usual exit 2 stands.
 
   * **Physical lines, counted on bytes.** Not logical lines, not statements. The
     count exists to prompt a human-legible judgment, so precision buys nothing

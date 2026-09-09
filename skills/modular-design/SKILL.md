@@ -95,9 +95,9 @@ correct to leave whole; reporting that as "cohesive" hides the veto and
 guarantees the next agent re-litigates it.
 
 Where it goes, if you are an agent implementing a task: a **proposed boundary**
-is a scopeable task and belongs in `<out-of-scope>`. A **declined split or a
-cohesive verdict is not a task** — state it in your report body instead, so the
-findings list stays a list of work and not a log of non-findings.
+is a scopeable task and belongs in `<out-of-scope>`. A **cohesive or
+declined-split verdict is not a task** — state it in `<module-check>` instead,
+so the findings list stays a list of work and not a log of non-findings.
 
 ## The split procedure
 
