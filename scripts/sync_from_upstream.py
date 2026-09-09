@@ -209,9 +209,9 @@ def _self_was_replaced(dest: Path, added, updated) -> bool:
     through path-spelling differences (drive letter case, short vs. long
     names, `.` segments) on Windows.
 
-    Deliberately False, not an exception, when `__file__` or `.resolve()`
-    raises `OSError` (e.g. a frozen or synthetic execution context): a sync
-    that otherwise succeeded should not fail on this advisory check. Also
+    Deliberately False, not an exception, when `.resolve()` raises `OSError`
+    (e.g. from an unresolvable symlink or filesystem error): a sync that
+    otherwise succeeded should not fail on this advisory check. Also
     False for the ordinary "run upstream's copy against a remote --dest"
     invocation, since the running script then lives outside `dest` entirely
     and is never among the files just written.
