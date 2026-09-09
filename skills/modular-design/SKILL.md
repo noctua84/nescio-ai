@@ -82,14 +82,22 @@ is what a leftover pile is called. Find a different cut, or leave the file whole
 
 ## Deciding, and recording the decision
 
-State the outcome in one of two forms:
+State the outcome in one of three forms:
 
 - **"Cohesive — one reason to change (<the reason>). Left whole at N lines."**
+- **"Split declined — <k> reasons to change, but <veto 2|veto 3>: <why>. Left
+  whole at N lines."**
 - **"Split along <k> reasons: <name> (<reason>), <name> (<reason>). Boundary
   passes the state and name tests."**
 
-If you are an agent implementing a task, this goes in your `<out-of-scope>`
-block — not into the code. See "Who does what", below.
+The second form is the one people forget. A file can fail test 1 and still be
+correct to leave whole; reporting that as "cohesive" hides the veto and
+guarantees the next agent re-litigates it.
+
+Where it goes, if you are an agent implementing a task: a **proposed boundary**
+is a scopeable task and belongs in `<out-of-scope>`. A **declined split or a
+cohesive verdict is not a task** — state it in your report body instead, so the
+findings list stays a list of work and not a log of non-findings.
 
 ## The split procedure
 
@@ -103,7 +111,10 @@ Only run this when splitting *is* the assigned task.
    stop. That is a successful outcome of this skill, not a failure of it.
 4. **Propose.** New file names, what moves to each, and the resulting import
    edges — including any new cycle, which is a sign the boundary is wrong.
-   **Stop here and get approval before touching anything.**
+   **Stop here and get approval before touching anything.** When the split is
+   already an approved task in a work plan, the plan *is* the approval: record
+   the boundary in your report and continue to step 5. Return `BLOCKED` only if
+   the boundary you found differs materially from the one the task assumed.
 5. **Execute as pure moves.** Move code with no logic edits, no signature
    changes, no renames, no opportunistic cleanup. Run the tests after each move.
 6. **Only then thin the wrappers**, as separate commits.

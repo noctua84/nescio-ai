@@ -9,9 +9,13 @@ user-invocable: true
 ## The gate — read this before anything else
 
 **This skill applies only when the project has declared a layered service
-architecture** in its `CLAUDE.md` `## Architecture` section, or already visibly
-uses one (an existing `repositories/` or `services/` tree, layer-named modules,
-a documented convention).
+architecture** in its `CLAUDE.md` `## Architecture` section, or already
+unmistakably uses one — **all three** layers present as distinct, layer-named
+trees, or a documented convention saying so.
+
+A lone `services/` directory is **not** evidence. That name is used for HTTP
+client wrappers, background workers, and DI containers at least as often as for a
+business layer. When in doubt, treat the shape as undeclared and stop.
 
 **Never infer it from "this is an HTTP API."** Three layers are standard for
 CRUD-over-HTTP and actively wrong for a CLI, a batch job, a data pipeline, a

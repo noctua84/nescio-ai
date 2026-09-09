@@ -116,10 +116,11 @@ the correct outcome, not a classification failure.
 - If a task touches 4+ files, SPLIT IT
 - Aim for 5-8 tasks per wave
 - Extract shared dependencies as early tasks to unblock parallel work
-- If a task would add code to a file already over the module tripwire (see the
-  `modular-design` skill), schedule the extraction as its own **preceding** task,
-  tiered `standard` or `complex`. An implementer will not split mid-task, so an
-  unscheduled extraction never happens.
+- Run `python scripts/module_scan.py --json` while decomposing. If a task would
+  add code to a file that appears over the tripwire (400 lines by default, or the
+  project's `## Architecture` override), schedule the extraction as its own
+  **preceding** task, tiered `standard` or `complex`. An implementer will not
+  split mid-task, so an unscheduled extraction never happens.
 
 ## TURN TERMINATION
 

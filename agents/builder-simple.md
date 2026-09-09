@@ -49,6 +49,12 @@ tests, its nearest sibling. Match what you find: naming, error handling, test
 style, file layout. **Follow existing patterns over inventing better ones**, even
 when you would have chosen differently on a blank page.
 
+**Check the length of any existing file your task will add to.** Over 400 lines —
+or the project's `## Architecture` override — run the three tests from the
+`modular-design` skill before you append, and report the outcome as described
+there. `python scripts/module_scan.py --json` gives you the numbers; `wc -l` will
+do for a single file.
+
 ### 2. Test first where it applies
 If the repo has tests, write the failing test before the implementation. If it
 has none, write the change and its test together. Never write a test that asserts
@@ -140,4 +146,4 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 - **Staying quiet about something you noticed because it was not your task** →
   the observation is part of your output, not a distraction from it
 - Appending to a file already over the module tripwire without running the
-  cohesion test → run it and report the boundary in `<out-of-scope>`
+  three tests → run it and report the boundary in `<out-of-scope>`

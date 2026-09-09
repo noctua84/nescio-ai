@@ -25,7 +25,8 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 - Understand intended behavior from types, interface contracts, tests, and any design docs before judging the implementation.
 - Additional context source (last resort, use sparingly): if you need to know when/why something changed and `git log`/`git blame` don't explain it, past Claude Code session transcripts for this repo may contain the discussion. They live under `~/.claude/projects/<project-slug>/*.jsonl` (the slug is a sanitized form of the repo's absolute path — derive it, don't guess it). Search with narrow terms (error strings, function names, file paths); these files are large, so grep, don't open them wholesale.
 - **Scope to the workflow phase under review (typed-commit projects).** If the
-  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` commit
+  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` /
+  `[refactor]` commit
   convention, identify the phase being reviewed and resolve its exact commits
   before reading any diff:
   ```bash

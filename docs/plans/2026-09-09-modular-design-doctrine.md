@@ -492,10 +492,11 @@ Expected: `OK` — 14 tests.
 - [ ] **Step 5: Run the scanner on this repo and confirm the spec's success criterion**
 
 ```bash
-python scripts/module_scan.py --top 5
+python scripts/module_scan.py --json | grep orchestrator
 ```
 
-Expected: a clean report naming `agents/orchestrator.md` (669 lines) among the files over the tripwire. If `orchestrator.md` is absent, an exclusion rule is over-broad — fix it before committing.
+Expected: a JSON entry for `agents/orchestrator.md`. `--top` is a display filter,
+not a query — do not use it to prove a specific file is present.
 
 - [ ] **Step 6: Run the full suite to confirm nothing regressed**
 
@@ -616,14 +617,22 @@ is what a leftover pile is called. Find a different cut, or leave the file whole
 
 ## Deciding, and recording the decision
 
-State the outcome in one of two forms:
+State the outcome in one of three forms:
 
 - **"Cohesive — one reason to change (<the reason>). Left whole at N lines."**
+- **"Split declined — <k> reasons to change, but <veto 2|veto 3>: <why>. Left
+  whole at N lines."**
 - **"Split along <k> reasons: <name> (<reason>), <name> (<reason>). Boundary
   passes the state and name tests."**
 
-If you are an agent implementing a task, this goes in your `<out-of-scope>`
-block — not into the code. See "Who does what", below.
+The second form is the one people forget. A file can fail test 1 and still be
+correct to leave whole; reporting that as "cohesive" hides the veto and
+guarantees the next agent re-litigates it.
+
+Where it goes, if you are an agent implementing a task: a **proposed boundary**
+is a scopeable task and belongs in `<out-of-scope>`. A **declined split or a
+cohesive verdict is not a task** — state it in your report body instead, so the
+findings list stays a list of work and not a log of non-findings.
 
 ## The split procedure
 
@@ -637,7 +646,10 @@ Only run this when splitting *is* the assigned task.
    stop. That is a successful outcome of this skill, not a failure of it.
 4. **Propose.** New file names, what moves to each, and the resulting import
    edges — including any new cycle, which is a sign the boundary is wrong.
-   **Stop here and get approval before touching anything.**
+   **Stop here and get approval before touching anything.** When the split is
+   already an approved task in a work plan, the plan *is* the approval: record
+   the boundary in your report and continue to step 5. Return `BLOCKED` only if
+   the boundary you found differs materially from the one the task assumed.
 5. **Execute as pure moves.** Move code with no logic edits, no signature
    changes, no renames, no opportunistic cleanup. Run the tests after each move.
 6. **Only then thin the wrappers**, as separate commits.
@@ -765,9 +777,13 @@ user-invocable: true
 ## The gate — read this before anything else
 
 **This skill applies only when the project has declared a layered service
-architecture** in its `CLAUDE.md` `## Architecture` section, or already visibly
-uses one (an existing `repositories/` or `services/` tree, layer-named modules,
-a documented convention).
+architecture** in its `CLAUDE.md` `## Architecture` section, or already
+unmistakably uses one — **all three** layers present as distinct, layer-named
+trees, or a documented convention saying so.
+
+A lone `services/` directory is **not** evidence. That name is used for HTTP
+client wrappers, background workers, and DI containers at least as often as for a
+business layer. When in doubt, treat the shape as undeclared and stop.
 
 **Never infer it from "this is an HTTP API."** Three layers are standard for
 CRUD-over-HTTP and actively wrong for a CLI, a batch job, a data pipeline, a
@@ -945,10 +961,11 @@ git commit -m "feat: [impl] add layered-api-design skill, gated on project decla
 In `agents/planner.md`, under `### Maximise Parallelism` (line 112), append this bullet to the existing list:
 
 ```markdown
-- If a task would add code to a file already over the module tripwire (see the
-  `modular-design` skill), schedule the extraction as its own **preceding** task,
-  tiered `standard` or `complex`. An implementer will not split mid-task, so an
-  unscheduled extraction never happens.
+- Run `python scripts/module_scan.py --json` while decomposing. If a task would
+  add code to a file that appears over the tripwire (400 lines by default, or the
+  project's `## Architecture` override), schedule the extraction as its own
+  **preceding** task, tiered `standard` or `complex`. An implementer will not
+  split mid-task, so an unscheduled extraction never happens.
 ```
 
 In `agents/planner.md`, inside the `### Plan Structure` fenced block, change the `## Context` line (line 73) from:
@@ -1007,7 +1024,7 @@ In each of the three files, append to `## Anti-Patterns (DO NOT DO)` (after line
 
 ```markdown
 - Appending to a file already over the module tripwire without running the
-  cohesion test → run it and report the boundary in `<out-of-scope>`
+  three tests → run it and report the boundary in `<out-of-scope>`
 ```
 
 - [ ] **Step 5: Add the module-boundary review dimension**
@@ -1071,10 +1088,11 @@ git commit -m "feat: [impl] teach the crew module boundaries at write and review
 In `CLAUDE.md`, insert this section between `## Engineering defaults` and `## Git / PRs`:
 
 ```markdown
-## Architecture *(optional)*
+## Architecture
 
-This repo declares no shape — the crew follows whatever structure is already in
-the tree. That is the default, and deleting this section changes nothing.
+This section is optional. This repo declares no shape — the crew follows
+whatever structure is already in the tree. That is the default, and deleting
+this section changes nothing.
 
 To declare one, replace this text with the shape your project uses and, if you
 want it, a tripwire override:
@@ -1082,7 +1100,7 @@ want it, a tripwire override:
 - **Recognised shapes** — layered service, pipeline, plugin/registry, library.
   The `modular-design` skill defines each one; `layered-api-design` covers the
   layered case in full, and applies *only* when a project declares it here.
-- **Tripwire** — a line such as `Module tripwire: 500 lines.` overrides the
+- **Tripwire** — a line such as `Module tripwire: <N> lines.` overrides the
   400-line default used by `scripts/module_scan.py`.
 
 Nothing in the crew infers an architecture. If this section declares nothing, the
@@ -1191,15 +1209,18 @@ git commit -m "docs: [docs] document the architecture declaration and the two ne
 
 ## Verification — whole plan
 
-Run after all five tasks. Each line maps to a success criterion in the spec.
+Each line below maps to a plan-level check. The spec's three behavioural
+criteria (implementer reports rather than splits, planner schedules extraction
+first, `modular-design` can decline a split and say why) are prose contracts —
+verify them by reading the edited charters and skill, not by running a command.
 
 ```bash
 python -m unittest discover -s tests -v
 python -m unittest discover -s docs_site -p "test_gen_catalog.py" -v
-python scripts/module_scan.py --top 5
+python scripts/module_scan.py --json | grep orchestrator
 ```
 
-- [ ] `module_scan.py` runs clean on this repo and names `agents/orchestrator.md`
+- [ ] `module_scan.py --json` names `agents/orchestrator.md`
 - [ ] All three builder tiers carry the same three edits — `diff` shows only frontmatter and the tier sentence
 - [ ] Neither `SKILL.md` names a crew agent (the grep in Tasks 2 and 3 is empty)
 - [ ] `CLAUDE.md` with the `## Architecture` section deleted causes no layering to be imposed — the gate at the top of `layered-api-design` is the only entry point
