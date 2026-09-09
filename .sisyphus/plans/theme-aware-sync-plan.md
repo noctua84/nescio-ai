@@ -86,7 +86,7 @@ redesign.
    dry run is empty. **Not** "sync functional filenames and re-render locally".
 2. **Both theme representatives present in dest** (`agents/planner.md` **and** `agents/plato.md`):
    refuse loudly, exit non-zero, name the offending files, write nothing — mirroring
-   `scripts/apply_theme.py:197-206`.
+   `scripts/apply_theme.py:114-123`.
 3. **Half-renamed dest tree** (exactly one representative, but `desynced_agents` non-empty):
    **warn**, naming the files and pointing at `python scripts/apply_theme.py <theme>`, then
    **proceed**. Do **not** refuse — that would block a legitimate framework sync on a cosmetic
@@ -231,7 +231,7 @@ halves with `summary=False` and `main()` appends one footer with the combined co
 `main()` — not `render_diff` — owns the footer. The rejected alternative (stitch entirely in
 `main()` by string-surgery on two returned blobs) makes `main()` parse `render_diff`'s output
 format, which is worse coupling for the same result. `RenderDiffTest`
-(`tests/test_sync_from_upstream.py:112-160`) passes unedited because the default is `True`.
+(`tests/test_sync_from_upstream.py:115-163`) passes unedited because the default is `True`.
 
 *A second, cosmetic cost that must be recorded in the docstring:* two calls means the sections
 interleave — `UPDATED(agents) / ADDED(agents) / DELETED(agents)` then
@@ -286,7 +286,7 @@ re-introduces machinery to solve a problem that no longer exists.
   `apply_theme` already rewrites their prose and leaves their filenames alone. This is the same
   code path the theme itself uses, so it cannot drift from it.
 - **R5 — rename collisions** (a genuinely new upstream `agents/plato.md`). Free:
-  `apply_theme.py:247-260` pre-flights all-or-nothing and returns 2, which P2 turns into a refusal.
+  `apply_theme.py:164-177` pre-flights all-or-nothing and returns 2, which P2 turns into a refusal.
   **One renamer, and it is the one with the pre-flight** — the previous draft's two-renamer problem
   is gone.
 - **R6 — newlines, `copy2` vs in-memory strings.** Gone: `shutil.copy2` and the `filecmp` fast
@@ -300,7 +300,7 @@ Precisely what the `rc != 0` check covers, and what it does not:
 
 | upstream state | dest state | outcome |
 |---|---|---|
-| carries **both** representatives | themed | **T5 step 2 refuses it first**, before the branch. `apply_theme`'s own both-themes refusal (`:197-206`) would also catch it, but is never reached. Do not write a test asserting that stderr — see T9/P2. |
+| carries **both** representatives | themed | **T5 step 2 refuses it first**, before the branch. `apply_theme`'s own both-themes refusal (`:114-123`) would also catch it, but is never reached. Do not write a test asserting that stderr — see T9/P2. |
 | cleanly themed, **same** theme as dest | themed | `apply_theme` reports "already on the theme", `rc=0`, tmp holds the themed tree, the comparison is themed-vs-themed and **correct**. No guard wanted. |
 | cleanly themed | **untheme'd** | **The materialisation branch never runs.** Today's destructive 11-added/11-deleted plan in the opposite direction, unchanged. |
 
@@ -379,7 +379,7 @@ The couplings are documentation only:
 - `README.md:261-264` — "The philosopher theme is rendered, not committed... so syncs never fight
   your renames." Today that is simply **wrong**; after this change it needs **rewriting, not
   deleting**.
-- `scripts/sync_from_upstream.py:19-20` (module docstring) and `:333-335` (the post-apply hint) —
+- `scripts/sync_from_upstream.py:29-30` (module docstring) and `:421-423` (the post-apply hint) —
   both advertise the manual re-render and become misleading.
 - `ROADMAP.md:44`.
 - `CONTRIBUTING.md:64-70` stays true and is unaffected. Do not touch it.
@@ -459,7 +459,8 @@ A task that lands mechanism without the argument is incomplete.
 
 ## Verification strategy
 
-- **Baseline: 751 tests, OK.** Every task's acceptance criteria include "the full suite still
+- **Baseline: 804 tests, OK.** (Was 751 before `origin/main` was merged in at `f8561f2`.) Every
+  task's acceptance criteria include "the full suite still
   passes, with no test file edited that the task does not name".
 - Run the suite as:
   ```bash
@@ -569,7 +570,7 @@ plan section from the previous draft is dropped (see "What was removed").
     `apply_theme.detect_theme`, `apply_theme.desynced_agents`, `apply_theme.THEME_REPRESENTATIVES`,
     `apply_theme.THEMES`, `apply_theme._mappings`, `apply_theme._transform`, `apply_theme.PAIRS`
     and `apply_theme.apply_theme` all still resolve.
-  - Full suite green at the 751 baseline.
+  - Full suite green at the 804 baseline.
   - `git diff scripts/apply_theme.py` shows only deletions of the moved blocks plus one import
     block — no reworded docstrings, no behaviour edits.
 
@@ -590,7 +591,7 @@ plan section from the previous draft is dropped (see "What was removed").
 
   **Depends on**: nothing (may run alongside T1)
 
-  **What to do**: in `scripts/sync_from_upstream.py`, change **only** `render_diff` (`:213-277`):
+  **What to do**: in `scripts/sync_from_upstream.py`, change **only** `render_diff` (`:251-365`):
   - Add `*, summary: bool = True` and `provenance: dict[str, str] | None = None`.
   - When `summary` is False, skip the final `net-new: ...` line (`:273-276`) — everything else,
     including the `return ""` early-out for an empty plan (`:270-271`), is unchanged.
@@ -613,7 +614,7 @@ plan section from the previous draft is dropped (see "What was removed").
   **Files**: `scripts/sync_from_upstream.py`
 
   **Acceptance criteria**:
-  - `RenderDiffTest` (`tests/test_sync_from_upstream.py:112-160`) passes **unedited**; the default
+  - `RenderDiffTest` (`tests/test_sync_from_upstream.py:115-163`) passes **unedited**; the default
     call produces byte-identical output to today, including the footer and no annotations.
   - Full suite green at baseline.
   - `git diff` shows changes inside `render_diff` only.
@@ -729,7 +730,7 @@ plan section from the previous draft is dropped (see "What was removed").
   **Depends on**: T1, T2
 
   **What to do**: this is the whole of the change to `scripts/sync_from_upstream.py`'s behaviour.
-  Work in `main()` (`:280-338`) and the module docstring (`:1-21`). **Do not modify `plan_sync`,
+  Work in `main()` (`:368-430`) and the module docstring (`:1-31`). **Do not modify `plan_sync`,
   `apply_sync`, `_files_equal`, `_iter_files`, `_normalize_newlines` or `_read_text` — not one
   line.** If you believe you must, report **BLOCKED**.
 
@@ -740,8 +741,8 @@ plan section from the previous draft is dropped (see "What was removed").
   **`apply_theme` and `renamed_agents` are NOT imported at module level** — see step 5.
 
   **Step 1 — decision 2: refuse a both-representatives dest.** After the three existing
-  checkout/identity guards (`:299-309`): `reps = theme_representatives(dest / "agents")`; if
-  `len(reps) > 1`, mirror `apply_theme.py:197-206` in wording and shape — name each offending file
+  checkout/identity guards (`:387-397`): `reps = theme_representatives(dest / "agents")`; if
+  `len(reps) > 1`, mirror `apply_theme.py:108-123` in wording and shape — name each offending file
   with its theme, state that nothing was changed, `return 2`. This guard is **load-bearing**:
   `detect_theme` returns `None` for such a tree, which would otherwise route it to the untheme'd
   branch and produce a fully destructive plan. Say so in a comment.
@@ -763,7 +764,7 @@ plan section from the previous draft is dropped (see "What was removed").
       diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
       if args.apply:
           apply_sync(upstream, dest)
-      return _report(args, added, updated, deleted, diff_text, theme=None)
+      return _report(args, dest, added, updated, deleted, diff_text, theme=None)
   ```
   This branch must be **literally today's four lines** — one `plan_sync` with no `paths=`, one
   `render_diff` with no keywords, one `apply_sync`. No temp dir is created and
@@ -838,7 +839,7 @@ plan section from the previous draft is dropped (see "What was removed").
           apply_sync(root, dest, paths=["agents"])
           apply_sync(upstream, dest, paths=OTHERS)
 
-      return _report(args, added, updated, deleted, diff_text, theme=theme)
+      return _report(args, dest, added, updated, deleted, diff_text, theme=theme)
   ```
   - The `with` block **must span plan -> diff -> apply**. `apply_sync` re-plans internally and
     re-reads `root`, so the temp tree cannot be released early. Comment that.
@@ -847,18 +848,32 @@ plan section from the previous draft is dropped (see "What was removed").
   - **Do NOT filter, suppress or special-case any entry** (R4). `plan_sync` is unmodified; there is
     nowhere to put a filter and there must not become one.
 
-  **Step 7 — the reporting tail.** Extract `:317-338` (the total/summary/listing/diff/hint block)
-  into a private `_report(args, added, updated, deleted, diff_text, *, theme)` used by **both**
+  **Step 7 — the reporting tail.** Extract `:405-429` (the total/summary/listing/diff/hint block)
+  into a private `_report(args, dest, added, updated, deleted, diff_text, *, theme)` used by **both**
   branches, so the two cannot drift in output format. Changes inside it:
   - When `theme` is not `None`, print one line before the plan summary naming the detected theme,
     so the operator can see which rendering produced the numbers they are about to act on.
-  - **Fix the post-apply hint at `:333-335`.** It currently tells the operator to re-run
+  - **PRESERVE #134's self-replacement reminder VERBATIM.** The extracted block now also contains,
+    at `scripts/sync_from_upstream.py:424-427`, inside the `if args.apply:` arm:
+    `if _self_was_replaced(dest, added, updated): print("
+this sync overwrote scripts/sync_from_upstream.py itself, ...")`.
+    Keep it, after the hint. **This is why `_report` takes `dest`** — without that parameter the call
+    cannot be made, and dropping it reds
+    `tests/test_sync_from_upstream.py:447` (`MainCliTest.test_apply_warns_when_the_run_replaced_the_running_script`),
+    which is under the T13 gate — leaving BLOCKED as your only in-plan move.
+    It is **already correct** on the concatenated triple, and needs no adaptation: `_self_was_replaced`
+    (`:201-226`) joins each `rel` to **`dest`**, never to `upstream`. The `agents/` half's themed
+    dest-relative paths (`agents/plato.md`) are real dest paths by construction and can never equal
+    the running script's path, so there is no false positive; `scripts/sync_from_upstream.py` arrives
+    only via the `OTHERS` half and is joined to `dest` exactly as today, so the true positive survives.
+    Recorded here so the next reader does not have to re-derive it.
+  - **Fix the post-apply hint at `:421-423`.** It currently tells the operator to re-run
     `apply_theme.py philosophers`. Under route A the themed rendering was written directly, so
     that is now a no-op and saying it is misleading. Replace it with text saying so, and keep the
     "memory/ and all non-framework paths were left untouched" sentence intact.
 
-  **Step 8 — rewrite the module docstring** (`:1-21`). Keep everything it says about the overlay
-  and the allowlist, **correct lines 19-20** (which advertise the manual re-render), and add, each
+  **Step 8 — rewrite the module docstring** (`:1-31`). Keep everything it says about the overlay
+  and the allowlist, **correct `:29-30`** (which advertise the manual re-render), and add, each
   as its own paragraph:
   - **What theme-awareness means here**, and the framing that produced it: the comparison does not
     need to know about the theme; it needs an upstream that is already in dest-space. So a themed
@@ -950,7 +965,7 @@ If a task believes it must, that is a signal the implementation drifted — repo
 
   **Files**: `tests/test_sync_theme_contract.py` (new)
 
-  **Acceptance criteria**: all pass; full suite green; test count rises above 751.
+  **Acceptance criteria**: all pass; full suite green; test count rises above 804.
 
   **QA scenarios**: deliberately skip the `_render_crew` call in the themed branch and confirm
   contract test (a) goes red; revert.
@@ -1030,14 +1045,14 @@ If a task believes it must, that is a signal the implementation drifted — repo
     or the test proves nothing about the `rc != 0` path. A both-representatives upstream does NOT
     qualify — step 2 rejects it earlier. Use either of these two, both verified:
     (a) an upstream `agents/` with **neither** representative -> step 2 sees `{}` and passes,
-    then `apply_theme` returns 2 with "could not detect the crew" (`apply_theme.py:207-211`); or
+    then `apply_theme` returns 2 with "could not detect the crew" (`apply_theme.py:125-128`); or
     (b) an upstream carrying **both** `agents/qa-guard.md` and `agents/cato.md`, with only
     `planner.md` as a representative -> `theme_representatives` is `{'functional': 'planner.md'}`
     so step 2 passes, then the all-or-nothing rename pre-flight returns 2 ("1 rename destination(s)
     already exist"). In either case the sync must return **2**, surface that stderr, and write
     nothing.
     Docstring: this is what makes the rename-collision class free — one renamer, and it is the one
-    with the all-or-nothing pre-flight (`scripts/apply_theme.py:238-260`). **This must never be
+    with the all-or-nothing pre-flight (`scripts/apply_theme.py:155-177`). **This must never be
     softened to a warning.**
   - **Ordering pin**: on a themed instance with pending changes in both `agents/` and another
     allowlist path, the reported entries list all `agents/` entries before the others, matching
@@ -1112,6 +1127,12 @@ If a task believes it must, that is a signal the implementation drifted — repo
     step with upstream sees an empty plan and `apply_theme.py` afterwards is a no-op.
   - **The bootstrap caveat (R8)**: because the sync scripts themselves are synced, the *first*
     sync that carries this fix still reports the old noise; the second is clean.
+    **Write this as a cross-reference, not a third retelling.** #134 landed a neighbouring bullet at
+    `README.md:266-272` ("A change to the allowlist takes two syncs") and a module-docstring
+    paragraph at `scripts/sync_from_upstream.py:15-23`, both already explaining the two-pass
+    mechanic. Point at that bullet and add only what is new here: `apply_theme.py`,
+    `_crew_common.py` and `_theme_common.py` are *also* inside the synced `scripts/` allowlist, so
+    the theme machinery arrives on the same delay.
   - Keep the surrounding bullet style and the existing anchor link to
     `#optional-the-philosopher-theme`.
 
@@ -1161,12 +1182,18 @@ If a task believes it must, that is a signal the implementation drifted — repo
   - Run the harness again with `--diff` after a real upstream edit; confirm exactly one `net-new:`
     line and no renderer chatter.
   - Run `python -m unittest discover -s tests -t tests 2>&1 >/dev/null | tail -20`; confirm OK and
-    a count **above** the 751 baseline.
+    a count **above** the 804 baseline.
   - Run `python -m unittest discover -s docs_site 2>&1 >/dev/null | tail -20` and
     `python -m unittest discover -s brand 2>&1 >/dev/null | tail -20`; confirm both green.
   - Run `python scripts/check_roadmap_drift.py --offline`; confirm green.
-  - `git diff --stat` and confirm: **`tests/test_apply_theme.py` and
+  - `git diff origin/main...HEAD --stat` and confirm: **`tests/test_apply_theme.py` and
     `tests/test_sync_from_upstream.py` are not in the diff at all** (R10 and the gate).
+    Use the **three-dot** (merge-base) form, not two-dot. `origin/main` advanced 12 commits mid-flight
+    and was merged in at `f8561f2`, bringing +108 lines of its own into
+    `tests/test_sync_from_upstream.py`; the two forms agree only while `origin/main` is an ancestor
+    of `HEAD`, and a two-dot gate would start reporting *main's* additions as ours the next time it
+    advances. On this branch that file is byte-identical to main's, so a correct gate can never
+    show it.
   - `git diff scripts/sync_from_upstream.py` and confirm **`plan_sync`, `apply_sync`,
     `_files_equal`, `_iter_files`, `_normalize_newlines` and `_read_text` are unchanged**. This is
     the structural claim the whole design rests on; verify it, do not assume it.
@@ -1210,7 +1237,7 @@ If a task believes it must, that is a signal the implementation drifted — repo
     call.
 11. **#137** is closed by its own commit: `apply_theme` verifies its residue after every
     non-dry-run pass, in both directions.
-12. The full suite is green above the 751 baseline, plus `docs_site` and `brand`, plus
+12. The full suite is green above the 804 baseline, plus `docs_site` and `brand`, plus
     `check_roadmap_drift.py --offline`.
 13. Every non-obvious decision above is argued in a docstring, in the style the existing modules
     set — including the ones that argue against plausible simplifications.
@@ -1230,7 +1257,7 @@ Recorded so a reader who saw the old plan knows these were deliberately dropped,
 - **Moving `_mappings` / `_transform` into `_theme_common.py`** — they stay in `apply_theme.py`.
 - **The lens's `_in_scope` predicate** and the 13-file R2 scope-guard test, replaced by the
   structural "only `agents/` is copied" fact plus one cheap assertion.
-- **The standalone R5 rename-collision pre-flight** — `apply_theme.py:247-260` is it.
+- **The standalone R5 rename-collision pre-flight** — `apply_theme.py:164-177` is it.
 - **The standalone R7 themed-upstream guard for the themed-dest case** — subsumed by `rc != 0`.
   A *reduced* version survives for the themed-upstream/untheme'd-dest case only.
 - **The optional `renamed (theme)` display section** (old T16).
