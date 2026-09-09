@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/noctua84/nescio-ai/compare/v1.5.0...v1.5.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **sync:** give a downstream instance a test suite it can actually run ([6566dbd](https://github.com/noctua84/nescio-ai/commit/6566dbd6c6ef7b598e8079fecaab57ed1bde6c9b))
+* **sync:** give a downstream instance a test suite it can actually run ([1ba217e](https://github.com/noctua84/nescio-ai/commit/1ba217e774c484662d1f3cc61391b5420e23a1da)), closes [#128](https://github.com/noctua84/nescio-ai/issues/128)
+
 ## [1.5.0](https://github.com/noctua84/nescio-ai/compare/v1.4.0...v1.5.0) (2026-09-04)
 
 
