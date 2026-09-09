@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _crew_common import PAIRS, THEMES, renamed_agents  # noqa: E402
 from _theme_common import (  # noqa: E402
     THEME_REPRESENTATIVES,  # noqa: F401 — re-exported: tests reach it through this module
+    desync_reason,
     desynced_agents,
     detect_theme,
     theme_representatives,
@@ -150,7 +151,7 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
         print(f"already on the '{target}' theme, but {len(desynced)} file(s) declare a "
               "`name:` that disagrees with their filename — converging:")
         for name, declared in desynced:
-            print(f"  ! {name} declares `name: {declared}` — does not load")
+            print(f"  ! {name} {desync_reason(declared)} — does not load")
 
     # Pre-flight every rename before writing anything.
     #
@@ -249,7 +250,7 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
         print(f"\nerror: the pass ran, but {len(residue)} file(s) still declare a "
               "`name:` that disagrees with their filename:", file=sys.stderr)
         for name, declared in residue:
-            print(f"  ! {name} declares `name: {declared}` — does not load",
+            print(f"  ! {name} {desync_reason(declared)} — does not load",
                   file=sys.stderr)
         print("the theme machinery cannot converge these — re-running will not help. "
               "Edit the frontmatter (or the filename) by hand so the two agree.",

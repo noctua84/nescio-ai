@@ -129,14 +129,37 @@ class DesyncedAgentsTest(unittest.TestCase):
             ("gamma.md", "delta"),
         ])
 
-    def test_no_frontmatter_yields_none_declared(self):
-        """A charter with no frontmatter yields (filename, None)."""
-        (self.agents_dir / "broken.md").write_text(_make_charter(None))
-        result = _theme_common.desynced_agents(self.agents_dir)
-        self.assertEqual(result, [("broken.md", None)])
+    def test_no_frontmatter_is_not_reported(self):
+        """A `.md` with no frontmatter block at all is not a charter.
 
-    def test_no_name_key_in_frontmatter_yields_none_declared(self):
-        """A charter with frontmatter but no name: yields (filename, None)."""
+        This is the T14 regression: `agents/README.md`, plain documentation
+        with no `---` fences, must not be reported by `desynced_agents` —
+        it was never claiming to be an agent, so its presence is not an
+        inconsistency. Before the fix, `_frontmatter_name` collapsed "no
+        frontmatter" and "frontmatter with no `name:` key" into the same
+        `None`, and this file was reported exactly like a broken charter.
+        """
+        (self.agents_dir / "README.md").write_text(_make_charter(None))
+        result = _theme_common.desynced_agents(self.agents_dir)
+        self.assertEqual(result, [])
+
+    def test_no_frontmatter_arbitrary_filename_is_not_reported(self):
+        """Same as above, for a non-README doc-shaped filename.
+
+        Pins that the exemption is about the *content* (no frontmatter
+        fences), not a special case for the literal name `README.md`.
+        """
+        (self.agents_dir / "notes.md").write_text(_make_charter(None))
+        result = _theme_common.desynced_agents(self.agents_dir)
+        self.assertEqual(result, [])
+
+    def test_no_name_key_in_frontmatter_is_reported(self):
+        """A charter *with* frontmatter but no `name:` key is a broken charter.
+
+        Unlike the no-frontmatter case, a file that opens a `---` block is
+        claiming to be a charter — and one that claims it without a `name:`
+        genuinely fails to load, so it must still be reported.
+        """
         (self.agents_dir / "unnamed.md").write_text("""---
 description: test
 tools: []
@@ -145,6 +168,18 @@ tools: []
 """)
         result = _theme_common.desynced_agents(self.agents_dir)
         self.assertEqual(result, [("unnamed.md", None)])
+
+    def test_no_name_key_message_does_not_contain_python_none(self):
+        """`desync_reason(None)` must not leak Python's `None` repr.
+
+        `None` here means "the frontmatter block has no `name:` key", not
+        a value the charter actually declared — printing `declares
+        \\`name: None\\`` would read as if the charter wrote that literally,
+        and any `apply_theme.py` command suggested alongside it could not
+        fix a missing key anyway.
+        """
+        message = _theme_common.desync_reason(None)
+        self.assertNotIn("None", message)
 
 
 class ReExportPinTest(unittest.TestCase):

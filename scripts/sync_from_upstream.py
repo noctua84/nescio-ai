@@ -172,6 +172,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # with no theme never touches `scripts/apply_theme.py` at all — see P1 in the
 # module docstring, and `main()`'s themed branch for the import itself.
 from _theme_common import (  # noqa: E402
+    desync_reason,
     desynced_agents,
     detect_theme,
     theme_representatives,
@@ -686,7 +687,7 @@ def main(argv=None) -> int:
         print(f"warning: {len(desynced)} charter(s) in {dest / 'agents'} declare a `name:` "
               "that disagrees with their filename — those agents do not load:", file=sys.stderr)
         for filename, declared in desynced:
-            print(f"  ! {filename} declares `name: {declared}`", file=sys.stderr)
+            print(f"  ! {filename} {desync_reason(declared)}", file=sys.stderr)
         if theme is None:
             # `detect_theme` found neither representative file, so there is no
             # single theme to hand `apply_theme.py` as a target — guessing one

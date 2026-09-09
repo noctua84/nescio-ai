@@ -9,7 +9,8 @@ decide whether it must materialise a themed copy of upstream before
 comparing). This is ``_crew_common.py``'s own argument applied one level
 down — a fact needed by two consumers must not live inside the deletable
 script that only one of them owns. So the four functions below —
-``theme_representatives``, ``detect_theme``, ``_frontmatter_name`` and
+``theme_representatives``, ``detect_theme``, ``_frontmatter_block`` (née
+``_frontmatter_name`` — see ``desynced_agents`` for why it split) and
 ``desynced_agents`` — moved out of ``apply_theme.py`` into this module, and
 ``apply_theme.py`` re-exports them so its own call sites, and the tests that
 reach them through it, do not change.
@@ -126,20 +127,65 @@ def detect_theme(agents_dir: Path) -> str | None:
     return None
 
 
-def _frontmatter_name(text: str) -> str | None:
-    """The ``name:`` a charter declares, or None if it declares none."""
-    block = _FRONTMATTER_RE.match(text)
-    if block is None:
-        return None
-    for line in block.group(1).splitlines():
+def _frontmatter_block(text: str) -> str | None:
+    """The raw text between a charter's opening and closing ``---`` fences.
+
+    None means exactly one thing: *the fences are not there at all*. That is a
+    fact about the file's shape, established before any ``name:`` parsing is
+    attempted, and it is the fact ``desynced_agents`` needs in order to tell a
+    plain doc file (``agents/README.md``, prose, no frontmatter, never
+    claiming to be a charter) apart from a file that *is* frontmatter-shaped
+    but is missing its ``name:`` key (a charter claiming to be one, and
+    failing). See ``desynced_agents`` for why collapsing that distinction was
+    once harmless and stopped being harmless.
+
+    Deliberately returns the raw block text, not a bool, so a caller who wants
+    the declared name still has to go through ``_declared_name`` and cannot
+    shortcut past the "is there a block at all" question by accident.
+    """
+    match = _FRONTMATTER_RE.match(text)
+    return match.group(1) if match else None
+
+
+def _declared_name(block: str) -> str | None:
+    """The ``name:`` value inside an *already-confirmed* frontmatter block.
+
+    Call this only after ``_frontmatter_block`` has returned non-None — it has
+    no way to say "there was no block here", only "this block has no ``name:``
+    key" (also None, but a different fault). A file whose frontmatter fences
+    are present is asserting "I am a charter"; one that asserts that without a
+    ``name:`` genuinely does not load, and that None must not be mistaken for
+    ``_frontmatter_block``'s None, which asserts nothing about the file at
+    all.
+    """
+    for line in block.splitlines():
         key, sep, value = line.partition(":")
         if sep and key.strip() == "name":
             return value.strip()
     return None
 
 
+def desync_reason(declared: str | None) -> str:
+    """The operator-facing fragment describing *why* a charter is desynced.
+
+    Shared by both consumers (``apply_theme.py``'s repair/residue output and
+    ``sync_from_upstream.py``'s warning in ``main()``) so the wording only
+    needs fixing in one place. ``declared`` is always the second element of a
+    ``desynced_agents`` tuple — by the time this is called, ``_frontmatter_block``
+    has already confirmed a frontmatter block exists (see ``desynced_agents``),
+    so None here can only mean "the block has no ``name:`` key", never "no
+    frontmatter at all". Printing that None with ``{declared}`` would leak
+    Python's repr of it into operator-facing text — a real word, ``None``,
+    that reads as a value the charter declared rather than as the absence of
+    one — and the fix-with command it accompanied could not fix it anyway.
+    """
+    if declared is None:
+        return "declares no `name:` at all"
+    return f"declares `name: {declared}`"
+
+
 def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
-    """(filename, declared name) for every charter whose ``name:`` != its stem.
+    """(filename, declared name) for every *charter* whose ``name:`` != its stem.
 
     A charter whose frontmatter name disagrees with its filename does not load
     at all, so this is the tree's real consistency oracle — per file, against
@@ -152,10 +198,53 @@ def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
     and the no-op path used to short-circuit on that — reporting success while
     leaving two agents silently non-loading, with re-running the *fixed* script
     the obvious remedy that also did nothing.
+
+    **Not every ``.md`` in ``agents/`` is a charter.** ``README.md``, design
+    notes, anything documentation-shaped has always been free to live
+    alongside the charters, and carries no frontmatter at all. Those files are
+    skipped here — ``_frontmatter_block`` returns None for them, and that None
+    is treated as "not a charter", not as "a broken one".
+
+    **Why this used to be one collapsed check, and why that broke.** A single
+    earlier helper, ``_frontmatter_name``, returned plain ``None`` for *both*
+    "no frontmatter block" and "frontmatter block present, no ``name:`` key",
+    and this function compared that ``None`` against the stem exactly like any
+    other declared name. So a stem-less ``None != "README"`` reported
+    ``("README.md", None)`` as desynced — indistinguishable, to any caller,
+    from a charter that is genuinely broken.
+
+    That was harmless for a long time, by circumstance rather than by design:
+    this function's only caller ran it exclusively inside ``apply_theme.py``'s
+    ``repairing`` branch (``current == target``), and only printed the result
+    as advisory chatter ahead of a ``return 0`` — on a repair the operator had
+    deliberately asked for. A stray doc file inflating that chatter by one
+    line, on a path nobody scripted around, was noise nobody acted on.
+
+    It stopped being harmless when two independent, individually-correct
+    widenings both started treating this function's output as gating rather
+    than advisory. Issue #137 moved ``apply_theme.py``'s residue check out of
+    ``if repairing:`` so it now runs after *every* non-dry-run pass and exits
+    2 on any non-empty result — including a plain ``README.md``, turning a
+    successful theme switch into a hard failure. And the sync's own warning in
+    ``sync_from_upstream.py::main()`` moved above the theme classification so
+    it runs on *every* sync, printing an operator-facing "declares `name:
+    None`" for a file that declares nothing, ahead of a suggested
+    ``apply_theme.py`` command that could not fix it — permanent, unactionable
+    noise standing between an operator and a destructive ``--apply``. Two
+    correct widenings landing on top of one collapsed ``None`` is what turned
+    "advisory chatter nobody read" into "a hard failure and permanent noise,
+    both wrong". Keep the two cases apart at the source — ``_frontmatter_block``
+    answers "is this even a charter", ``_declared_name`` answers "what does it
+    claim, given that it is one" — so a third consumer cannot rediscover this
+    bug by trusting a docstring's "harmless" clause after it has stopped being
+    true.
     """
     out: list[tuple[str, str | None]] = []
     for md in sorted(agents_dir.glob("*.md")):
-        declared = _frontmatter_name(md.read_text(encoding="utf-8", newline=""))
+        block = _frontmatter_block(md.read_text(encoding="utf-8", newline=""))
+        if block is None:
+            continue  # not a charter at all — e.g. agents/README.md
+        declared = _declared_name(block)
         if declared != md.stem:
             out.append((md.name, declared))
     return out
