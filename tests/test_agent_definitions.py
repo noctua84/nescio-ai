@@ -1056,6 +1056,49 @@ class TestOrchestratorWiring(unittest.TestCase):
         self.assertIn("### Delivery Boundary Check", text)
         self.assertIn("does the result need to re-enter this conversation?", text)
 
+    def test_orchestrator_work_placement_is_phase_independent(self):
+        """Placement is a standing rule, not a planning-phase step.
+
+        Work surfaces mid-execution and at delivery, not only while planning. If
+        the inline/subagent/spawn decision lives solely under PHASE 3, the
+        orchestrator has no rule to apply when a builder reports an out-of-scope
+        finding, and the finding either gets done inline (scope drift) or dropped.
+        """
+        text = self._text()
+        self.assertIn("### Work Placement: Inline, Subagent, or Spawned Task", text)
+
+        principles = text.index("## ORCHESTRATION PRINCIPLES")
+        self.assertGreater(
+            text.index("### Work Placement"),
+            principles,
+            "Work Placement must live under ORCHESTRATION PRINCIPLES so it "
+            "applies in every phase, not inside a single phase's checklist",
+        )
+
+        for phase_section in ("### Delivery Boundary Check", "### Scope-Drift Reflex"):
+            start = text.index(phase_section)
+            self.assertIn(
+                "Work Placement",
+                text[start : start + 1200],
+                f"{phase_section} must route to the Work Placement rule rather "
+                f"than restating a partial copy of it",
+            )
+
+    def test_orchestrator_names_the_placement_tie_breakers(self):
+        """The primary test is ambiguous often enough to need tie-breakers.
+
+        Without them the orchestrator falls back to a coin flip, and the two
+        errors are not symmetric: doing spawnable work inline contaminates the
+        diff the user is reviewing.
+        """
+        text = self._text()
+        start = text.index("### Work Placement")
+        section = text[start : text.index("### Prompt Quality for Subagents")]
+        for cue in ("Scope", "Self-containment", "Coupling", "Attention budget"):
+            self.assertIn(cue, section, f"tie-breaker `{cue}` is missing")
+        self.assertIn("not symmetric", section)
+        self.assertIn("**Never spawn**", section)
+
     def test_orchestrator_parallelism_is_bounded(self):
         text = self._text()
         self.assertIn("Maximize parallelism within a boundary", text)
