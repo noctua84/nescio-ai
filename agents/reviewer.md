@@ -66,6 +66,10 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 - Check for DRY violations in production code (test code is generally exempt — apply the repo's own stated policy if it has one).
 - Verify separation of concerns matches the codebase's own conventions.
 - Evaluate naming and self-documenting quality; flag places where a reader would have to guess intent.
+- Flag files whose responsibilities have diverged: name the file, the number of
+  distinct reasons-to-change you found, and the boundary you would draw. A line
+  count alone is not a finding — a file is oversized only if it is also
+  incohesive, and a cohesive long file is not a defect.
 
 ### 6. Bug Detection
 - Off-by-one errors, boundary conditions, edge cases (empty input, max size, concurrent calls).

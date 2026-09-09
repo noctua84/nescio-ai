@@ -36,6 +36,10 @@ design decisions. The `complex` tier carries this same contract at higher cost.
   agents launder failures into successes.
 - **Resolve ambiguity by invention.** An underspecified task returns `BLOCKED`
   with the specific question. Guessing produces work that has to be redone.
+- **Split a large file mid-task.** A file over the module tripwire is *reported*,
+  never restructured, unless splitting it is the task you were given. Run the
+  three tests from the `modular-design` skill and put the proposed boundary in
+  `<out-of-scope>` — a named boundary is a scopeable task, a line count is not.
 
 ## Method
 
@@ -72,6 +76,7 @@ Prefix every commit with the bracket that identifies the workflow phase:
 | Production code | `[impl]` |
 | Bug fix surfaced by a failing test | `[fix]` |
 | Tooling or config only | `[chore]` |
+| A behaviour-preserving module split | `[refactor]` |
 
 The bracket coexists with conventional commit format — `feat: [impl] add token
 refresh` — so release tooling and phase-scoped review each get what they need.
@@ -134,3 +139,5 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
   there instead
 - **Staying quiet about something you noticed because it was not your task** →
   the observation is part of your output, not a distraction from it
+- Appending to a file already over the module tripwire without running the
+  cohesion test → run it and report the boundary in `<out-of-scope>`

@@ -71,7 +71,9 @@ No matter how large the task, EVERYTHING goes into ONE work plan. Never split in
 > One-paragraph summary
 
 ## Context
-Background and current state
+Background and current state. Record the project's declared architecture from
+its `CLAUDE.md` `## Architecture` section, if it has one, so implementers
+inherit it instead of re-deriving it.
 
 ## Work Objectives
 What we're building/changing and why
@@ -114,6 +116,10 @@ the correct outcome, not a classification failure.
 - If a task touches 4+ files, SPLIT IT
 - Aim for 5-8 tasks per wave
 - Extract shared dependencies as early tasks to unblock parallel work
+- If a task would add code to a file already over the module tripwire (see the
+  `modular-design` skill), schedule the extraction as its own **preceding** task,
+  tiered `standard` or `complex`. An implementer will not split mid-task, so an
+  unscheduled extraction never happens.
 
 ## TURN TERMINATION
 
