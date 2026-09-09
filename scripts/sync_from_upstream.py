@@ -12,6 +12,16 @@ Why copy instead of `git pull`: the public and private repos have unrelated git
 histories (the public repo was extracted as a fresh scaffold), so a merge is not
 meaningful. This overlay keeps each instance's own history intact.
 
+A consequence of that overlay model: `scripts` is itself one of the paths this
+script copies, so a downstream instance's `--apply` run overwrites the very
+file that is executing. Python has already loaded and compiled this module by
+then, so the run in progress finishes against the *old* `FRAMEWORK_PATHS` —
+it delivers the new script, but not anything that script's updated allowlist
+newly added. A change to `FRAMEWORK_PATHS` therefore takes two `--apply` passes
+to fully land: the first replaces the script, the second runs the replacement
+and picks up what it now knows to copy. `main()` detects when a run replaced
+itself and prints a reminder to sync again.
+
 Usage:
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
@@ -188,6 +198,34 @@ def apply_sync(upstream: Path, dest: Path, paths=FRAMEWORK_PATHS):
     return added, updated, deleted
 
 
+def _self_was_replaced(dest: Path, added, updated) -> bool:
+    """Did this run overwrite the copy of this script that is executing?
+
+    `scripts` is itself a framework path (see the module docstring), so an
+    `--apply` run against a downstream instance can rewrite the very file
+    Python is midway through running. Detect that by comparing the resolved
+    path of this module against the resolved path of every applied change:
+    resolving both sides means the comparison holds through symlinks and
+    through path-spelling differences (drive letter case, short vs. long
+    names, `.` segments) on Windows.
+
+    Deliberately False, not an exception, when `.resolve()` raises `OSError`
+    (e.g. from an unresolvable symlink or filesystem error): a sync that
+    otherwise succeeded should not fail on this advisory check. Also
+    False for the ordinary "run upstream's copy against a remote --dest"
+    invocation, since the running script then lives outside `dest` entirely
+    and is never among the files just written.
+    """
+    try:
+        self_path = Path(__file__).resolve()
+        for rel in added + updated:
+            if self_path == (dest / rel).resolve():
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def _read_text(path: Path):
     """Return the file's UTF-8 text as a list of lines, or None if it's binary.
 
@@ -333,6 +371,10 @@ def main(argv=None) -> int:
     if args.apply:
         print("\nmemory/ and all non-framework paths were left untouched. "
               "If your instance is themed: python scripts/apply_theme.py philosophers")
+        if _self_was_replaced(dest, added, updated):
+            print("\nthis sync overwrote scripts/sync_from_upstream.py itself, so it ran "
+                  "with the OLD allowlist — anything newly added to FRAMEWORK_PATHS upstream "
+                  "was not delivered this pass. Run the sync again to pick it up.")
     else:
         print("\n(dry run — re-run with --apply to perform)")
     return 0

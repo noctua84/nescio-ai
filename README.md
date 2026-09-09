@@ -263,6 +263,13 @@ copies just the framework files across.
   `python scripts/apply_theme.py philosophers` — the framework ships the functional
   names, and the theme is a local render step, so syncs never fight your renames.
 
+- **A change to the allowlist takes two syncs.** `scripts/` is itself one of the
+  framework paths, so `--apply` overwrites the running copy of
+  `sync_from_upstream.py` mid-run — Python already loaded the old code, so that
+  run finishes against the old allowlist and only delivers the new script. If it
+  warns that it replaced itself, run the sync again to pick up whatever the
+  updated allowlist newly added.
+
 ## Guarding against orphaned commits
 
 Implementer subagents occasionally commit while `HEAD` is detached: the commit
