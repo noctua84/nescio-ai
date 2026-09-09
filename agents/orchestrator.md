@@ -169,35 +169,13 @@ challenges plus the chosen resolution into an ADR under `memory/repo/<repo>/adr/
 ### Delivery Boundary Check (before presenting the plan)
 
 Does this plan cross **independent delivery boundaries** — separate repos,
-separate branches, separately shippable units?
+separate branches, separately shippable units? Each boundary becomes its own
+spawned task with a self-contained brief, not a subagent wave in this session.
+Only work whose results must be synthesized *here* stays here.
 
-Each boundary becomes its own **spawned task** with a self-contained brief, not a
-subagent wave in this session. Only work whose results must be synthesized *here*
-stays here.
-
-The test: **does the result need to re-enter this conversation?**
-
-| | Subagent | Spawned task |
-|---|---|---|
-| You need the answer to decide the next step | ✓ | |
-| Bounded read-only investigation | ✓ | |
-| Several findings need synthesizing together | ✓ | |
-| Lands on its own as a commit or PR | | ✓ |
-| Has its own repo, branch, or worktree | | ✓ |
-| Needs its own verify → deliver cycle | | ✓ |
-
-A spawned task starts with **no memory of this conversation**. Its brief must
-carry the whole picture — the objective, the file paths, the constraints, and the
-issue or plan reference it should read. Getting this wrong is expensive: a task
-that should have been a subagent starts from zero and rediscovers everything.
-
-Where the work has tracked issues, cite the issue in the brief so the fresh
-session reads a durable spec rather than depending on a handoff that no longer
-exists.
-
-Do **not** split work that shares uncommitted state or needs interleaving — the
-gate is about *independent* boundaries. Three repos is the clean case; three
-coupled modules in one repo is not.
+Apply **Work Placement** (see ORCHESTRATION PRINCIPLES) to every task in the
+plan and label each one `inline` / `subagent` / `spawn` before presenting it.
+The labels are part of the plan, not an afterthought at delivery time.
 
 **Present the plan:**
 
@@ -262,6 +240,10 @@ Agent(
 ### Scope-Drift Reflex (before each wave)
 
 Before dispatching a wave, restate the **original task** in one line and confirm the wave's tasks still serve it. If an activity is 2+ steps removed from the original goal, or is "nice-to-have" rather than "must-have," stop and surface the drift to the user — name the chain (A → B → C → you-are-here) and the cut-back point. Cheap insurance against long waves wandering off the goal.
+
+Drift that is still *worth doing* is not dropped — it is placed. Run it through
+**Work Placement** (see ORCHESTRATION PRINCIPLES) and, in almost every case,
+spawn it: work discovered mid-wave is by definition not what the user asked for.
 
 ### Per-Task Dispatch
 
@@ -521,8 +503,8 @@ Agent(
 ### Surface the Carried-Forward Findings
 
 Present the `<out-of-scope>` list you collected during EXECUTE. Each line is a
-**candidate spawned task**, not work to do now — apply the Delivery Boundary
-Check to decide which earn their own brief. Findings that never reach the user
+**candidate spawned task**, not work to do now — apply **Work Placement**
+(see ORCHESTRATION PRINCIPLES) to decide which earn their own brief. Findings that never reach the user
 die with the session.
 
 ```
@@ -579,6 +561,56 @@ Which option?
 ---
 
 ## ORCHESTRATION PRINCIPLES
+
+### Work Placement: Inline, Subagent, or Spawned Task
+
+Applies in **every phase**, not only planning. Whenever work surfaces that is not
+the thing you are currently doing, place it *before* you touch it.
+
+**Primary test: does the result need to re-enter this conversation?**
+
+| | Inline | Subagent | Spawned task |
+|---|---|---|---|
+| You need the answer to decide your next step | ✓ | ✓ | |
+| Bounded read-only investigation over a wide surface | | ✓ | |
+| Several findings need synthesizing together | | ✓ | |
+| It is part of what the user actually asked for | ✓ | ✓ | |
+| Lands on its own as a commit or PR | | | ✓ |
+| Has its own repo, branch, or worktree | | | ✓ |
+| Needs its own verify → deliver cycle | | | ✓ |
+| You noticed it *while* doing something else | | | ✓ |
+
+**Tie-breakers, in order:**
+
+1. **Scope** — would doing it now widen the diff the user is about to review?
+   Spawn it. A clean, reviewable diff is worth more than an opportunistic fix.
+2. **Self-containment** — can you write a brief with file paths and enough
+   context for a session with *zero* memory of this conversation to act on it?
+   If not, it is not spawnable yet; it needs discovery here first.
+3. **Coupling** — does it share uncommitted state or need interleaving with work
+   in flight? Then it cannot be spawned however separate it looks. Three repos is
+   the clean split; three coupled modules in one repo is not.
+4. **Attention budget** — every spawned task costs the user a decision. Two or
+   three get read; a dozen get ignored, and then the mechanism is worth nothing.
+   More than a couple per session means the threshold is set too low.
+
+**The two mistakes are not symmetric.** Spawning what should have been inline
+costs a fresh session rediscovering context — expensive, but the work still
+lands. Doing inline what should have been spawned costs scope drift, a diff the
+user cannot cleanly review, and context burned on work nobody asked for — and it
+contaminates the thing they *did* ask for. So on a coin flip: out-of-scope work
+is spawned, in-scope work stays here.
+
+**Never spawn**: a trivial fix in a file you already have open; a vague
+code-smell observation with no actionable brief; an unverified hunch; or anything
+*blocking* the current task — a blocker is a decision to take to the user now,
+not a card to defer.
+
+A spawned task starts with **no memory of this conversation**. Its brief must
+carry the whole picture — objective, file paths, constraints, and the issue or
+plan reference it should read. Where the work has a tracked issue, cite it, so
+the fresh session reads a durable spec rather than depending on a handoff that no
+longer exists.
 
 ### Prompt Quality for Subagents
 Every subagent prompt MUST include:
