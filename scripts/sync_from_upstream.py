@@ -210,14 +210,49 @@ def _read_text(path: Path):
     return _normalize_newlines(text).splitlines(keepends=True)
 
 
-def render_diff(upstream: Path, dest: Path, added, updated, deleted) -> str:
+def render_diff(upstream: Path, dest: Path, added, updated, deleted, *,
+                summary: bool = True,
+                provenance: dict[str, str] | None = None) -> str:
     """Return a human-readable content diff for a sync plan (no printing).
 
     For each UPDATED file, a unified diff of dest (current) vs upstream (new);
     binary files get a one-line size note instead. ADDED files are marked
     NET-NEW (with a content preview) and DELETED files get a one-line note.
     Output is deterministic (paths sorted within each section).
+
+    Args:
+        upstream: path to an upstream Nescio checkout
+        dest: path to the downstream instance
+        added: list of newly added files
+        updated: list of updated files
+        deleted: list of deleted files
+        summary: emit the final net-new summary line (default True). A themed
+            instance calls render_diff twice over two different upstream roots —
+            once for agents/ and once for everything else — so exactly one call
+            should emit the footer. The cost, stated: the three sections interleave
+            on the themed path (UPDATED(agents) / ADDED(agents) / DELETED(agents),
+            then UPDATED(others) / ADDED(others) / DELETED(others)), affecting
+            only a themed instance's --diff output. This is accepted, not
+            overlooked. Do NOT 'simplify' this by making main() parse or splice
+            render_diff's output — that trades a defaulted keyword for a format
+            dependency between two functions.
+        provenance: optional dict mapping dest-relative paths to upstream-relative
+            paths, for display purposes only. When an UPDATED or ADDED entry is in
+            the map, the diff header or ADDED marker is annotated with the source
+            file name and marked as themed. No correctness depends on this header
+            at all; it exists because a themed diff is rendered in philosopher
+            vocabulary (dest-space names), which is more useful for the operator
+            reading their own tree but costs them the ability to locate the
+            upstream file. A file the map does not cover — agents/orchestrator.md,
+            whose content is themed but whose name is not — simply gets no note.
+            That is graceful and correct, and it is a chosen property of the
+            mapping, not a bug (the mapping is many-to-one: every philosopher name
+            maps back to exactly one functional name, but the inverse is not
+            guaranteed).
     """
+    if provenance is None:
+        provenance = {}
+
     lines: list[str] = []
 
     for rel in sorted(updated):
@@ -233,10 +268,17 @@ def render_diff(upstream: Path, dest: Path, added, updated, deleted) -> str:
             lines.append(f"  (binary file, {old_size} bytes -> {new_size} bytes)")
             lines.append("")
             continue
+        # Determine the tofile annotation based on provenance
+        # Note: provenance keys use POSIX paths (forward slashes)
+        if posix in provenance:
+            prov_posix = Path(provenance[posix]).as_posix()
+            tofile = f"b/{posix} (upstream {prov_posix}, themed)"
+        else:
+            tofile = f"b/{posix} (upstream)"
         diff = difflib.unified_diff(
             old, new,
             fromfile=f"a/{posix} (current)",
-            tofile=f"b/{posix} (upstream)",
+            tofile=tofile,
         )
         text = "".join(diff)
         if not text.endswith("\n"):
@@ -247,7 +289,14 @@ def render_diff(upstream: Path, dest: Path, added, updated, deleted) -> str:
     for rel in sorted(added):
         up = upstream / rel
         posix = Path(rel).as_posix()
-        lines.append(f"+++ ADDED  {posix}  (NET-NEW)")
+        # Determine the annotation based on provenance
+        # Note: provenance keys use POSIX paths (forward slashes)
+        if posix in provenance:
+            prov_posix = Path(provenance[posix]).as_posix()
+            annotation = f"(upstream {prov_posix}, themed)"
+        else:
+            annotation = "(NET-NEW)"
+        lines.append(f"+++ ADDED  {posix}  {annotation}")
         content = _read_text(up)
         if content is None:
             size = up.stat().st_size if up.exists() else 0
@@ -270,10 +319,11 @@ def render_diff(upstream: Path, dest: Path, added, updated, deleted) -> str:
     if not (added or updated or deleted):
         return ""
 
-    lines.append(
-        f"net-new: {len(added)} added file(s), {len(updated)} updated, "
-        f"{len(deleted)} deleted"
-    )
+    if summary:
+        lines.append(
+            f"net-new: {len(added)} added file(s), {len(updated)} updated, "
+            f"{len(deleted)} deleted"
+        )
     return "\n".join(lines) + "\n"
 
 
