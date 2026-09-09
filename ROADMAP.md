@@ -41,7 +41,7 @@ need rewriting every time a version goes out.
 - Repo-readiness assessment (`assess_repo_readiness`) and the SessionStart harvest nudge.
 - Readiness computed deterministically from the learning trail
   (`scripts/compute_readiness.py`) — a measured signal, not a self-report.
-- Overlay-sync for downstream instances (`sync_from_upstream`, with a `--diff` preview).
+- Overlay-sync for downstream instances (`sync_from_upstream`, with a `--diff` preview), theme-aware.
 - A dependency-free, cross-platform installer that deep-merges into your existing
   Claude config, adopts **just the parts you want** (`--settings agent,plugins`),
   and never destroys a working setup.
