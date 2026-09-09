@@ -33,6 +33,12 @@ from pathlib import Path
 # here is instance-owned and never touched — notably `memory/` (your records),
 # `docs/` (your design bundle), `README.md`, `CLAUDE.md`, `settings.json`,
 # `.github/`, `.gitignore`, and any private trees.
+#
+# `conftest.py` travels with `tests/` on purpose even though it lives at the repo
+# root: it is the only thing that puts the repo root, `hooks/`, and `scripts/` on
+# `sys.path` for pytest. Without it, an instance receives the test suite but not
+# the wiring that makes it importable, and collection fails with
+# `ModuleNotFoundError` for `hooks`/`scripts` the moment a test imports them.
 FRAMEWORK_PATHS = [
     "agents",
     "skills",
@@ -41,6 +47,7 @@ FRAMEWORK_PATHS = [
     "scripts",
     "github-action",
     "tests",
+    "conftest.py",
     "install.py",
     "pyproject.toml",
     "uv.lock",

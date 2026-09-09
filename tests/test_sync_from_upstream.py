@@ -265,6 +265,77 @@ class LineEndingTest(unittest.TestCase):
         self.assertEqual(inserted, ["+three NEW"], out)
 
 
+class ConftestSyncTest(unittest.TestCase):
+    """Regression test for issue #128 (first half): `tests/` synced without its
+    path wiring.
+
+    `conftest.py` lives at the repo root, not under `tests/`, so before it was
+    added to FRAMEWORK_PATHS a downstream instance received the whole test
+    suite and the `hooks`/`scripts` packages it imports, but never the
+    `conftest.py` that puts those packages on `sys.path`. `pytest` then died in
+    collection with `ModuleNotFoundError: No module named 'hooks'`.
+
+    A test that only asserts `"conftest.py" in FRAMEWORK_PATHS` would pass even
+    if the file were placed somewhere `apply_sync` never reads from, or if its
+    content did nothing. Instead this test reproduces the failure end-to-end on
+    a synthetic instance: sync from an upstream carrying the real
+    `conftest.py`, then actually execute the synced copy exactly as pytest
+    would and use its `sys.path` wiring to import a module that only exists
+    under the synced `hooks/` directory. If `conftest.py` is dropped from
+    FRAMEWORK_PATHS, `apply_sync` never delivers it and this import fails just
+    like it did for the real instance.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        _make_checkout(self.up)
+        _make_checkout(self.dst)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_synced_conftest_actually_wires_sys_path_for_synced_hooks(self):
+        # Upstream carries the real, unmodified root conftest.py plus a hooks
+        # module and a test that needs it importable — the exact shape of a
+        # real framework sync.
+        conftest_text = (ROOT / "conftest.py").read_text(encoding="utf-8")
+        _write(self.up / "conftest.py", conftest_text)
+        _write(self.up / "hooks" / "__init__.py", "")
+        _write(self.up / "hooks" / "_sync128_marker.py", "VALUE = 'wired'\n")
+        _write(self.up / "tests" / "test_marker.py",
+               "from _sync128_marker import VALUE\n")
+
+        added, updated, deleted = sfu.plan_sync(self.up, self.dst)
+        as_posix = lambda xs: [Path(x).as_posix() for x in xs]
+        self.assertIn("conftest.py", as_posix(added))
+
+        sfu.apply_sync(self.up, self.dst)
+        dst_conftest = self.dst / "conftest.py"
+        self.assertTrue(dst_conftest.exists())
+
+        # Execute the synced conftest.py exactly as pytest would (its __file__
+        # pointing at the synced instance), then perform the import it exists
+        # to make possible: a flat module living under the synced `hooks/`.
+        saved_path = list(sys.path)
+        saved_module = sys.modules.pop("_sync128_marker", None)
+        try:
+            namespace = {"__file__": str(dst_conftest)}
+            exec(
+                compile(dst_conftest.read_text(encoding="utf-8"), str(dst_conftest), "exec"),
+                namespace,
+            )
+            import _sync128_marker  # only resolvable if the sync delivered conftest.py
+            self.assertEqual(_sync128_marker.VALUE, "wired")
+        finally:
+            sys.path[:] = saved_path
+            sys.modules.pop("_sync128_marker", None)
+            if saved_module is not None:
+                sys.modules["_sync128_marker"] = saved_module
+
+
 class MainCliTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
