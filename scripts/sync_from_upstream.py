@@ -640,6 +640,80 @@ def main(argv=None) -> int:
 
     theme = detect_theme(dest / "agents")
 
+    # Warn — do not refuse — on a half-renamed dest. This sits ABOVE the P1
+    # branch below, not down in the themed tail where an earlier draft put it,
+    # and the placement is load-bearing, not cosmetic.
+    #
+    # `detect_theme` classifies from a single representative file — its own
+    # docstring says so: "this answers 'which direction did the last run go',
+    # not 'is the tree consistent'". A dest with `agents/plato.md` renamed back
+    # to `agents/planner.md`, `name:` frontmatter left declaring `plato`, has
+    # exactly one representative on disk and classifies clean as `"functional"`.
+    # Checking `desynced_agents` only inside the themed tail — past the P1
+    # early return — consulted the tree's one real consistency oracle on
+    # whichever branch `detect_theme` happened to pick, and left the *other*
+    # branch, the one a half-renamed tree is actually routed to, unguarded. And
+    # that branch is the destructive one for such a tree: the ten untouched
+    # philosopher charters read as ten deletions against a functional upstream,
+    # sight unseen, because `detect_theme` cannot see past the one file it
+    # trusts. Consulting the oracle before the branch, unconditionally, is what
+    # closes that — not moving it to the other side of the same fork.
+    #
+    # A charter whose `name:` frontmatter disagrees with its filename does not
+    # load at all, so this is worth telling the operator about loudly. It is
+    # still not a reason to block a framework sync: the fault is cosmetic and
+    # local to the theme, the remedy is a separate one-line command, and
+    # refusing would hold a legitimate security or bug fix hostage to it.
+    # Materialisation (below, themed branch only) is unaffected either way — it
+    # renders upstream's crew, not dest's.
+    #
+    # This is a deliberate divergence from issue #133's original text, which
+    # proposed refusing here. Recorded so the difference reads as a decision
+    # rather than as an oversight.
+    #
+    # P1 is not spent by moving this up. `detect_theme` and `desynced_agents`
+    # are both `_theme_common` classifier functions, already imported
+    # unconditionally at module scope — every run, themed or not, already pays
+    # for `detect_theme` before it can even pick a branch. Running
+    # `desynced_agents` alongside it costs an untheme'd instance nothing new:
+    # no temp directory, no `scripts/apply_theme.py` import. The obvious
+    # objection — "doesn't putting this ahead of the branch put theme
+    # machinery on the untheme'd path?" — has a one-word answer: no. What P1
+    # actually guards is the *renderer*, and it stays exactly where it was,
+    # lazily imported inside the themed branch below, untouched by this move.
+    desynced = desynced_agents(dest / "agents")
+    if desynced:
+        print(f"warning: {len(desynced)} charter(s) in {dest / 'agents'} declare a `name:` "
+              "that disagrees with their filename — those agents do not load:", file=sys.stderr)
+        for filename, declared in desynced:
+            print(f"  ! {filename} declares `name: {declared}`", file=sys.stderr)
+        if theme is None:
+            # `detect_theme` found neither representative file, so there is no
+            # single theme to hand `apply_theme.py` as a target — guessing one
+            # would be exactly the "classification by source order" its own
+            # docstring argues against. Point at the evidence instead of a
+            # command that might converge the tree in the wrong direction.
+            print("the instance's theme could not be determined (neither agents/planner.md "
+                  "nor agents/plato.md is present), so there is no single "
+                  "`apply_theme.py <theme>` command to name here — inspect the file(s) above, "
+                  "correct their `name:` frontmatter or filename by hand, or restore one "
+                  "representative file and re-run this sync for a theme-specific fix command.",
+                  file=sys.stderr)
+        else:
+            # `theme` is whatever `detect_theme` found — "functional" here as
+            # often as "philosophers"; the reproduction that motivated this
+            # check is a "functional" classification. Pointing at THAT SAME
+            # theme as apply_theme's target is deliberate, not a placeholder
+            # for "philosophers": target == current hits apply_theme's
+            # `repairing` path, which re-asks `desynced_agents` and converges
+            # the stragglers instead of short-circuiting on "already on the
+            # theme". Verified against this exact tree: `apply_theme.py
+            # functional` maps the word `plato` back to `planner` wherever it
+            # appears, including inside `planner.md`'s own `name:` frontmatter.
+            print(f"fix with: python scripts/apply_theme.py {theme}", file=sys.stderr)
+        print("the sync will proceed regardless — this is a cosmetic inconsistency in the "
+              "theme, not a reason to withhold framework updates.", file=sys.stderr)
+
     if theme in (None, "functional"):
         # P1 — an instance with no theme executes literally today's code path:
         # one plan_sync with no `paths=`, one render_diff with no keywords, one
@@ -661,29 +735,6 @@ def main(argv=None) -> int:
         if args.apply:
             apply_sync(upstream, dest)
         return _report(args, dest, added, updated, deleted, diff_text, theme=None)
-
-    # Warn — do not refuse — on a half-renamed dest.
-    #
-    # A charter whose `name:` frontmatter disagrees with its filename does not
-    # load at all, so this is worth telling the operator about loudly. It is
-    # still not a reason to block a framework sync: the fault is cosmetic and
-    # local to the theme, the remedy is a separate one-line command, and
-    # refusing would hold a legitimate security or bug fix hostage to it.
-    # Materialisation is unaffected either way — it renders upstream's crew,
-    # not dest's.
-    #
-    # This is a deliberate divergence from issue #133's original text, which
-    # proposed refusing here. Recorded so the difference reads as a decision
-    # rather than as an oversight.
-    desynced = desynced_agents(dest / "agents")
-    if desynced:
-        print(f"warning: {len(desynced)} charter(s) in {dest / 'agents'} declare a `name:` "
-              "that disagrees with their filename — those agents do not load:", file=sys.stderr)
-        for filename, declared in desynced:
-            print(f"  ! {filename} declares `name: {declared}`", file=sys.stderr)
-        print(f"fix with: python scripts/apply_theme.py {theme}\n"
-              "the sync will proceed regardless — this is a cosmetic inconsistency in the "
-              "theme, not a reason to withhold framework updates.", file=sys.stderr)
 
     # The renderer, imported lazily and only here.
     #
