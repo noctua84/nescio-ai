@@ -3,7 +3,7 @@
 
 # Skills
 
-Nescio ships 33 skills in `skills/`. Each one is a directory holding a
+Nescio ships 35 skills in `skills/`. Each one is a directory holding a
 `SKILL.md` whose YAML frontmatter declares a `name`, a `description`, and
 whether the skill is `user-invocable`. Skills are loaded on demand, and the
 `description` is what that decision is made against, so it is reproduced
@@ -20,7 +20,7 @@ Skill names are identifiers, and are set in mono throughout.
 | Detection and incident response | `detection-rule`, `incident-response-plan`, `ir-playbook` |
 | Compliance frameworks | `compliance-gap-analysis`, `iso27001-isms`, `soc2-report`, `pci-dss-assessment`, `hipaa-assessment` |
 | AI and prompt engineering | `llm-application-architecture`, `rag-system-design`, `agent-evaluation`, `prompt-engineering-guide`, `prompt-evaluation-harness`, `prompt-testing-plan` |
-| Development workflow | `code-navigation`, `create-adr`, `handle-pr-comments`, `dependency-pr-ci-fix`, `gh-milestones-projects`, `repo-hygiene`, `adopt-config` |
+| Development workflow | `code-navigation`, `create-adr`, `modular-design`, `layered-api-design`, `handle-pr-comments`, `dependency-pr-ci-fix`, `gh-milestones-projects`, `repo-hygiene`, `adopt-config` |
 
 ## Security engineering
 
@@ -201,6 +201,18 @@ Use when locating, reading, or editing code — finding where a symbol is define
 Use when recording an architecture decision, proposing an architectural change, or checking whether a proposed change conflicts with an existing decision. Writes an ADR in this brain's lightweight format and reconciles it against every existing ADR. Triggers on "create ADR", "architecture decision record", "document this decision", "does this conflict with an existing ADR".
 
 [`skills/create-adr/SKILL.md`](https://github.com/noctua84/nescio-ai/blob/main/skills/create-adr/SKILL.md)
+
+### `modular-design`
+
+Use when a file has grown large, when deciding how to split a module, or when a task would add code to an already-oversized file. Applies a cohesion test rather than a line limit, and refuses splits that would separate shared state. Triggers on "this file is too big", "split this module", "god class", "refactor into modules", "where should this code live", "module boundaries".
+
+[`skills/modular-design/SKILL.md`](https://github.com/noctua84/nescio-ai/blob/main/skills/modular-design/SKILL.md)
+
+### `layered-api-design`
+
+Use when building or reviewing an HTTP service in a project that has declared a layered architecture — routing, business, and persistence layers as thin wrappers over focused submodules. Applies only on an explicit project declaration, never inferred from "this is an API". Triggers on "endpoints manager repository", "service layer", "repository pattern", "fat controller", "where does this business logic go", "layered architecture".
+
+[`skills/layered-api-design/SKILL.md`](https://github.com/noctua84/nescio-ai/blob/main/skills/layered-api-design/SKILL.md)
 
 ### `handle-pr-comments`
 

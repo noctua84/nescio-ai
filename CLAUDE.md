@@ -19,6 +19,21 @@ sensible default — **replace it with your own.**
 - Prefer small, battle-tested approaches over clever ones.
 - Fix root causes, not symptoms.
 
+## Architecture *(optional — delete if your project has no declared shape)*
+
+Declare a shape here and the crew will follow it. Leave this section out and the
+crew imposes nothing — it follows whatever structure is already in the tree.
+
+    Layered service. HTTP handlers validate and format only; managers own the
+    business rules and the transaction boundary; repositories own SQL.
+
+    Module tripwire: 500 lines.
+
+Recognised shapes: layered service, pipeline, plugin/registry, library. See the
+`modular-design` skill for what each one means, and `layered-api-design` for the
+full treatment of the layered case. The tripwire line overrides the 400-line
+default used by `scripts/module_scan.py`.
+
 ## Git / PRs
 
 - Branch for changes; don't commit straight to the default branch.
