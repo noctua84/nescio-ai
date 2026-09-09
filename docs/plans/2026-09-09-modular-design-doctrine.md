@@ -1071,20 +1071,22 @@ git commit -m "feat: [impl] teach the crew module boundaries at write and review
 In `CLAUDE.md`, insert this section between `## Engineering defaults` and `## Git / PRs`:
 
 ```markdown
-## Architecture *(optional — delete if your project has no declared shape)*
+## Architecture *(optional)*
 
-Declare a shape here and the crew will follow it. Leave this section out and the
-crew imposes nothing — it follows whatever structure is already in the tree.
+This repo declares no shape — the crew follows whatever structure is already in
+the tree. That is the default, and deleting this section changes nothing.
 
-    Layered service. HTTP handlers validate and format only; managers own the
-    business rules and the transaction boundary; repositories own SQL.
+To declare one, replace this text with the shape your project uses and, if you
+want it, a tripwire override:
 
-    Module tripwire: 500 lines.
+- **Recognised shapes** — layered service, pipeline, plugin/registry, library.
+  The `modular-design` skill defines each one; `layered-api-design` covers the
+  layered case in full, and applies *only* when a project declares it here.
+- **Tripwire** — a line such as `Module tripwire: 500 lines.` overrides the
+  400-line default used by `scripts/module_scan.py`.
 
-Recognised shapes: layered service, pipeline, plugin/registry, library. See the
-`modular-design` skill for what each one means, and `layered-api-design` for the
-full treatment of the layered case. The tripwire line overrides the 400-line
-default used by `scripts/module_scan.py`.
+Nothing in the crew infers an architecture. If this section declares nothing, the
+crew imposes nothing.
 ```
 
 - [ ] **Step 2: Name the new skills in the README**
