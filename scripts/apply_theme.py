@@ -218,29 +218,45 @@ def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
             src.rename(dst)
             print(f"  renamed {src.name} -> {dst.name}")
 
-    if repairing:
-        # Re-ask the oracle. The pass converges the stragglers an *older build of
-        # this script* left behind, and nothing more: a desync it cannot express
-        # as a rename or a word rewrite — a hand-edited `name: sccout` in
-        # scout.md, a name belonging to no roster — survives it untouched.
-        # Announcing "converged" and exiting 0 over that residue is worse than
-        # the original no-op bug, because the operator now believes a repair
-        # happened. So the claim is checked before it is made.
-        #
-        # Only after a real pass: in dry-run mode nothing was written, so every
-        # desync is trivially still present and a re-check could only report a
-        # failure the run never attempted.
-        residue = [] if dry_run else desynced_agents(agents_dir)
-        if residue:
-            print(f"\nerror: the pass ran, but {len(residue)} file(s) still declare a "
-                  "`name:` that disagrees with their filename:", file=sys.stderr)
-            for name, declared in residue:
-                print(f"  ! {name} declares `name: {declared}` — does not load",
-                      file=sys.stderr)
-            print("the theme machinery cannot converge these — re-running will not help. "
-                  "Edit the frontmatter (or the filename) by hand so the two agree.",
+    # Re-ask the oracle after *every* non-dry-run pass, not only a repair one.
+    # The check exists to catch "the pass ran, but files still declare a
+    # `name:` that disagrees with their filename": a desync it cannot express
+    # as a rename or a word rewrite — a hand-edited `name: sccout` in
+    # scout.md, or a stem outside the roster that a mapped word still matches
+    # inside (`reviewer-lite`: `_transform` is word-level and rewrites its
+    # frontmatter on `\breviewer\b`, but `renamed_agents` is a roster
+    # *membership* lookup with no entry for it, so the file is never renamed
+    # to match) — survives the pass untouched either way.
+    #
+    # This used to run only when `repairing` was True (`repairing = current ==
+    # target`), on the reasoning that a repair pass is the one converging a
+    # tree already known to be inconsistent. That reasoning gated the wrong
+    # half: "switched crew: X -> Y" is exactly as much of a claim about the
+    # resulting tree's consistency as "converged crew onto X" is — both assert
+    # the pass leaves every charter's `name:` agreeing with its filename — and
+    # a direction *switch* can produce the very residue above just as easily
+    # as a repair can. Checking only the repair branch meant the switch branch
+    # printed "switched crew" and exited 0 over a tree it had just left with a
+    # non-loading agent in it, with no signal to the operator at all. So the
+    # check now guards both claims, not the one the operator already
+    # distrusted.
+    #
+    # Only after a real pass: in dry-run mode nothing was written, so every
+    # desync is trivially still present and a re-check could only report a
+    # failure the run never attempted.
+    residue = [] if dry_run else desynced_agents(agents_dir)
+    if residue:
+        print(f"\nerror: the pass ran, but {len(residue)} file(s) still declare a "
+              "`name:` that disagrees with their filename:", file=sys.stderr)
+        for name, declared in residue:
+            print(f"  ! {name} declares `name: {declared}` — does not load",
                   file=sys.stderr)
-            return 2
+        print("the theme machinery cannot converge these — re-running will not help. "
+              "Edit the frontmatter (or the filename) by hand so the two agree.",
+              file=sys.stderr)
+        return 2
+
+    if repairing:
         verb = "would converge" if dry_run else "converged"
         print(f"\n{verb} crew onto the '{target}' theme "
               f"({changed} file(s) had refs updated).")
