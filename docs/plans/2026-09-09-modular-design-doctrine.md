@@ -710,10 +710,22 @@ Expected: prints `modular-design` and the first 60 characters of the description
 - [ ] **Step 3: Confirm no crew agent is named in the skill**
 
 ```bash
-grep -nE '\b(builder|planner|reviewer|orchestrator|advisor|critic|scout|validator|explore|librarian|qa-guard|test-writer|doc-writer|doc-researcher|vision)\b' skills/modular-design/SKILL.md
+grep -nE '`(builder|builder-simple|builder-standard|planner|reviewer|orchestrator|advisor|critic|scout|validator|explore|librarian|qa-guard|test-writer|doc-writer|doc-researcher|vision)`' skills/modular-design/SKILL.md
+grep -nwE '(builder|planner|reviewer|orchestrator|advisor|critic|librarian|validator)' skills/modular-design/SKILL.md
 ```
 
-Expected: no output. `apply_theme.py` renames `agents/*.md` only, so a hardcoded agent name in a skill goes stale the moment a theme is applied.
+Expected: the first grep produces **no output** (exit 1) — that is the binding
+check. `apply_theme.py` renames `agents/*.md` only, so a backticked agent name in
+a skill is a hard reference that goes stale the moment a theme is applied.
+
+The second grep is advisory: it finds bare role nouns. A hit is fine when the word
+reads as English prose ("A planner that sees…"), and a defect only when it is
+standing in for a specific crew member. Read each hit; do not reword approved text
+to silence it.
+
+Do **not** use the form `grep -E '\b(a|b|c)\b'` here. In the Git Bash grep build
+this repo is developed against, a `\b` immediately adjacent to a group never
+matches, so that check passes unconditionally and verifies nothing.
 
 - [ ] **Step 4: Commit**
 
@@ -874,10 +886,23 @@ Expected: prints `layered-api-design`.
 - [ ] **Step 3: Confirm no crew agent is named in the skill**
 
 ```bash
-grep -nE '\b(builder|planner|reviewer|orchestrator|advisor|critic|scout|validator|explore|librarian|qa-guard|test-writer|doc-writer|doc-researcher|vision)\b' skills/layered-api-design/SKILL.md
+grep -nE '`(builder|builder-simple|builder-standard|planner|reviewer|orchestrator|advisor|critic|scout|validator|explore|librarian|qa-guard|test-writer|doc-writer|doc-researcher|vision)`' skills/layered-api-design/SKILL.md
+grep -nwE '(builder|planner|reviewer|orchestrator|advisor|critic|librarian|validator)' skills/layered-api-design/SKILL.md
 ```
 
-Expected: no output.
+Expected: the first grep produces **no output** (exit 1) — that is the binding
+check. `apply_theme.py` renames `agents/*.md` only, so a backticked agent name in
+a skill is a hard reference that goes stale the moment a theme is applied.
+
+The second grep is advisory: it finds bare role nouns. A hit is fine when the word
+reads as English prose ("A planner that sees…"), and a defect only when it is
+standing in for a specific crew member. Read each hit; do not reword approved text
+to silence it.
+
+Do **not** use the bare-word-boundary-around-a-group form here. In the Git Bash
+grep build this repo is developed against, a word boundary escape immediately
+adjacent to a group never matches, so that check passes unconditionally and
+verifies nothing.
 
 - [ ] **Step 4: Commit**
 
