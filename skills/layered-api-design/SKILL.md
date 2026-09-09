@@ -76,7 +76,7 @@ happen anywhere — including after the transaction closed.
 
 ## Anti-patterns
 
-Each has a tell you can grep for and a fix.
+Each has a tell and a fix. Most tells are greppable; two need reading.
 
 - **Fat controller.** Branching business logic in the handler.
   *Tell:* an `if` in an endpoint that is not input validation or error mapping.
@@ -91,6 +91,11 @@ Each has a tell you can grep for and a fix.
   *Fix:* **delete the layer.** This is the honest signal that this project does
   not need three layers. Keeping an empty layer costs a file, an indirection, and
   a test per call, and buys nothing. Do not invent work for it.
+
+- **Transport leaking down.** HTTP types reaching the business layer.
+  *Tell:* `Request`, `Response`, or a status code imported into a manager module.
+  *Fix:* the endpoint translates; the manager takes and returns domain types, so
+  the same function stays callable from a CLI command, a job, or a test.
 
 - **Leaky repository.** ORM rows returned upward.
   *Tell:* a manager or endpoint importing an ORM model class.
@@ -110,10 +115,16 @@ Each has a tell you can grep for and a fix.
 ## Reviewing an existing service against this
 
 1. Grep routing modules for ORM/SQL imports → SQL in the handler.
-2. Grep routing modules for more than one manager import → missing manager function.
-3. Grep manager modules for HTTP types (`Request`, `Response`, status codes) →
+2. Grep routing modules for more than one manager import → handler orchestrating
+   multiple managers; the missing thing is a manager function.
+3. Read each endpoint for a branch that is not input validation or error mapping
+   → fat controller.
+4. Grep manager modules for HTTP types (`Request`, `Response`, status codes) →
    transport leaking down.
-4. Grep manager modules for ORM imports → leaky repository.
-5. Read each manager for one-line pass-throughs → anemic layer; consider deleting it.
-6. Run `python scripts/module_scan.py`. A layer file over the tripwire has not
+5. Grep manager modules for ORM imports → leaky repository.
+6. Read each manager for one-line pass-throughs → anemic manager; the fix is to
+   delete the layer.
+7. Read response formatters for computation, rule-based filtering, or entitlement
+   → logic in the serializer.
+8. Run `python scripts/module_scan.py`. A layer file over the tripwire has not
    been decomposed into submodules — apply the `modular-design` skill to it.
