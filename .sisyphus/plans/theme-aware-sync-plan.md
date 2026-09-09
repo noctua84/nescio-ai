@@ -774,6 +774,19 @@ plan section from the previous draft is dropped (see "What was removed").
   that has no theme).
 
   **Step 4 — decision 3: warn on a half-renamed dest, and proceed.**
+
+  > **AMENDED after T5 landed (task T5a, commit follows `3b274fd`).** This check must run
+  > **BEFORE step 3's classification**, not inside the themed branch. `detect_theme` classifies
+  > from a single representative file, so a half-renamed tree can classify as *untheme'd* while
+  > being anything but: a dest holding `agents/planner.md` declaring `name: plato` alongside ten
+  > philosopher charters yields `theme_representatives == {'functional': 'planner.md'}` and
+  > `detect_theme == 'functional'`, takes step 3's early return, and gets
+  > `10 added, 4 updated, 10 deleted` — destructive, with no warning — even though
+  > `desynced_agents` reports `[('planner.md', 'plato')]` and could have said so. Consulting the
+  > consistency oracle only on the themed path left the *destructive* branch unguarded. Moving it
+  > above the branch costs no temp directory and no import of `apply_theme.py` (`_theme_common` is
+  > imported unconditionally), so **P1 is unaffected**. Semantics stay warn-and-proceed; the
+  > remediation hint must be accurate for an untheme'd classification too.
   `desynced = desynced_agents(dest / "agents")`; if non-empty, print to **stderr** naming every
   file and its declared `name:`, pointing at `python scripts/apply_theme.py <theme>`, and saying
   **explicitly that the sync will proceed**. Comment the *reason* it warns rather than refuses: a
@@ -1041,6 +1054,12 @@ If a task believes it must, that is a signal the implementation drifted — repo
   - **Functional dest** -> no warning, today's behaviour.
   - **Themed upstream, untheme'd dest** (R7 residual) -> returns 2, stderr names the theme,
     nothing written.
+  - **Half-renamed dest that classifies as UNTHEME'D** (the T5a case): a dest holding
+    `agents/planner.md` declaring `name: plato` plus philosopher charters. `detect_theme` answers
+    `"functional"`, so this takes the untheme'd branch — and it **must still warn**, naming
+    `planner.md` and `plato`, and still proceed (exit 0). This is the regression test for T5a:
+    before it, this tree got a silent 10-delete plan. Docstring that the warning's position
+    relative to the classification is the property under test, not the warning's wording.
   - **P2 — `rc != 0` refuses.** The fixture must **survive T5 step 2** and still fail the render,
     or the test proves nothing about the `rc != 0` path. A both-representatives upstream does NOT
     qualify — step 2 rejects it earlier. Use either of these two, both verified:
