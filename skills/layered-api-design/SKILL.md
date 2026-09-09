@@ -76,7 +76,7 @@ happen anywhere — including after the transaction closed.
 
 ## Anti-patterns
 
-Each has a tell and a fix. Most tells are greppable; two need reading.
+Each has a tell and a fix. Four are greppable; three need reading.
 
 - **Fat controller.** Branching business logic in the handler.
   *Tell:* an `if` in an endpoint that is not input validation or error mapping.
