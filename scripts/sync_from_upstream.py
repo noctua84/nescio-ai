@@ -22,22 +22,160 @@ to fully land: the first replaces the script, the second runs the replacement
 and picks up what it now knows to copy. `main()` detects when a run replaced
 itself and prints a reminder to sync again.
 
+Theme-awareness, and the framing that produced it
+-------------------------------------------------
+
+An instance may be on the optional philosopher theme (`scripts/apply_theme.py`),
+which renames eleven agent charters — `agents/planner.md` -> `agents/plato.md` —
+and rewrites crew names in the prose of the rest. Compared naively against a
+canonical (functional) upstream, every one of those files is a filename upstream
+does not have and a filename dest does not have, so a themed instance **exactly
+in step with upstream** used to report `11 added, 3 updated, 11 deleted` — every
+run, forever. That is a safety problem, not a cosmetic one, for exactly the
+reason `_files_equal` states about line endings: this dry run is the only thing
+standing between an operator and a destructive `--apply`, and burying the real
+changes among phantom ones trains them to skim past it.
+
+The fix comes from *re-framing*, and the framing is the part worth keeping. The
+obvious reading is "the comparison needs to know about the theme", which points
+at threading a name-mapping lens through `plan_sync`, `apply_sync` and
+`render_diff`. Read instead as "the comparison needs an upstream that is already
+in dest-space", it points somewhere much smaller: **materialise**. A themed
+instance copies upstream's `agents/` into a temp directory, runs the *existing*
+theme renderer over that copy, and then runs the ordinary, untouched sync
+against it.
+
+So `plan_sync`, `apply_sync`, `_files_equal`, `_iter_files`,
+`_normalize_newlines` and `_read_text` are **untouched by this feature** — not
+one line. The only signature growth anywhere is two display-only keywords on
+`render_diff` (`summary`, `provenance`), both defaulted to today's behaviour.
+The consequence that matters: **deletion mirroring — the safety property of this
+whole script — is preserved structurally rather than by discipline.** Upstream's
+agent set is rendered into dest-space *totally* and then handed to the same set
+difference as always, so there is no filter suppressing "phantom" adds or
+deletes, nowhere to put one, and no future in which a well-meant suppression
+swallows a genuine deletion of `qa-guard.md`/`cato.md`. Do NOT "simplify" this
+by teaching `plan_sync` about themes; that reintroduces exactly the filter this
+design exists to make unrepresentable.
+
+Why the untheme'd path is a separate branch
+-------------------------------------------
+
+An instance with no theme executes *literally* today's code: one `plan_sync`
+with no `paths=`, one `render_diff` with no keywords, one `apply_sync`. No temp
+directory is created and `scripts/apply_theme.py` is never imported. This is a
+requirement, not an optimisation, and it is why the two branches are not
+"unified" into one parameterised path. A unified version would (a) make every
+instance's correctness depend on the `paths=` split — whose ordering only
+reproduces today's output because `"agents"` happens to be first in
+`FRAMEWORK_PATHS` — and (b) charge an instance that has no theme a temp-dir copy
+of `agents/` and an import of a purely cosmetic module, on every run, to reach
+an identical answer.
+
+Why the renderer is imported lazily, and why an ImportError refuses
+-------------------------------------------------------------------
+
+`apply_theme.apply_theme` is imported *inside* the themed branch, at the point of
+use, for the reason above: an untheme'd instance must never touch the cosmetic
+module. If that import fails on a themed instance the sync **refuses** — exit 2,
+nothing written. It does not fall back to treating the tree as unthemed. That
+fallback is tempting and it is wrong: its failure mode is not a smaller feature
+working less well, it is the exact destructive 11-added/11-deleted plan this
+machinery exists to prevent. A fallback whose failure mode is destruction is not
+graceful degradation.
+
+Bootstrap: the first sync carrying this fix is still noisy
+-----------------------------------------------------------
+
+This script, `apply_theme.py`, `_crew_common.py` and `_theme_common.py` all live
+inside the synced `scripts/` allowlist entry, and **the script that runs is the
+dest's copy**. A themed instance still on the old code therefore gets today's
+noisy plan on the pass that *delivers* this fix (together with the new
+`_theme_common.py`); only the second pass is clean. Deliberate, and not
+engineered around — see the self-replacement note above for the same shape of
+one-pass-behind, and `main()`'s reminder for the same remedy: run it again.
+
+The rendering uses **dest's** notion of its own theme
+------------------------------------------------------
+
+Materialisation calls the *dest's* `apply_theme.py` and its `PAIRS`, not
+upstream's. Consequence, stated so it is a chosen property: a pair *added*
+upstream, or *retargeted* upstream (say `doc-writer` -> `quintilian` replacing
+`cicero`), converges only on a later pass — the pass that delivers the new
+`scripts/`, and then the pass that runs it. A retargeted pair additionally
+leaves an orphan `cicero.md` behind that `desynced_agents` will **not** flag,
+because that oracle compares a charter's `name:` against its own filename stem
+and the orphan is internally self-consistent.
+
+False negatives: a chosen property (the mapping is many-to-one)
+----------------------------------------------------------------
+
+`planner`, `Planner` and `PLANNER` all render to `plato`/`Plato`/`PLATO` — and
+so does a literal upstream `plato`. An upstream edit that changes exactly the
+word `planner` to the word `plato` therefore renders identically before and
+after, and a themed instance's sync sees no change at all. Practical impact is
+nil (the instance's own rendering genuinely did not change), but it is recorded
+here so a future reader meets it as a property of a many-to-one rename rather
+than as a bug to "fix".
+
+Route D — considered, and why it lost
+--------------------------------------
+
+The root cause is that the theme is a *mutation* of the tree rather than a
+*projection* over it. Resolving philosopher names at load time, leaving the real
+files functional, would dissolve this whole problem. It is infeasible: Claude
+Code loads charters from real files at `agents/<name>.md` and offers no
+name-resolution hook to interpose. Recorded because a reader will propose it.
+
+The cheap-looking near-miss
+----------------------------
+
+Having `--apply` simply run `apply_theme` over **dest** as a post-sync step looks
+like it solves this for a tenth of the code. It fixes nothing. **The plan is the
+broken artefact**: the operator reads twenty-five fictional entries and decides
+from them whether to run `--apply` at all, and the dry run never calls
+`apply_sync` — so it stays exactly as wrong as it is today. Note the distinction
+precisely: this design renders a **temp copy of upstream, before planning**; the
+near-miss renders **dest, after applying**.
+
 Usage:
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
 
-After --apply, if your instance uses the philosopher theme, re-render it:
-    python scripts/apply_theme.py philosophers
+A themed instance needs no follow-up re-render: the sync materialises upstream
+into the instance's own theme and writes themed bytes directly.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import difflib
 import filecmp
+import io
 import shutil
 import sys
+import tempfile
 from pathlib import Path
+
+# Works whether this file is run as a script, imported by the tests (which put
+# scripts/ on the path themselves), or collected under PYTHONPATH=scripts in CI.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# The theme *classifier* only — four cheap, I/O-only functions with no CLI. It is
+# imported unconditionally because every run must ask "is this dest themed?"
+# before it can choose a branch, and answering that must not cost an untheme'd
+# instance an import of the cosmetic module.
+#
+# The *renderer* (`apply_theme.apply_theme`) is deliberately NOT imported here.
+# It is imported lazily, inside the themed branch of `main()`, so an instance
+# with no theme never touches `scripts/apply_theme.py` at all — see P1 in the
+# module docstring, and `main()`'s themed branch for the import itself.
+from _theme_common import (  # noqa: E402
+    desynced_agents,
+    detect_theme,
+    theme_representatives,
+)
 
 # Framework paths a downstream instance syncs FROM upstream. Everything NOT listed
 # here is instance-owned and never touched — notably `memory/` (your records),
@@ -365,6 +503,65 @@ def render_diff(upstream: Path, dest: Path, added, updated, deleted, *,
     return "\n".join(lines) + "\n"
 
 
+def _report(args, dest: Path, added, updated, deleted, diff_text: str, *,
+            theme: str | None) -> int:
+    """Print the plan (and post-run hints) and return `main`'s exit code.
+
+    Extracted so the untheme'd and themed branches of `main()` cannot drift in
+    output format. They differ in *how the triple is computed* — one comparison
+    against upstream, or two against a materialised temp root plus upstream —
+    and in nothing else the operator sees. Keeping one reporting body is what
+    makes that claim structural instead of a promise; a second copy would
+    silently diverge the first time either branch grew a line.
+
+    `dest` is a parameter for one specific reason: `_self_was_replaced` needs it,
+    and that call lives in this block. It is **already correct** over the themed
+    branch's concatenated triple and needs no adaptation — it joins each `rel`
+    to `dest`, never to `upstream`. The `agents/` half contributes themed
+    dest-relative paths (`agents/plato.md`) that are real dest paths by
+    construction and can never equal the running script's path, so there is no
+    false positive; `scripts/sync_from_upstream.py` reaches the triple only via
+    the non-`agents` half and is joined to `dest` exactly as it is today, so the
+    true positive survives. Recorded here so the next reader need not re-derive
+    it.
+    """
+    total = len(added) + len(updated) + len(deleted)
+
+    if total == 0:
+        print("framework already in sync — nothing to do.")
+        return 0
+
+    # Name the rendering that produced these numbers, but only when there are
+    # numbers to act on. A themed plan is expressed in the instance's own
+    # (philosopher) vocabulary against an upstream that was rendered into it,
+    # and the operator deciding whether to run --apply should be able to see
+    # which of the two comparisons they are reading.
+    if theme is not None:
+        print(f"instance theme: {theme} (upstream's crew was rendered into it before comparing)")
+
+    verb = "synced" if args.apply else "would change"
+    print(f"{verb}: {len(added)} added, {len(updated)} updated, {len(deleted)} deleted")
+    for label, items in (("+ add   ", added), ("~ update", updated), ("- delete", deleted)):
+        for it in items:
+            print(f"  {label}  {it}")
+
+    if diff_text:
+        print()
+        print(diff_text, end="")
+
+    if args.apply:
+        print("\nmemory/ and all non-framework paths were left untouched. "
+              "No follow-up `apply_theme.py` run is needed: if your instance is themed, "
+              "the framework files were rendered into that theme before being written.")
+        if _self_was_replaced(dest, added, updated):
+            print("\nthis sync overwrote scripts/sync_from_upstream.py itself, so it ran "
+                  "with the OLD allowlist — anything newly added to FRAMEWORK_PATHS upstream "
+                  "was not delivered this pass. Run the sync again to pick it up.")
+    else:
+        print("\n(dry run — re-run with --apply to perform)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -396,38 +593,216 @@ def main(argv=None) -> int:
         print("error: --upstream and --dest are the same directory", file=sys.stderr)
         return 2
 
-    # Compute the plan first so a --diff preview can read dest files *before*
-    # --apply overwrites them (renders "what would/did change" either way).
-    added, updated, deleted = plan_sync(upstream, dest)
-    diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
-    if args.apply:
-        apply_sync(upstream, dest)
-    total = len(added) + len(updated) + len(deleted)
+    # Refuse a dest that carries representatives of BOTH themes at once
+    # (`planner.md` *and* `plato.md`). Mirrors apply_theme's own refusal in
+    # wording and shape, and it is load-bearing rather than merely tidy:
+    # `detect_theme` answers None for such a tree — the same answer it gives a
+    # tree with no crew at all — so without this guard the run would fall
+    # through to the untheme'd branch and compare a themed dest against a
+    # functional upstream, i.e. produce the fully destructive plan this whole
+    # change exists to prevent. A tree that cannot be classified must not be
+    # classified by branch order.
+    reps = theme_representatives(dest / "agents")
+    if len(reps) > 1:
+        print(f"error: --dest {dest} carries representatives of {len(reps)} themes at "
+              "once — the instance cannot be classified:", file=sys.stderr)
+        for theme_name, filename in sorted(reps.items()):
+            print(f"  ! agents/{filename} ({theme_name})", file=sys.stderr)
+        print("no files were changed. This is a half-renamed or hand-mixed tree — remove "
+              "or rename the stray file(s) so exactly one theme is represented, then "
+              "re-run.", file=sys.stderr)
+        return 2
 
-    if total == 0:
-        print("framework already in sync — nothing to do.")
-        return 0
+    # Refuse a themed --upstream.
+    #
+    # Why this guard survives when most of the previous design's risk register
+    # dissolved into the materialisation: the materialisation branch below only
+    # runs when the **dest** is themed, so it cannot see — let alone correct —
+    # a themed *upstream* being synced into an **untheme'd** dest. That
+    # combination takes the untheme'd branch and produces today's fully
+    # destructive plan in the opposite direction: eleven philosopher charters
+    # added, eleven functional ones deleted. `_is_nescio_checkout` requires only
+    # `install.py` + `agents/`, so nothing else stops it.
+    #
+    # The cost is one `theme_representatives` call and **no import of the
+    # cosmetic module**, so the untheme'd-path requirement (P1, module
+    # docstring) still holds.
+    up_reps = theme_representatives(upstream / "agents")
+    if up_reps and set(up_reps) != {"functional"}:
+        print(f"error: --upstream {upstream} is itself on a theme:", file=sys.stderr)
+        for theme_name, filename in sorted(up_reps.items()):
+            print(f"  ! agents/{filename} ({theme_name})", file=sys.stderr)
+        print("--upstream must be a canonical (unthemed) framework checkout. Syncing FROM a "
+              "themed instance would report every functional charter as deleted and every "
+              "philosopher one as added — a fully destructive plan in the opposite "
+              "direction. No files were changed.", file=sys.stderr)
+        return 2
 
-    verb = "synced" if args.apply else "would change"
-    print(f"{verb}: {len(added)} added, {len(updated)} updated, {len(deleted)} deleted")
-    for label, items in (("+ add   ", added), ("~ update", updated), ("- delete", deleted)):
-        for it in items:
-            print(f"  {label}  {it}")
+    theme = detect_theme(dest / "agents")
 
-    if diff_text:
-        print()
-        print(diff_text, end="")
+    if theme in (None, "functional"):
+        # P1 — an instance with no theme executes literally today's code path:
+        # one plan_sync with no `paths=`, one render_diff with no keywords, one
+        # apply_sync. No temp directory, and `scripts/apply_theme.py` is never
+        # imported. Do NOT "unify" this with the themed branch below by
+        # parameterising it on `paths=`: that would make every instance's
+        # output ordering depend on `"agents"` being first in FRAMEWORK_PATHS
+        # (which the themed branch does depend on, deliberately and pinned by a
+        # test — but which is a coincidence no untheme'd run should inherit),
+        # and it would charge an instance that has no theme a temp-dir copy of
+        # agents/ plus an import of a purely cosmetic module to reach an
+        # identical answer.
+        #
+        # Compute the plan first so a --diff preview can read dest files
+        # *before* --apply overwrites them (renders "what would/did change"
+        # either way).
+        added, updated, deleted = plan_sync(upstream, dest)
+        diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
+        if args.apply:
+            apply_sync(upstream, dest)
+        return _report(args, dest, added, updated, deleted, diff_text, theme=None)
 
-    if args.apply:
-        print("\nmemory/ and all non-framework paths were left untouched. "
-              "If your instance is themed: python scripts/apply_theme.py philosophers")
-        if _self_was_replaced(dest, added, updated):
-            print("\nthis sync overwrote scripts/sync_from_upstream.py itself, so it ran "
-                  "with the OLD allowlist — anything newly added to FRAMEWORK_PATHS upstream "
-                  "was not delivered this pass. Run the sync again to pick it up.")
-    else:
-        print("\n(dry run — re-run with --apply to perform)")
-    return 0
+    # Warn — do not refuse — on a half-renamed dest.
+    #
+    # A charter whose `name:` frontmatter disagrees with its filename does not
+    # load at all, so this is worth telling the operator about loudly. It is
+    # still not a reason to block a framework sync: the fault is cosmetic and
+    # local to the theme, the remedy is a separate one-line command, and
+    # refusing would hold a legitimate security or bug fix hostage to it.
+    # Materialisation is unaffected either way — it renders upstream's crew,
+    # not dest's.
+    #
+    # This is a deliberate divergence from issue #133's original text, which
+    # proposed refusing here. Recorded so the difference reads as a decision
+    # rather than as an oversight.
+    desynced = desynced_agents(dest / "agents")
+    if desynced:
+        print(f"warning: {len(desynced)} charter(s) in {dest / 'agents'} declare a `name:` "
+              "that disagrees with their filename — those agents do not load:", file=sys.stderr)
+        for filename, declared in desynced:
+            print(f"  ! {filename} declares `name: {declared}`", file=sys.stderr)
+        print(f"fix with: python scripts/apply_theme.py {theme}\n"
+              "the sync will proceed regardless — this is a cosmetic inconsistency in the "
+              "theme, not a reason to withhold framework updates.", file=sys.stderr)
+
+    # The renderer, imported lazily and only here.
+    #
+    # Two reasons it is not at module scope. (1) P1: an untheme'd instance must
+    # never touch `scripts/apply_theme.py`, and the branch above returns before
+    # this line. (2) It keeps the classifier/renderer split honest —
+    # `_theme_common` is a two-consumer *fact* and is imported unconditionally
+    # at the top; `apply_theme.apply_theme` is one module's **public** entry
+    # point, called by another module at the point of use, which is an ordinary
+    # API use rather than a dependency inversion.
+    #
+    # On failure this REFUSES. Do NOT add an identity fallback that treats the
+    # tree as unthemed: its failure mode is not a smaller feature working less
+    # well, it is precisely the destructive 11-added/11-deleted plan this branch
+    # exists to prevent. A fallback whose failure mode is destruction is not
+    # degradation.
+    try:
+        from _crew_common import renamed_agents  # lazy on purpose — see above
+        from apply_theme import apply_theme as _render_crew  # lazy on purpose — see above
+    except ImportError as exc:
+        print(f"error: this instance is on the '{theme}' theme, but the theme renderer "
+              f"(scripts/apply_theme.py) could not be imported: {exc}", file=sys.stderr)
+        print("refusing to sync: without it the plan would compare functional upstream names "
+              "against themed instance names and report every agent as both added and "
+              "deleted.", file=sys.stderr)
+        return 2
+
+    others = [p for p in FRAMEWORK_PATHS if p != "agents"]
+
+    # The `with` block must span plan -> diff -> apply. `apply_sync` re-plans
+    # internally and re-reads the materialised tree, so `root` cannot be
+    # released after planning; releasing it early would delete the only copy of
+    # upstream-in-dest-space out from under the copy step.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        shutil.copytree(upstream / "agents", root / "agents")
+        # Cheap structural guard on the copy's scope. Only `agents/` is ever
+        # materialised, which is what makes it *impossible* for the renderer's
+        # word-level transform to reach `scripts/_crew_common.py` and rewrite
+        # the PAIRS table it is driven by — a transform that would make the
+        # theme permanently unrevertable in every instance that synced it. The
+        # assertion is not defending against a bug seen in the wild; it is
+        # pinning the property that makes the whole class of bug unreachable.
+        assert [p.name for p in root.iterdir()] == ["agents"], (
+            f"materialisation copied more than agents/: {[p.name for p in root.iterdir()]}"
+        )
+
+        # The renderer is chatty — thirteen lines of rename traffic on a normal
+        # pass, and stderr warnings on a genuine upstream deletion — and every
+        # word of it describes a temp directory the operator has never heard of.
+        # Capture both streams: discard them on success, surface stderr on
+        # failure.
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = _render_crew(root / "agents", theme)
+        if rc != 0:
+            # Refuse, do not warn. A non-zero rc means upstream's crew could not
+            # be expressed in this instance's theme — a rename collision (a
+            # genuinely new upstream `agents/plato.md`), an upstream tree
+            # carrying two themes, a charter the renderer cannot converge. In
+            # every one of those cases the materialised tree is *wrong*, and a
+            # plan computed against a wrong tree is worse than no plan.
+            #
+            # main() frames the failure before quoting it: without this line the
+            # operator sees a bare error about a /tmp path with no account of
+            # where it came from.
+            print(f"error: could not render upstream's crew ({upstream}) into the "
+                  f"'{theme}' theme — refusing to sync. The renderer reported:",
+                  file=sys.stderr)
+            print(err.getvalue(), end="", file=sys.stderr)
+            return 2
+
+        # Two calls into the UNMODIFIED plan_sync: `agents/` against the
+        # materialised (themed) root, everything else against the real upstream.
+        # `a1` first in every concatenation below — `"agents"` is first in
+        # FRAMEWORK_PATHS, so this reproduces today's entry ordering exactly.
+        # That is a dependency, not a coincidence, and a test pins it.
+        #
+        # Nothing here filters, suppresses or special-cases an entry, and
+        # nothing may start to. Upstream's agent set is rendered into dest-space
+        # *totally* and handed whole to the same set difference as always; that
+        # is what keeps deletion mirroring intact. Skipping dest files with
+        # philosopher stems would swallow a real deletion of `qa-guard.md`;
+        # skipping a delete when some upstream agent maps onto it does the same
+        # thing one indirection later and hides stale orphans besides.
+        a1 = plan_sync(root, dest, paths=["agents"])
+        a2 = plan_sync(upstream, dest, paths=others)
+        added, updated, deleted = (x + y for x, y in zip(a1, a2))
+
+        # Display-only: lets the diff header say which upstream file a themed
+        # entry came from. Nothing depends on it.
+        #
+        # Keys are POSIX, not `str(Path(...))`: `render_diff` looks entries up by
+        # `Path(rel).as_posix()`, so a `str(Path("agents") / "plato.md")` key is
+        # `agents\plato.md` on Windows and silently never matches — a lookup
+        # that fails into "no annotation", which is exactly the graceful,
+        # unnoticeable failure this map is designed to have. Build the key the
+        # way the lookup spells it.
+        prov = {(Path("agents") / f"{dst}.md").as_posix():
+                (Path("agents") / f"{src}.md").as_posix()
+                for src, dst in renamed_agents(theme)}
+
+        diff_text = ""
+        if args.diff:
+            # Both halves render with `summary=False` and main() appends one
+            # footer with the combined counts. Two footers would be a lie about
+            # the second half's numbers. Do NOT "simplify" this by having
+            # main() splice or parse render_diff's output — that trades a
+            # defaulted keyword for a format dependency between two functions.
+            diff_text = (render_diff(root, dest, *a1, summary=False, provenance=prov)
+                         + render_diff(upstream, dest, *a2, summary=False))
+            if diff_text:
+                diff_text += (f"net-new: {len(added)} added file(s), {len(updated)} updated, "
+                              f"{len(deleted)} deleted\n")
+        if args.apply:
+            apply_sync(root, dest, paths=["agents"])
+            apply_sync(upstream, dest, paths=others)
+
+        return _report(args, dest, added, updated, deleted, diff_text, theme=theme)
 
 
 if __name__ == "__main__":
