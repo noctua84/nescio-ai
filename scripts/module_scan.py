@@ -105,9 +105,16 @@ def tracked_files(repo: Path) -> list[str]:
             capture_output=True,
             check=False,
         )
-    except OSError:
+    except OSError as exc:
+        print(f"module_scan: could not run git in {repo}: {exc}", file=sys.stderr)
         return []
     if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        print(
+            f"module_scan: `git ls-files` failed in {repo} (exit "
+            f"{proc.returncode}): {stderr}",
+            file=sys.stderr,
+        )
         return []
     raw = proc.stdout.decode("utf-8", errors="surrogateescape")
     return [name for name in raw.split("\0") if name]
@@ -171,10 +178,15 @@ def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:
 
 
 def format_report(result: dict, top: int | None) -> str:
-    """Format the scan result as a human-readable report for terminal output."""
+    """Format the scan result as a human-readable report for terminal output.
+
+    The "no files over" message is chosen from `result["over"]` (the full list),
+    never from the `--top`-truncated view -- otherwise `--top 0` (or any `--top`
+    smaller than the count) prints "no files over tripwire" while files are, in
+    fact, over it.
+    """
     over = result["over"]
-    if top is not None:
-        over = over[:top]
+    displayed = over if top is None else over[:top]
     lines = [""]
     if not over:
         lines.append(
@@ -187,11 +199,11 @@ def format_report(result: dict, top: int | None) -> str:
 
     lines.append(f"  over tripwire (>{result['tripwire']} lines)")
     lines.append("  " + "-" * 36)
-    for entry in over:
+    for entry in displayed:
         lines.append(f"  {entry['lines']:>5}  {entry['path']}")
     lines.append("")
     lines.append(
-        f"  {len(result['over'])} files over, {result['scanned']} scanned"
+        f"  {len(over)} files over, {result['scanned']} scanned"
     )
     lines.append(
         "  run the modular-design skill on any of these to get a proposed split"
@@ -227,6 +239,16 @@ def main(argv: list[str] | None = None) -> int:
         "--json", action="store_true", help="emit machine-readable JSON"
     )
     args = parser.parse_args(argv)
+
+    # parser.error() exits with code 2, not 0 -- but that does not violate this
+    # module's "always exits 0" contract. That contract is about *reporting*: a
+    # scan that completes always reports rather than failing a CI gate. A
+    # malformed invocation (`--top 0`, a negative tripwire) never produces a
+    # report at all, so there is nothing for the contract to cover.
+    if args.top is not None and args.top < 1:
+        parser.error("--top must be at least 1")
+    if args.tripwire < 0:
+        parser.error("--tripwire must not be negative")
 
     result = scan(args.repo, args.tripwire, tuple(args.exclude))
 

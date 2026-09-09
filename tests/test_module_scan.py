@@ -100,7 +100,9 @@ class TestExclusions(ModuleScanTestCase):
         blob = self.repo / "image.bin"
         blob.write_bytes(b"\x00\x01" * 5000)
         _git(self.repo, "add", "--", "image.bin")
-        self.assertEqual(self.paths_over(), [])
+        result = module_scan.scan(self.repo, 400, ())
+        self.assertEqual(result["over"], [])
+        self.assertEqual(result["scanned"], 0)
 
     def test_untracked_and_ignored_files_are_omitted(self):
         _write(self.repo, "tracked.py", 500)
@@ -167,6 +169,59 @@ class TestReportAndExit(ModuleScanTestCase):
         result = module_scan.scan(self.repo, 400, ())
         self.assertEqual(result["scanned"], 2)
         self.assertEqual(len(result["over"]), 1)
+
+
+class TestFormatReport(ModuleScanTestCase):
+    def test_clean_report_names_no_files_over(self):
+        _write(self.repo, "small.py", 10)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, None)
+        self.assertIn("no files over tripwire (>400 lines)", report)
+        self.assertIn("1 files scanned", report)
+
+    def test_top_truncates_rows_but_not_the_total(self):
+        _write(self.repo, "a.py", 1000)
+        _write(self.repo, "b.py", 900)
+        _write(self.repo, "c.py", 800)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, 2)
+        self.assertIn("a.py", report)
+        self.assertIn("b.py", report)
+        self.assertNotIn("c.py", report)
+        self.assertIn("3 files over, 3 scanned", report)
+
+    def test_top_zero_does_not_falsely_report_clean_when_files_are_over(self):
+        """Regression: `--top 0` truncates the displayed rows to nothing, but the
+        report must still say files are over -- not fall into the "clean" branch,
+        which is keyed on the full `over` list, not the truncated display."""
+        _write(self.repo, "huge.py", 5000)
+        result = module_scan.scan(self.repo, 400, ())
+        report = module_scan.format_report(result, 0)
+        self.assertNotIn("no files over tripwire", report)
+        self.assertIn("1 files over, 1 scanned", report)
+        self.assertNotIn("huge.py", report)
+
+
+class TestArgumentValidation(ModuleScanTestCase):
+    def test_top_zero_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                module_scan.main(["--repo", str(self.repo), "--top", "0"])
+
+    def test_top_negative_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                module_scan.main(["--repo", str(self.repo), "--top", "-1"])
+
+    def test_negative_tripwire_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                module_scan.main(
+                    ["--repo", str(self.repo), "--tripwire", "-1"]
+                )
 
 
 class TestMissingGit(unittest.TestCase):
