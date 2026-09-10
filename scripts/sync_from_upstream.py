@@ -104,7 +104,7 @@ upstream's. Consequence, stated so it is a known property and not a surprise:
 on a later pass — it locks the instance out of syncing until the operator
 intervenes.** Concretely: upstream adds `agents/builder-fast.md` (a new tier,
 or any `<roster-word>-<suffix>.md`). Dest's *old* renderer rewrites its
-`name: builder-fast` to `name: archimedes-fast` on the `\bbuilder\b` word rule
+`name: builder-fast` to `name: archimedes-fast` on the `\\bbuilder\\b` word rule
 but has no rename entry for the file, so the materialised copy carries a
 charter whose `name:` disagrees with its stem. The residue check that runs
 after every `apply_theme` pass (issue #137) returns 2; P2 turns that into a
