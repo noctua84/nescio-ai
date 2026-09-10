@@ -259,10 +259,15 @@ copies just the framework files across.
   this public repo except deliberately, on a scrubbed branch (see *Keeping private
   data out* above).
 
-- **The philosopher theme is rendered, not committed.** After a sync, if you use
-  the [philosopher theme](#optional-the-philosopher-theme), re-apply it with
-  `python scripts/apply_theme.py philosophers` — the framework ships the functional
-  names, and the theme is a local render step, so syncs never fight your renames.
+- **The philosopher theme is rendered, not committed.** The framework ships the
+  functional names; the [philosopher theme](#optional-the-philosopher-theme) is a
+  local render step. The sync is theme-aware: when your instance is themed it
+  materialises a temporary copy of upstream's crew, applies your theme to it, and
+  compares against that — so a themed instance in step with upstream sees an empty
+  plan, and `python scripts/apply_theme.py philosophers` afterwards is a no-op.
+  The theme machinery (`apply_theme.py`, `_crew_common.py`, `_theme_common.py`)
+  lives inside the synced `scripts/` allowlist too, so it arrives on the same
+  one-pass delay the next bullet describes.
 
 - **A change to the allowlist takes two syncs.** `scripts/` is itself one of the
   framework paths, so `--apply` overwrites the running copy of
