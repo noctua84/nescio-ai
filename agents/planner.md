@@ -71,7 +71,9 @@ No matter how large the task, EVERYTHING goes into ONE work plan. Never split in
 > One-paragraph summary
 
 ## Context
-Background and current state
+Background and current state. Record the project's declared architecture from
+its `CLAUDE.md` `## Architecture` section, if it has one, so implementers
+inherit it instead of re-deriving it.
 
 ## Work Objectives
 What we're building/changing and why
@@ -114,6 +116,15 @@ the correct outcome, not a classification failure.
 - If a task touches 4+ files, SPLIT IT
 - Aim for 5-8 tasks per wave
 - Extract shared dependencies as early tasks to unblock parallel work
+- Run `python scripts/module_scan.py --json` while decomposing — pass
+  `--tripwire <N>` when the project's `## Architecture` section declares an
+  override, e.g. `python scripts/module_scan.py --json --tripwire 300`; the
+  scanner only reports files over whichever tripwire it is given, so a
+  declared override never reaches the JSON without it. If a task would add
+  code to a file that appears over the tripwire (400 lines by default, or the
+  project's `## Architecture` override), schedule the extraction as its own
+  **preceding** task, tiered `standard` or `complex`. An implementer will not
+  split mid-task, so an unscheduled extraction never happens.
 
 ## TURN TERMINATION
 
