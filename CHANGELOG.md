@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.6.0](https://github.com/noctua84/nescio-ai/compare/v1.5.1...v1.6.0) (2026-09-10)
+
+
+### Features
+
+* [impl] add layered-api-design skill, gated on project declaration ([b38b27e](https://github.com/noctua84/nescio-ai/commit/b38b27e2d2789d3e77bfbc00f084dbe502800238))
+* [impl] add modular-design skill ([4773882](https://github.com/noctua84/nescio-ai/commit/4773882473de02827205f6f6ed4c2c14602676d8))
+* [impl] add module_scan, a read-only file-size tripwire report ([e5cf9c9](https://github.com/noctua84/nescio-ai/commit/e5cf9c96e3c4f0f041f0ff9b53531eab8ddeaeed))
+* [impl] add summary and provenance keywords to render_diff ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([91a1e9f](https://github.com/noctua84/nescio-ai/commit/91a1e9f153c0ec51c7efb32d38463559300149af))
+* [impl] make the overlay sync theme-aware by materialising upstream ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([3b274fd](https://github.com/noctua84/nescio-ai/commit/3b274fdc2c580f61f818f6e5d50c82554b5ec433))
+* [impl] teach the crew module boundaries at write and review time ([eb46141](https://github.com/noctua84/nescio-ai/commit/eb461413b366d5b9c9c5a7c576cbbdc233f6b1c4))
+* modular design doctrine — cohesion tripwire, split procedure, opt-in layering ([1760340](https://github.com/noctua84/nescio-ai/commit/17603407d750cfe70d4589fcb726eb54ed26957b))
+
+
+### Bug Fixes
+
+* [fix] align layered-api-design's review checklist with its anti-patterns ([95a3230](https://github.com/noctua84/nescio-ai/commit/95a323089361f01ec96efa9b7ecf992074ab91cd))
+* [fix] capture stdout in module_scan tests and survive a missing git ([61b7107](https://github.com/noctua84/nescio-ai/commit/61b7107fd31ef40b6cc3ae99ea91f776fa6d3c6d))
+* [fix] correct format_report's false-clean on --top and validate its arguments ([c5bce17](https://github.com/noctua84/nescio-ai/commit/c5bce176a98b6b57e64672687d2f0a06dea636f8))
+* [fix] correct the greppable/readable tell count in layered-api-design ([354a5bb](https://github.com/noctua84/nescio-ai/commit/354a5bbfc9140dab4a99d17898f16aaa0fdcf689))
+* [fix] make the module tripwire actually fire, and close the charter/skill seams ([dc7fc34](https://github.com/noctua84/nescio-ai/commit/dc7fc34e6633cc0d3902d5b6d8f3cca6551fdd9c))
+* [fix] resync the plan with the shipped branch and close the module-verdict seam ([69a8dbd](https://github.com/noctua84/nescio-ai/commit/69a8dbd0ad22442aeb609f2dbe4ef39c4b1fa8ac))
+* [fix] stop CLAUDE.md's architecture section from reading as a live declaration ([259c5a0](https://github.com/noctua84/nescio-ai/commit/259c5a05188ff70beeb9001a432bf031962d3047))
+* [fix] warn about a desynced crew before classifying the theme ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([5d4c825](https://github.com/noctua84/nescio-ai/commit/5d4c8252131c53ebde4426db024027092b9e8171))
+* **sync:** [fix] desynced_agents skips entries it cannot read as a charter ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([ef202ac](https://github.com/noctua84/nescio-ai/commit/ef202ac2709de5650707dc359fa779355f2c0ccc))
+* **sync:** [fix] frame an exception raised by the renderer before re-raising ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([42742da](https://github.com/noctua84/nescio-ai/commit/42742da5213ff2893d4c67564e7ab742344ac9a1))
+* **sync:** [fix] refuse a themed dest that has lost its theme representative ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([48fb692](https://github.com/noctua84/nescio-ai/commit/48fb692506137d14076479cc67b00577b337057b))
+* **sync:** [fix] tell the truth about a charter dest's roster cannot express ([#133](https://github.com/noctua84/nescio-ai/issues/133), [#142](https://github.com/noctua84/nescio-ai/issues/142)) ([6147b56](https://github.com/noctua84/nescio-ai/commit/6147b56ff8e6f1628bf699cf515d85951ece2748))
+* **sync:** make the overlay sync theme-aware by materialising a themed upstream ([81a0351](https://github.com/noctua84/nescio-ai/commit/81a0351f956de6ddf6ad632b36447995f0bcde7b))
+* **sync:** warn when the sync script replaces itself mid-run ([aa0c1b5](https://github.com/noctua84/nescio-ai/commit/aa0c1b58da4fb0de6fa5b4b648b449124cdc892a))
+* **theme:** [fix] _frontmatter_block reports broken charters, not just missing ones ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([a456f65](https://github.com/noctua84/nescio-ai/commit/a456f65c5ca38f7b32dfc47009f7fea83d5bc572))
+* **theme:** [fix] run the residue check after every non-dry-run pass ([58030b6](https://github.com/noctua84/nescio-ai/commit/58030b60fcc631652a1ea73106367743fc930421)), closes [#137](https://github.com/noctua84/nescio-ai/issues/137)
+* **theme:** [fix] treat a frontmatter-less agents/*.md as documentation, not a desynced charter ([a935f97](https://github.com/noctua84/nescio-ai/commit/a935f975bc5770c09c9e1fa8f46d4e2b09f24c5b))
+
+
+### Documentation
+
+* [chore] amend plan for the desync-ordering hole ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([fd3e881](https://github.com/noctua84/nescio-ai/commit/fd3e88166651eb0fc787e933d742d065b58d675d))
+* [chore] file the QA audit report for the theme-aware sync ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([44627a0](https://github.com/noctua84/nescio-ai/commit/44627a0a9339e869ad84a41dfd20d80ab56c236b))
+* [chore] plan theme-aware overlay sync ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([ba7c015](https://github.com/noctua84/nescio-ai/commit/ba7c0156a249013e3cd083027f14094621602599))
+* [chore] re-date the plan after merging main ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([a3433b1](https://github.com/noctua84/nescio-ai/commit/a3433b1e2f8aba1aa9ff6bd12de1ffdfdbe629a9))
+* [docs] add modular design doctrine implementation plan ([f8e02a5](https://github.com/noctua84/nescio-ai/commit/f8e02a55d00a8234c0d7d1bb4204dbc438cc498c))
+* [docs] add modular design doctrine spec ([c3ed3f1](https://github.com/noctua84/nescio-ai/commit/c3ed3f1eff4ecef2ba17ca2c7f3e355f9d3f71db))
+* [docs] describe the theme-aware sync in the README ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([7a8a48a](https://github.com/noctua84/nescio-ai/commit/7a8a48a18bdc6b2bf3c5165c98748355b9796928))
+* [docs] document the architecture declaration and the two new skills ([58cce3a](https://github.com/noctua84/nescio-ai/commit/58cce3a473a2d804f5af5eb24e9e09250224ebf6))
+* [docs] fix a vacuous verification step in the modular design plan ([38f0457](https://github.com/noctua84/nescio-ai/commit/38f0457ee42f89ad825f5f38f6371d0eb9fcfc16))
+* [docs] record the theme-aware overlay sync in ROADMAP ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([fbc6452](https://github.com/noctua84/nescio-ai/commit/fbc64524233436f419e24299705495a959bf28d5))
+* [docs] record why the refactor commit bracket doubles ([02d5a5e](https://github.com/noctua84/nescio-ai/commit/02d5a5ec069197e738231f03243450ad9e9962cb))
+* [docs] restore the theme anchor link and de-timestamp the README bullet ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([0400e31](https://github.com/noctua84/nescio-ai/commit/0400e3138feace30044cdb9d43ec7b75cc488e0f))
+* [docs] reword the ROADMAP sync bullet ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([68d6514](https://github.com/noctua84/nescio-ai/commit/68d6514a17d5b7b54d939a3336a799361f110e88))
+* make work placement a phase-independent orchestrator rule ([0a96db2](https://github.com/noctua84/nescio-ai/commit/0a96db2139bf9bbae6ade4775233828a43d7f28b))
+* **sync:** [fix] escape the regex backslashes in the R8 docstring paragraph ([#133](https://github.com/noctua84/nescio-ai/issues/133)) ([83358a2](https://github.com/noctua84/nescio-ai/commit/83358a2f0ab1c41a372059508b15bae6a2644d76))
+
 ## [1.5.1](https://github.com/noctua84/nescio-ai/compare/v1.5.0...v1.5.1) (2026-09-09)
 
 
