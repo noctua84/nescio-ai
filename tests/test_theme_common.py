@@ -213,6 +213,81 @@ tools: []
         (self.agents_dir / "x.md").mkdir()
         self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
 
+    # -- audit Minor #4: broken charters must not pass as documentation ----
+    #
+    # The line is the *opening fence*. No fence at all is documentation and is
+    # ignored; a fence that opens is a claim to be a charter, and a claim the
+    # file does not fulfil is exactly what the oracle exists to report. Every
+    # fixture here is written with newline="" so the bytes on disk are the
+    # bytes under test — no platform newline translation.
+
+    def _write_raw(self, name: str, text: str) -> None:
+        (self.agents_dir / name).write_text(text, encoding="utf-8", newline="")
+
+    def test_bom_prefixed_charter_with_wrong_name_is_reported(self):
+        """A UTF-8 BOM before the opening fence is invisible to the operator
+        and irrelevant to the loader; it must not hide a wrong `name:`."""
+        self._write_raw("bom.md", "﻿---\nname: other\n---\nbody\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir),
+                         [("bom.md", "other")])
+
+    def test_bom_prefixed_charter_with_matching_name_is_not_reported(self):
+        self._write_raw("bom.md", "﻿---\nname: bom\n---\nbody\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
+    def test_unterminated_fence_is_reported_as_unterminated(self):
+        """Opens `---`, never closes it: a broken charter, not documentation.
+
+        Reported with wording that says the fence is unterminated — not
+        "declares no `name:`" (the block may well contain one) and not a
+        leaked Python `None`.
+        """
+        self._write_raw("unterminated.md", "---\nname: unterminated\nbody\n")
+        result = _theme_common.desynced_agents(self.agents_dir)
+        self.assertEqual([name for name, _ in result], ["unterminated.md"])
+        self.assertIs(result[0][1], _theme_common.UNTERMINATED_FENCE)
+        message = _theme_common.desync_reason(result[0][1])
+        self.assertNotIn("None", message)
+        self.assertIn("never closed", message)
+
+    def test_closing_fence_without_trailing_newline_is_a_charter(self):
+        """A charter whose last byte is the closing fence's `-` still loads."""
+        self._write_raw("notrail.md", "---\nname: notrail\n---")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
+    def test_closing_fence_without_trailing_newline_still_compares_name(self):
+        self._write_raw("notrail.md", "---\nname: other\n---")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir),
+                         [("notrail.md", "other")])
+
+    def test_crlf_charter_with_matching_name_is_not_reported(self):
+        """CRLF was already handled; pinned so the regex change cannot break it."""
+        self._write_raw("crlf.md", "---\r\nname: crlf\r\ndescription: x\r\n---\r\nbody\r\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
+    def test_crlf_charter_with_wrong_name_is_reported(self):
+        self._write_raw("crlf.md", "---\r\nname: other\r\n---\r\nbody\r\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir),
+                         [("crlf.md", "other")])
+
+    def test_plain_readme_without_fence_is_still_not_reported(self):
+        """The T14 exemption survives: no opening fence means documentation."""
+        self._write_raw("README.md", "# Agents\n\nplain documentation, no fences\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
+    def test_frontmatter_block_three_answers(self):
+        """The classifier's three shapes, pinned at the helper itself."""
+        fb = _theme_common._frontmatter_block
+        self.assertEqual(fb("---\nname: x\n---\nbody\n"), "name: x")
+        self.assertEqual(fb("﻿---\nname: x\n---"), "name: x")
+        self.assertIsNone(fb("# docs\n"))
+        self.assertIsNone(fb(""))
+        self.assertIs(fb("---\nname: x\n"), _theme_common.UNTERMINATED_FENCE)
+        self.assertIs(fb("---"), _theme_common.UNTERMINATED_FENCE)
+        # `---foo` is not a fence line; `----` is not either.
+        self.assertIsNone(fb("---foo\nname: x\n---\n"))
+        self.assertIsNone(fb("----\nname: x\n---\n"))
+
 
 class ReExportPinTest(unittest.TestCase):
     """Tests that _theme_common symbols are re-exported from apply_theme."""

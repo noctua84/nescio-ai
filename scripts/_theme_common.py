@@ -73,7 +73,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # The YAML frontmatter block at the top of every agent charter.
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+#
+# The closing fence may be followed by a newline *or by end-of-text*: a
+# charter whose last line is the closing `---` with no trailing newline is a
+# complete, loadable charter, and demanding the `\n` made it invisible to the
+# oracle. `\s*` before the terminator is what keeps CRLF working — the `\r` of
+# a CRLF fence line is whitespace, so `---\r\n` matches on both fences.
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
+
+# An *opening* fence on its own: `---` as the entire first line. Matching this
+# without matching `_FRONTMATTER_RE` is the shape of an unterminated block.
+_OPENING_FENCE_RE = re.compile(r"\A---\s*(?:\n|\Z)")
+
+# A UTF-8 byte-order mark, as the str it decodes to. Editors on Windows add
+# one; Claude Code loads such a charter fine, so the oracle must see past it.
+_BOM = "﻿"
+
+
+class _UnterminatedFence:
+    """Marker: the charter opens a ``---`` fence and never closes it.
+
+    A distinct object rather than a third meaning for ``None``, because
+    ``None`` already carries one meaning per function here (``_frontmatter_block``:
+    no fence at all; ``_declared_name`` / a ``desynced_agents`` tuple: block
+    present, no ``name:`` key), and this module's history — see
+    ``desynced_agents`` — is the story of what happens when two different
+    faults share one ``None``. A single instance, ``UNTERMINATED_FENCE``, is
+    threaded from ``_frontmatter_block`` through the ``desynced_agents`` tuple
+    to ``desync_reason``, which is the one place operator wording is chosen.
+    """
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNTERMINATED_FENCE"
+
+
+UNTERMINATED_FENCE = _UnterminatedFence()
 
 
 # The file whose presence is taken as evidence that the tree is on a theme.
@@ -127,24 +162,42 @@ def detect_theme(agents_dir: Path) -> str | None:
     return None
 
 
-def _frontmatter_block(text: str) -> str | None:
+def _frontmatter_block(text: str) -> str | None | _UnterminatedFence:
     """The raw text between a charter's opening and closing ``---`` fences.
 
-    None means exactly one thing: *the fences are not there at all*. That is a
-    fact about the file's shape, established before any ``name:`` parsing is
-    attempted, and it is the fact ``desynced_agents`` needs in order to tell a
-    plain doc file (``agents/README.md``, prose, no frontmatter, never
-    claiming to be a charter) apart from a file that *is* frontmatter-shaped
-    but is missing its ``name:`` key (a charter claiming to be one, and
-    failing). See ``desynced_agents`` for why collapsing that distinction was
-    once harmless and stopped being harmless.
+    Three answers, and the line between them is *what the file claims*:
+
+    - a ``str`` — both fences present; this is the block, ``name:`` unparsed.
+    - ``None`` — **no opening fence at all.** The file is documentation
+      (``agents/README.md``, prose, never claiming to be a charter). That is a
+      fact about the file's shape, established before any ``name:`` parsing
+      is attempted, and it is the fact ``desynced_agents`` needs in order to
+      leave such a file alone. See ``desynced_agents`` for why collapsing
+      this case into "broken charter" was once harmless and stopped being.
+    - ``UNTERMINATED_FENCE`` — the first line **is** a ``---`` fence and no
+      closing fence follows. This is not documentation: opening a fence is a
+      claim to be a charter, and an unfulfilled claim is exactly what this
+      oracle exists to report. The obvious simplification — "any regex miss
+      is None" — quietly reclassified a hand-mangled charter as prose, so a
+      broken charter that does not load was reported to nobody, which is the
+      original #137 shape all over again.
+
+    A leading UTF-8 BOM is stripped before matching. A BOM-prefixed charter
+    loads, and a BOM-prefixed charter declaring the *wrong* ``name:`` does
+    not, so treating the BOM as "not a fence" hid a real desync behind a
+    byte the operator cannot see.
 
     Deliberately returns the raw block text, not a bool, so a caller who wants
     the declared name still has to go through ``_declared_name`` and cannot
     shortcut past the "is there a block at all" question by accident.
     """
+    text = text.removeprefix(_BOM)
     match = _FRONTMATTER_RE.match(text)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    if _OPENING_FENCE_RE.match(text):
+        return UNTERMINATED_FENCE
+    return None
 
 
 def _declared_name(block: str) -> str | None:
@@ -165,27 +218,38 @@ def _declared_name(block: str) -> str | None:
     return None
 
 
-def desync_reason(declared: str | None) -> str:
+def desync_reason(declared: str | None | _UnterminatedFence) -> str:
     """The operator-facing fragment describing *why* a charter is desynced.
 
     Shared by both consumers (``apply_theme.py``'s repair/residue output and
     ``sync_from_upstream.py``'s warning in ``main()``) so the wording only
     needs fixing in one place. ``declared`` is always the second element of a
     ``desynced_agents`` tuple — by the time this is called, ``_frontmatter_block``
-    has already confirmed a frontmatter block exists (see ``desynced_agents``),
+    has already confirmed an opening fence exists (see ``desynced_agents``),
     so None here can only mean "the block has no ``name:`` key", never "no
     frontmatter at all". Printing that None with ``{declared}`` would leak
     Python's repr of it into operator-facing text — a real word, ``None``,
     that reads as a value the charter declared rather than as the absence of
     one — and the fix-with command it accompanied could not fix it anyway.
+
+    ``UNTERMINATED_FENCE`` is the third shape: the file opened a fence and
+    never closed it. It gets its own sentence rather than borrowing the
+    "declares no ``name:``" one, because that would be false — the block may
+    well contain a ``name:`` line; the fault is that nothing terminates it.
     """
+    if declared is UNTERMINATED_FENCE:
+        return "opens a `---` frontmatter fence that is never closed"
     if declared is None:
         return "declares no `name:` at all"
     return f"declares `name: {declared}`"
 
 
-def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
+def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None | _UnterminatedFence]]:
     """(filename, declared name) for every *charter* whose ``name:`` != its stem.
+
+    The second element is the declared name; ``None`` when the block has no
+    ``name:`` key; ``UNTERMINATED_FENCE`` when the file opened a fence and
+    never closed it. Hand it to ``desync_reason`` for wording.
 
     A charter whose frontmatter name disagrees with its filename does not load
     at all, so this is the tree's real consistency oracle — per file, against
@@ -203,7 +267,11 @@ def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
     notes, anything documentation-shaped has always been free to live
     alongside the charters, and carries no frontmatter at all. Those files are
     skipped here — ``_frontmatter_block`` returns None for them, and that None
-    is treated as "not a charter", not as "a broken one".
+    is treated as "not a charter", not as "a broken one". The line is drawn
+    at the *opening fence*: no fence at all is documentation and is ignored;
+    a fence that opens is a claim to be a charter, and a claim the file does
+    not fulfil — no closing fence, no ``name:`` key, a ``name:`` that
+    disagrees with the stem — is exactly what this oracle exists to report.
 
     **Why this used to be one collapsed check, and why that broke.** A single
     earlier helper, ``_frontmatter_name``, returned plain ``None`` for *both*
@@ -262,7 +330,7 @@ def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
     plan already reports correctly, so the skip lives here, silently, where
     the "not a charter" decision is made for every other non-charter shape.
     """
-    out: list[tuple[str, str | None]] = []
+    out: list[tuple[str, str | None | _UnterminatedFence]] = []
     for md in sorted(agents_dir.glob("*.md")):
         if not md.is_file():
             continue  # a directory named `x.md` is not a charter
@@ -273,6 +341,9 @@ def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
         block = _frontmatter_block(text)
         if block is None:
             continue  # not a charter at all — e.g. agents/README.md
+        if block is UNTERMINATED_FENCE:
+            out.append((md.name, UNTERMINATED_FENCE))  # claimed to be one, and is broken
+            continue
         declared = _declared_name(block)
         if declared != md.stem:
             out.append((md.name, declared))
