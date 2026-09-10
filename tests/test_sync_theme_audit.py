@@ -230,5 +230,60 @@ class LostRepresentativeTest(unittest.TestCase):
                          {"functional": ["builder.md"], "philosophers": ["cato.md"]})
 
 
+class ResidueRefusalRemediationTest(unittest.TestCase):
+    """Audit Serious #1 — upstream adding `agents/builder-fast.md` (a new
+    tier, or any `<roster-word>-<suffix>.md`) makes dest's older renderer
+    leave residue; #137 refuses; P2 refuses the sync; the new roster that
+    would fix it is never delivered. The structural fix is #142. Here the
+    refusal must stay a refusal (P2) but tell the operator what actually
+    works, instead of quoting advice about a deleted temp directory."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_refusal_carries_the_working_remediation_and_cites_142(self):
+        _make_full_checkout(self.up, "functional")
+        _make_full_checkout(self.dst, "philosophers")
+        src = (self.up / "agents" / "builder-simple.md").read_text(encoding="utf-8")
+        self.assertIn("name: builder-simple", src)
+        _write(self.up / "agents" / "builder-fast.md",
+               src.replace("name: builder-simple", "name: builder-fast", 1))
+
+        before = _snapshot(self.dst)
+        rc, out, err = _run(self.up, self.dst, "--apply")
+
+        # P2, unsoftened: still a refusal, still nothing written.
+        self.assertEqual(rc, 2)
+        self.assertEqual(_snapshot(self.dst), before, "dest was written to despite the refusal")
+        self.assertIn("could not render upstream's crew", err)
+        # The renderer's stderr is still quoted (it says WHAT failed)...
+        self.assertIn("builder-fast.md", err)
+        # ...and the working remediation follows it, in order, citing #142.
+        self.assertIn("python scripts/apply_theme.py functional", err)
+        self.assertIn(f"python scripts/sync_from_upstream.py --upstream {self.up.resolve()} "
+                      "--apply", err)
+        self.assertIn("python scripts/apply_theme.py philosophers", err)
+        self.assertLess(err.index("apply_theme.py functional"),
+                        err.index("sync_from_upstream.py --upstream"))
+        self.assertLess(err.index("sync_from_upstream.py --upstream"),
+                        err.index("apply_theme.py philosophers"))
+        self.assertIn("#142", err)
+
+    def test_module_docstring_no_longer_claims_a_later_pass_converges(self):
+        """The R8 paragraph said an added/retargeted pair "converges only on a
+        later pass". Since #137 the render refuses and the later pass never
+        comes. The docstring must say so and cite #142."""
+        doc = sfu.__doc__
+        self.assertNotIn("converges only on a later pass", doc)
+        self.assertIn("#142", doc)
+        self.assertIn("builder-fast.md", doc)
+
+
 if __name__ == "__main__":
     unittest.main()

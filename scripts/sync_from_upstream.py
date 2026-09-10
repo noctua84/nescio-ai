@@ -99,13 +99,33 @@ The rendering uses **dest's** notion of its own theme
 ------------------------------------------------------
 
 Materialisation calls the *dest's* `apply_theme.py` and its `PAIRS`, not
-upstream's. Consequence, stated so it is a chosen property: a pair *added*
-upstream, or *retargeted* upstream (say `doc-writer` -> `quintilian` replacing
-`cicero`), converges only on a later pass — the pass that delivers the new
-`scripts/`, and then the pass that runs it. A retargeted pair additionally
-leaves an orphan `cicero.md` behind that `desynced_agents` will **not** flag,
-because that oracle compares a charter's `name:` against its own filename stem
-and the orphan is internally self-consistent.
+upstream's. Consequence, stated so it is a known property and not a surprise:
+**a charter added upstream that dest's roster cannot express does not converge
+on a later pass — it locks the instance out of syncing until the operator
+intervenes.** Concretely: upstream adds `agents/builder-fast.md` (a new tier,
+or any `<roster-word>-<suffix>.md`). Dest's *old* renderer rewrites its
+`name: builder-fast` to `name: archimedes-fast` on the `\bbuilder\b` word rule
+but has no rename entry for the file, so the materialised copy carries a
+charter whose `name:` disagrees with its stem. The residue check that runs
+after every `apply_theme` pass (issue #137) returns 2; P2 turns that into a
+full refusal *before* `apply_sync`; and the `scripts/_crew_common.py` that
+would resolve it is therefore never delivered. Pass two fails identically.
+There is no "later pass" — an earlier version of this paragraph claimed there
+was, and it was wrong.
+
+The refusal in `main()` prints the working remediation: take the instance off
+its theme for one pass (`apply_theme.py functional`), sync — an untheme'd
+instance takes the P1 path, which delivers upstream's new `scripts/` and the
+new charter verbatim — then put the theme back with the *delivered* renderer.
+That is a workaround, not a fix. The structural fix is tracked as
+noctua84/nescio-ai#142 and is deliberately not attempted here; P2 is not
+softened to make room for it.
+
+A *retargeted* pair (say `doc-writer` -> `quintilian` replacing `cicero`) has
+the same one-pass-behind shape and additionally leaves an orphan `cicero.md`
+behind that `desynced_agents` will **not** flag, because that oracle compares
+a charter's `name:` against its own filename stem and the orphan is internally
+self-consistent.
 
 False negatives: a chosen property (the mapping is many-to-one)
 ----------------------------------------------------------------
@@ -900,6 +920,32 @@ def main(argv=None) -> int:
                   f"'{theme}' theme — refusing to sync. The renderer reported:",
                   file=sys.stderr)
             print(err.getvalue(), end="", file=sys.stderr)
+            # The renderer's own remediation ("edit the frontmatter by hand …
+            # re-running will not help") is about the temp directory that was
+            # just deleted, not about any file in this instance, so it is
+            # quoted for *what* failed and then corrected for what to do. The
+            # commands below are verified: an untheme'd instance takes the P1
+            # path, which delivers upstream's new `scripts/` (the renderer and
+            # roster that can express the new charter) and the charter itself
+            # verbatim; re-theming with the delivered renderer then converges.
+            # Without this the instance is locked out of every framework update
+            # for as long as upstream ships the charter — see the module
+            # docstring, "The rendering uses dest's notion of its own theme",
+            # and the structural fix tracked as noctua84/nescio-ai#142.
+            print("if the report above is about a charter the renderer could not converge "
+                  "(typically a charter upstream added that this instance's theme roster "
+                  "cannot express yet), the renderer's \"edit by hand\" advice refers to a "
+                  "temporary copy that no longer exists. The working remediation is to take "
+                  "the instance off its theme for one pass, sync, and put the theme back:",
+                  file=sys.stderr)
+            print("  python scripts/apply_theme.py functional", file=sys.stderr)
+            print(f"  python scripts/sync_from_upstream.py --upstream {upstream} --apply",
+                  file=sys.stderr)
+            print(f"  python scripts/apply_theme.py {theme}", file=sys.stderr)
+            print("this works because an untheme'd instance takes the path that delivers "
+                  "upstream's new scripts/ — including the renderer that can express the "
+                  "new charter — before anything is rendered. Tracked as "
+                  "noctua84/nescio-ai#142.", file=sys.stderr)
             return 2
 
         # Two calls into the UNMODIFIED plan_sync: `agents/` against the
