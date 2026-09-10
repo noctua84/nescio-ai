@@ -172,11 +172,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # with no theme never touches `scripts/apply_theme.py` at all — see P1 in the
 # module docstring, and `main()`'s themed branch for the import itself.
 from _theme_common import (  # noqa: E402
+    THEME_REPRESENTATIVES,
     desync_reason,
     desynced_agents,
     detect_theme,
     theme_representatives,
 )
+
+# Roster *facts* — which filename stems belong to which theme. Imported
+# unconditionally, and that does not spend P1: `_crew_common` is the durable,
+# stdlib-only, no-I/O data module every script and test already depends on
+# (its own docstring: "Stdlib-only, no I/O: pure data"). It is not the
+# cosmetic renderer P1 keeps off the untheme'd path — that is
+# `apply_theme.py`, still imported lazily inside the themed branch of
+# `main()`. What these two names buy is the ability to tell a *crew that has
+# lost its representative* apart from a crew that was never there, before
+# either branch is chosen — see `_roster_without_representative`.
+from _crew_common import THEME_INVARIANT_ROSTER, expected_roster  # noqa: E402
 
 # Framework paths a downstream instance syncs FROM upstream. Everything NOT listed
 # here is instance-owned and never touched — notably `memory/` (your records),
@@ -504,6 +516,41 @@ def render_diff(upstream: Path, dest: Path, added, updated, deleted, *,
     return "\n".join(lines) + "\n"
 
 
+def _roster_without_representative(agents_dir: Path) -> dict[str, list[str]]:
+    """{theme: [charter filenames]} for every *theme-specific* roster stem on disk.
+
+    Consulted only when `theme_representatives` found nothing. Zero
+    representatives has two very different readings, and `detect_theme`
+    cannot tell them apart because it classifies from one file:
+
+    - a fresh or crewless instance (the bootstrap case — every fixture in
+      `tests/test_sync_from_upstream.py` seeds only `agents/explore.md`), for
+      which today's untheme'd path is exactly right; and
+    - a themed crew that has **lost its representative** — an operator who
+      archived `agents/plato.md` because they do not use the planner — for
+      which today's untheme'd path is the fully destructive plan: ten
+      philosopher charters deleted, eleven functional ones added, and no
+      warning, because the ten survivors are internally self-consistent and
+      `desynced_agents` has nothing to say.
+
+    The roster is the evidence that separates them. Theme-*invariant* stems
+    (`explore`, `scout`, ...) are deliberately excluded: they are in both
+    rosters, so they are evidence of neither, and counting them would drag
+    the bootstrap fixture — `explore.md` alone — into the refusal below.
+    Presence is by filename (`is_file()`), not by parsing frontmatter, for the
+    same reason `theme_representatives` checks presence: the question is
+    "what crew is on disk", and a charter that is present but broken is still
+    on disk (and already reported by `desynced_agents`).
+    """
+    found: dict[str, list[str]] = {}
+    for theme in THEME_REPRESENTATIVES:
+        stems = expected_roster(theme) - THEME_INVARIANT_ROSTER
+        names = sorted(f"{stem}.md" for stem in stems if (agents_dir / f"{stem}.md").is_file())
+        if names:
+            found[theme] = names
+    return found
+
+
 def _report(args, dest: Path, added, updated, deleted, diff_text: str, *,
             theme: str | None) -> int:
     """Print the plan (and post-run hints) and return `main`'s exit code.
@@ -638,6 +685,53 @@ def main(argv=None) -> int:
               "philosopher one as added — a fully destructive plan in the opposite "
               "direction. No files were changed.", file=sys.stderr)
         return 2
+
+    # Refuse a dest whose crew has lost its representative.
+    #
+    # Zero representatives is the bootstrap case (decision 4 in the plan: a
+    # fresh or crewless instance takes today's path), and it must stay so —
+    # but "zero representatives" is not the same fact as "no crew". A themed
+    # instance from which only `agents/plato.md` is missing has zero
+    # representatives, classifies as None, is internally self-consistent (so
+    # the desync warning below has nothing to say), and falls through to the
+    # untheme'd branch: eleven functional charters added, the ten surviving
+    # philosopher charters deleted, silently. That is the exact destructive
+    # plan this whole module exists to prevent, on a tree that is
+    # unmistakably themed to anyone who looks at it. `_roster_without_
+    # representative` looks. The refusal has the same shape as the
+    # both-representatives guard above, and for the same reason: a tree that
+    # cannot be classified must not be classified by branch order.
+    #
+    # The trigger is a theme-specific stem of a theme *other than functional*.
+    # A functional crew missing `agents/planner.md` is genuinely untheme'd,
+    # today's path is right for it — the sync simply re-adds the missing
+    # charter — and refusing it would hold framework updates hostage to a
+    # false claim of destruction. The functional stems are still *listed*
+    # when the guard fires for another theme's files, so a hand-mixed tree
+    # is described in full.
+    #
+    # `apply_theme.py` is not offered as a remedy, because it cannot be one:
+    # it classifies by the same representative file and refuses this tree
+    # with "could not detect the crew". The only fix is the file itself.
+    if not reps:
+        stray = _roster_without_representative(dest / "agents")
+        if any(t != "functional" for t in stray):
+            print(f"error: --dest {dest} carries a crew but no theme representative — the "
+                  "instance cannot be classified:", file=sys.stderr)
+            for theme_name, names in sorted(stray.items()):
+                for filename in names:
+                    print(f"  ! agents/{filename} ({theme_name})", file=sys.stderr)
+            for theme_name in sorted(stray):
+                print(f"  missing: agents/{THEME_REPRESENTATIVES[theme_name]} "
+                      f"(the '{theme_name}' representative)", file=sys.stderr)
+            print("no files were changed. Without its representative the sync would treat "
+                  "this instance as crewless and compare its agents/ against upstream's "
+                  "functional names — deleting every charter listed above and adding the "
+                  "functional crew in its place, a fully destructive plan with no warning. "
+                  "Restore the missing representative (from this instance's own git "
+                  "history, or wherever it went) and re-run. `apply_theme.py` cannot repair "
+                  "this: it classifies by the same file.", file=sys.stderr)
+            return 2
 
     theme = detect_theme(dest / "agents")
 

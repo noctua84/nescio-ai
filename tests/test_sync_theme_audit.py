@@ -150,5 +150,85 @@ class UnreadableAgentsEntriesTest(unittest.TestCase):
         self.assertIn(str(Path("agents") / "notes.md"), out)
 
 
+class LostRepresentativeTest(unittest.TestCase):
+    """Audit Serious #3 — a themed dest missing only its representative
+    (`agents/plato.md`) has zero representatives, classifies as crewless, and
+    got the silent 11-added/3-updated/10-deleted plan. It must refuse."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_themed_dest_missing_only_its_representative_refuses(self):
+        _make_full_checkout(self.up, "functional")
+        _make_full_checkout(self.dst, "philosophers")
+        (self.dst / "agents" / "plato.md").unlink()
+        self.assertEqual(apply_theme.theme_representatives(self.dst / "agents"), {},
+                         "precondition: zero representatives")
+        self.assertEqual(apply_theme.desynced_agents(self.dst / "agents"), [],
+                         "precondition: the survivors are self-consistent, so the desync "
+                         "warning cannot be what catches this")
+
+        before = _snapshot(self.dst)
+        rc, out, err = _run(self.up, self.dst, "--apply")
+
+        self.assertEqual(rc, 2)
+        self.assertEqual(_snapshot(self.dst), before, "dest was written to despite the refusal")
+        self.assertNotIn("would change", out)
+        self.assertNotIn("synced:", out)
+        # Names the roster files found and the missing representative.
+        for stem in ("aristotle", "archimedes-simple", "cato", "cicero"):
+            self.assertIn(f"agents/{stem}.md (philosophers)", err)
+        self.assertIn("missing: agents/plato.md", err)
+        # And says what a sync in this state would have done.
+        self.assertIn("deleting every charter listed above", err)
+        self.assertNotIn("plato.md (philosophers)", err,
+                         "the missing representative is not among the files *found*")
+
+    def test_crewless_dest_still_takes_todays_path(self):
+        """Decision 4 stays: the P1 fixture (`agents/explore.md` only) has zero
+        representatives AND zero theme-specific roster stems — `explore` is
+        theme-invariant, present in both rosters, evidence of neither — and
+        must keep syncing exactly as before, with nothing on stderr."""
+        _make_checkout(self.up)
+        _make_checkout(self.dst)
+
+        rc, out, err = _run(self.up, self.dst)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        self.assertIn("framework already in sync — nothing to do.", out)
+
+    def test_functional_dest_missing_planner_is_not_refused(self):
+        """A functional crew that lost `agents/planner.md` is genuinely
+        untheme'd: today's path re-adds the missing charter and nothing is
+        destroyed, so the guard must not fire on functional stems alone."""
+        _make_full_checkout(self.up, "functional")
+        _make_full_checkout(self.dst, "functional")
+        (self.dst / "agents" / "planner.md").unlink()
+
+        rc, out, err = _run(self.up, self.dst)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        self.assertIn("would change: 1 added, 0 updated, 0 deleted", out)
+        self.assertIn(str(Path("agents") / "planner.md"), out)
+
+    def test_helper_excludes_theme_invariant_stems(self):
+        agents = self.dst / "agents"
+        _write(agents / "explore.md", "---\nname: explore\n---\nx\n")
+        _write(agents / "scout.md", "---\nname: scout\n---\nx\n")
+        self.assertEqual(sfu._roster_without_representative(agents), {})
+        _write(agents / "cato.md", "---\nname: cato\n---\nx\n")
+        _write(agents / "builder.md", "---\nname: builder\n---\nx\n")
+        self.assertEqual(sfu._roster_without_representative(agents),
+                         {"functional": ["builder.md"], "philosophers": ["cato.md"]})
+
+
 if __name__ == "__main__":
     unittest.main()
