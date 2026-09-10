@@ -285,5 +285,56 @@ class ResidueRefusalRemediationTest(unittest.TestCase):
         self.assertIn("builder-fast.md", doc)
 
 
+class RendererExceptionFramingTest(unittest.TestCase):
+    """Audit Minor #7 — an exception *raised* by the renderer (rather than a
+    non-zero rc) escaped as a raw traceback naming a `tmpXXXX` path, with no
+    line saying which `--upstream` it was about. Streams and the temp dir
+    were already handled correctly; only the framing was missing."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        self._real_render = apply_theme.apply_theme
+
+    def tearDown(self):
+        apply_theme.apply_theme = self._real_render
+        self._tmp.cleanup()
+
+    def test_exception_is_framed_re_raised_and_temp_dir_cleaned(self):
+        _make_full_checkout(self.up, "functional")
+        _make_full_checkout(self.dst, "philosophers")
+        seen: list[Path] = []
+
+        def boom(agents_dir: Path, target: str, **kwargs):
+            seen.append(agents_dir.parent)
+            print("renderer got this far", file=sys.stderr)
+            raise PermissionError(13, "Permission denied", str(agents_dir / "planner.md"))
+
+        # `main()` does `from apply_theme import apply_theme as _render_crew`
+        # lazily, at the point of use, so patching the module attribute is
+        # what it sees.
+        apply_theme.apply_theme = boom
+
+        before = _snapshot(self.dst)
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(PermissionError):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                sfu.main(["--upstream", str(self.up), "--dest", str(self.dst)])
+
+        self.assertEqual(len(seen), 1, "the renderer must have been called exactly once")
+        self.assertFalse(seen[0].exists(), "the temp root must be cleaned up on the way out")
+        self.assertEqual(_snapshot(self.dst), before)
+        self.assertIn("could not render upstream's crew", err.getvalue())
+        self.assertIn(str(self.up.resolve()), err.getvalue(),
+                      "the framing must name the --upstream the error is about")
+        self.assertIn("renderer got this far", err.getvalue(),
+                      "whatever the renderer said before raising must be surfaced")
+        self.assertEqual(out.getvalue(), "", "nothing is planned, so nothing goes to stdout")
+        # Streams were restored: sys.stderr is not the StringIO any more.
+        self.assertIsNot(sys.stderr, err)
+
+
 if __name__ == "__main__":
     unittest.main()

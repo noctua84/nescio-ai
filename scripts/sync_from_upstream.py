@@ -903,8 +903,29 @@ def main(argv=None) -> int:
         # Capture both streams: discard them on success, surface stderr on
         # failure.
         out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            rc = _render_crew(root / "agents", theme)
+        # main() frames a render failure before quoting it: without this line
+        # the operator sees a bare error about a /tmp path with no account of
+        # where it came from — least of all which `--upstream` it is about.
+        framing = (f"error: could not render upstream's crew ({upstream}) into the "
+                   f"'{theme}' theme — refusing to sync.")
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = _render_crew(root / "agents", theme)
+        except Exception:
+            # The renderer *raised* rather than returned: a read-only upstream
+            # file whose mode `copy2` preserved into the temp root, a
+            # non-UTF-8 upstream charter, a filesystem fault. Both context
+            # managers have already unwound — streams are restored and
+            # `TemporaryDirectory` still cleans up on the way out — so the
+            # only thing missing is the framing. Print it, surface whatever
+            # the renderer managed to say, and re-raise: an unexpected
+            # exception is exactly the case where a traceback is the right
+            # output, and swallowing it into `return 2` would hide the one
+            # line (the exception's own path and errno) that says why.
+            print(framing + " The renderer raised an exception (traceback follows):",
+                  file=sys.stderr)
+            print(err.getvalue(), end="", file=sys.stderr)
+            raise
         if rc != 0:
             # Refuse, do not warn. A non-zero rc means upstream's crew could not
             # be expressed in this instance's theme — a rename collision (a
@@ -912,13 +933,7 @@ def main(argv=None) -> int:
             # carrying two themes, a charter the renderer cannot converge. In
             # every one of those cases the materialised tree is *wrong*, and a
             # plan computed against a wrong tree is worse than no plan.
-            #
-            # main() frames the failure before quoting it: without this line the
-            # operator sees a bare error about a /tmp path with no account of
-            # where it came from.
-            print(f"error: could not render upstream's crew ({upstream}) into the "
-                  f"'{theme}' theme — refusing to sync. The renderer reported:",
-                  file=sys.stderr)
+            print(framing + " The renderer reported:", file=sys.stderr)
             print(err.getvalue(), end="", file=sys.stderr)
             # The renderer's own remediation ("edit the frontmatter by hand …
             # re-running will not help") is about the temp directory that was
