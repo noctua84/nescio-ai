@@ -181,6 +181,38 @@ tools: []
         message = _theme_common.desync_reason(None)
         self.assertNotIn("None", message)
 
+    # -- audit Serious #2: entries the oracle cannot read are not charters ---
+
+    def test_non_utf8_file_is_skipped_not_raised(self):
+        """A `.md` that is not UTF-8 text is not a charter; it must not raise.
+
+        `desynced_agents` runs on every sync since the desync warning moved
+        above the theme classification — including the untheme'd path whose
+        contract is "today's behaviour exactly". A Latin-1 scratch note in
+        `agents/` used to escape as a `UnicodeDecodeError` from a classifier
+        that was never going to classify it anyway.
+        """
+        (self.agents_dir / "planner.md").write_text(_make_charter("planner"))
+        (self.agents_dir / "notes.md").write_bytes(b"caf\xe9 notes\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
+    def test_non_utf8_file_does_not_hide_a_real_desync(self):
+        """The skip is per entry: a broken charter next to it is still found."""
+        (self.agents_dir / "planner.md").write_text(_make_charter("plato"))
+        (self.agents_dir / "notes.md").write_bytes(b"caf\xe9 notes\n")
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir),
+                         [("planner.md", "plato")])
+
+    def test_directory_named_like_a_charter_is_skipped(self):
+        """A directory named `x.md` matches the glob but is not a file.
+
+        Reading it raises `PermissionError` (Windows) or `IsADirectoryError`
+        (POSIX) — both `OSError` — and either one crashed the sync.
+        """
+        (self.agents_dir / "planner.md").write_text(_make_charter("planner"))
+        (self.agents_dir / "x.md").mkdir()
+        self.assertEqual(_theme_common.desynced_agents(self.agents_dir), [])
+
 
 class ReExportPinTest(unittest.TestCase):
     """Tests that _theme_common symbols are re-exported from apply_theme."""

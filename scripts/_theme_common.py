@@ -238,10 +238,39 @@ def desynced_agents(agents_dir: Path) -> list[tuple[str, str | None]]:
     claim, given that it is one" — so a third consumer cannot rediscover this
     bug by trusting a docstring's "harmless" clause after it has stopped being
     true.
+
+    **An entry this function cannot even read is not a charter either.** A
+    directory that happens to be named ``notes.md``, a file that is not UTF-8
+    text (a Latin-1 scratch note), a file the process may not open — none of
+    these can be a charter, because a charter is by definition UTF-8 text
+    with a frontmatter block, and Claude Code would not load them as one.
+    They are skipped, by the same argument that skips a frontmatter-less
+    ``README.md`` above: the oracle's question is "does this charter's
+    ``name:`` agree with its filename", and an entry that is not a charter has
+    no answer to give.
+
+    Why this is guarded here rather than left to raise: since the desync
+    warning in ``sync_from_upstream.py::main()`` moved above the theme
+    classification, this function runs on **every** sync — including the
+    untheme'd path, whose entire contract (P1 in that module's docstring) is
+    "literally today's behaviour". Today's ``plan_sync`` lists such a stray
+    file under ``- delete`` and carries on; a ``UnicodeDecodeError`` escaping
+    from a classifier that was never going to classify the file anyway turned
+    that plan into a traceback, on the one path that promised not to change.
+    The tempting alternative — catch it in ``main()`` and print a warning —
+    would put theme-flavoured output on the untheme'd path for a file the
+    plan already reports correctly, so the skip lives here, silently, where
+    the "not a charter" decision is made for every other non-charter shape.
     """
     out: list[tuple[str, str | None]] = []
     for md in sorted(agents_dir.glob("*.md")):
-        block = _frontmatter_block(md.read_text(encoding="utf-8", newline=""))
+        if not md.is_file():
+            continue  # a directory named `x.md` is not a charter
+        try:
+            text = md.read_text(encoding="utf-8", newline="")
+        except (OSError, UnicodeDecodeError):
+            continue  # unreadable, or not UTF-8 text — not a charter either
+        block = _frontmatter_block(text)
         if block is None:
             continue  # not a charter at all — e.g. agents/README.md
         declared = _declared_name(block)
