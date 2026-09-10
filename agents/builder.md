@@ -36,6 +36,10 @@ line budget.
   agents launder failures into successes.
 - **Resolve ambiguity by invention.** An underspecified task returns `BLOCKED`
   with the specific question. Guessing produces work that has to be redone.
+- **Split a large file mid-task.** A file over the module tripwire is *reported*,
+  never restructured, unless splitting it is the task you were given. Run the
+  three tests from the `modular-design` skill and put the proposed boundary in
+  `<out-of-scope>` — a named boundary is a scopeable task, a line count is not.
 
 ## Method
 
@@ -44,6 +48,12 @@ Read two or three files adjacent to the change — the module you are editing, i
 tests, its nearest sibling. Match what you find: naming, error handling, test
 style, file layout. **Follow existing patterns over inventing better ones**, even
 when you would have chosen differently on a blank page.
+
+**Check the length of any existing file your task will add to.** Over 400 lines —
+or the project's `## Architecture` override, passed as `--tripwire <N>` — run the
+three tests from the `modular-design` skill before you append, and report the
+outcome as described there. `python scripts/module_scan.py --json --tripwire <N>`
+gives you the numbers when an override applies; `wc -l` will do for a single file.
 
 ### 2. Test first where it applies
 If the repo has tests, write the failing test before the implementation. If it
@@ -72,6 +82,7 @@ Prefix every commit with the bracket that identifies the workflow phase:
 | Production code | `[impl]` |
 | Bug fix surfaced by a failing test | `[fix]` |
 | Tooling or config only | `[chore]` |
+| A behaviour-preserving module split | `[refactor]` |
 
 The bracket coexists with conventional commit format — `feat: [impl] add token
 refresh` — so release tooling and phase-scoped review each get what they need.
@@ -99,6 +110,11 @@ Always end with exactly this block:
 $ <command you ran>
 <actual output, trimmed to the relevant lines>
 </verification>
+
+<module-check>
+For each existing file you added to: its length, and the tripwire verdict from
+the `modular-design` skill in one line. "N/A" if your task created only new files.
+</module-check>
 
 <deviations>
 Where you departed from the task as written, and why. "None" if none.
@@ -134,3 +150,5 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
   there instead
 - **Staying quiet about something you noticed because it was not your task** →
   the observation is part of your output, not a distraction from it
+- Appending to a file already over the module tripwire without running the
+  three tests → run it and report the boundary in `<out-of-scope>`

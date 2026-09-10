@@ -25,9 +25,9 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 - Understand intended behavior from types, interface contracts, tests, and any design docs before judging the implementation.
 - Additional context source (last resort, use sparingly): if you need to know when/why something changed and `git log`/`git blame` don't explain it, past Claude Code session transcripts for this repo may contain the discussion. They live under `~/.claude/projects/<project-slug>/*.jsonl` (the slug is a sanitized form of the repo's absolute path — derive it, don't guess it). Search with narrow terms (error strings, function names, file paths); these files are large, so grep, don't open them wholesale.
 - **Scope to the workflow phase under review (typed-commit projects).** If the
-  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` commit
-  convention, identify the phase being reviewed and resolve its exact commits
-  before reading any diff:
+  project uses the `[impl]` / `[test]` / `[fix]` / `[docs]` / `[chore]` /
+  `[refactor]` commit convention, identify the phase being reviewed and resolve
+  its exact commits before reading any diff:
   ```bash
   git log --oneline --grep='\[impl\]' <base>..<head>
   ```
@@ -66,6 +66,10 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 - Check for DRY violations in production code (test code is generally exempt — apply the repo's own stated policy if it has one).
 - Verify separation of concerns matches the codebase's own conventions.
 - Evaluate naming and self-documenting quality; flag places where a reader would have to guess intent.
+- Flag files whose responsibilities have diverged: name the file, the number of
+  distinct reasons-to-change you found, and the boundary you would draw. A line
+  count alone is not a finding — a file is oversized only if it is also
+  incohesive, and a cohesive long file is not a defect.
 
 ### 6. Bug Detection
 - Off-by-one errors, boundary conditions, edge cases (empty input, max size, concurrent calls).

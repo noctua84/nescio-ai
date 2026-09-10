@@ -19,6 +19,24 @@ sensible default — **replace it with your own.**
 - Prefer small, battle-tested approaches over clever ones.
 - Fix root causes, not symptoms.
 
+## Architecture
+
+This section is optional. This repo declares no shape — the crew follows
+whatever structure is already in the tree. That is the default, and deleting
+this section changes nothing.
+
+To declare one, replace this text with the shape your project uses and, if you
+want it, a tripwire override:
+
+- **Recognised shapes** — layered service, pipeline, plugin/registry, library.
+  The `modular-design` skill defines each one; `layered-api-design` covers the
+  layered case in full, and applies *only* when a project declares it here.
+- **Tripwire** — a line such as `Module tripwire: <N> lines.` overrides the
+  400-line default used by `scripts/module_scan.py`.
+
+Nothing in the crew infers an architecture. If this section declares nothing, the
+crew imposes nothing.
+
 ## Git / PRs
 
 - Branch for changes; don't commit straight to the default branch.
