@@ -33,6 +33,7 @@ import argparse
 import json
 import os
 import platform
+import shlex
 import shutil
 import sys
 from datetime import datetime
@@ -459,8 +460,8 @@ def _resolve_hook_interpreter() -> tuple[str | None, str | None]:
        be an *unverified guess* on POSIX (``<home>/python`` that does not exist)
        and can be empty on macOS framework builds (gh-96861).
 
-    A candidate counts only if it is a real file, is not itself a venv
-    interpreter, and does not live under ``sys.prefix``.
+    A candidate counts only if it is an absolute path, is a real file, is not
+    itself a venv interpreter, and does not live under ``sys.prefix``.
     """
     if sys.prefix == sys.base_prefix:
         return sys.executable, None
@@ -482,6 +483,8 @@ def _resolve_hook_interpreter() -> tuple[str | None, str | None]:
 
     venv_dir = _norm_path(sys.prefix) + os.sep
     for candidate in candidates:
+        if not os.path.isabs(candidate):
+            continue
         if not os.path.isfile(candidate):
             continue
         if _is_venv_interpreter(candidate):
@@ -784,6 +787,15 @@ def check_hooks(settings_path: Path) -> int:
     existence-checked: a relative or bare command such as ``echo hi`` resolves
     through PATH at spawn time and is reported ``OK`` untested.
 
+    ``command`` can be either shape Claude Code accepts: this repo's own wiring
+    (a bare interpreter in ``command`` plus a ``args`` list) or Claude Code's
+    native shape, a full command line (``"<interpreter> <script> [flags]"``).
+    The command line is split with ``shlex`` (unbalanced quotes fall back to
+    testing the whole string as one token); only the first token is checked as
+    the command path proper, and any further token that is itself an absolute
+    path is existence-checked too and reported with a ``(in command)`` suffix
+    so a vanished script is still caught in the native shape.
+
     Walks the same shapes ``_wire_command_hook`` does and skips anything
     malformed rather than crashing on a hand-edited file. Returns 1 if any path
     is missing (or the file cannot be parsed), else 0.
@@ -808,7 +820,10 @@ def check_hooks(settings_path: Path) -> int:
         for group in group_list:
             if not isinstance(group, dict):
                 continue
-            for entry in group.get("hooks", []) or []:
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
                 if not isinstance(entry, dict):
                     continue
                 command = entry.get("command")
@@ -817,10 +832,25 @@ def check_hooks(settings_path: Path) -> int:
                 args = entry.get("args") or []
                 str_args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
                 entry_ok = True
-                if os.path.isabs(command) and not os.path.exists(command):
-                    print(f"MISSING {event}: {command}")
+
+                try:
+                    tokens = shlex.split(command, posix=(os.name != "nt"))
+                except ValueError:
+                    tokens = [command] if command else []
+                if os.name == "nt":
+                    tokens = [t[1:-1] if len(t) >= 2 and t[:1] == t[-1:] == '"' else t for t in tokens]
+
+                head, rest = (tokens[0], tokens[1:]) if tokens else (command, [])
+                if os.path.isabs(head) and not os.path.exists(head):
+                    print(f"MISSING {event}: {head}")
                     missing += 1
                     entry_ok = False
+                for tok in rest:
+                    if os.path.isabs(tok) and not os.path.exists(tok):
+                        print(f"MISSING {event}: {tok} (in command)")
+                        missing += 1
+                        entry_ok = False
+
                 for arg in str_args:
                     if os.path.isabs(arg) and not os.path.exists(arg):
                         print(f"MISSING {event}: {arg} (args)")

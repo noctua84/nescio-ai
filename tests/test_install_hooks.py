@@ -875,6 +875,13 @@ class VenvInterpreterGuardTest(unittest.TestCase):
             self._patch_sys(_base_executable=deep)
             self.assertEqual(self.install._resolve_hook_interpreter()[0], base_exe)
 
+            # (c) a python inside a *different* venv, outside sys.prefix: only
+            # the pyvenv.cfg check can catch this one — the sys.prefix filter
+            # does not apply, since it is not under our sys.prefix at all.
+            _, other_venv_exe = self._fake_venv(root / "other")
+            self._patch_sys(_base_executable=other_venv_exe)
+            self.assertEqual(self.install._resolve_hook_interpreter()[0], base_exe)
+
     def test_nothing_resolvable_returns_none_with_note(self):
         for missing in ("", None):
             with self.subTest(base_executable=missing), \
@@ -890,6 +897,34 @@ class VenvInterpreterGuardTest(unittest.TestCase):
                 self.assertIsNone(interpreter)
                 self.assertIn(venv_exe, note)
                 self.assertIn("system Python", note)
+
+    def test_relative_base_executable_candidate_is_rejected(self):
+        # A relative sys._base_executable that happens to resolve against the
+        # current working directory must not be wired verbatim — a candidate
+        # only counts when it is absolute (_wire_command_hook promises an
+        # install-time resolved *absolute* path).
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            venv, venv_exe = self._fake_venv(root)
+            base, base_exe = self._fake_base(root)
+            relative = Path("relative_base") / (
+                "python.exe" if os.name == "nt" else "python"
+            )
+            self._touch(root / relative)
+
+            original_cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                self._patch_sys(prefix=str(venv), base_prefix=str(base),
+                                executable=venv_exe, _base_executable=str(relative))
+
+                interpreter, note = self.install._resolve_hook_interpreter()
+            finally:
+                # Restore before the TemporaryDirectory cleanup below runs —
+                # Windows refuses to rmdir a directory that is still the cwd.
+                os.chdir(original_cwd)
+
+            self.assertEqual(interpreter, base_exe)
 
     # --- wiring from a venv ---------------------------------------------
 
@@ -1097,6 +1132,37 @@ class CheckHooksTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("OK Stop: echo hi", out)
 
+    def test_native_shape_command_with_existing_script_is_ok(self):
+        # Claude Code's own hook shape: the whole command line in `command`,
+        # no `args` key. This must not be existence-checked as one path.
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / "hooks" / "x.py"
+            script.parent.mkdir()
+            script.write_text("# stub\n", encoding="utf-8")
+            command = f"{sys.executable} {script}"
+            settings = Path(d) / "settings.json"
+            self._write(settings, {
+                "PreToolUse": [{"hooks": [{"type": "command", "command": command}]}],
+            })
+
+            rc, out = self._run(settings)
+            self.assertEqual(rc, 0)
+            self.assertIn(f"OK PreToolUse: {command}", out)
+
+    def test_native_shape_command_with_missing_script_token_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            gone = str(Path(d) / "hooks" / "gone.py")
+            command = f"{sys.executable} {gone}"
+            settings = Path(d) / "settings.json"
+            self._write(settings, {
+                "PreToolUse": [{"hooks": [{"type": "command", "command": command}]}],
+            })
+
+            rc, out = self._run(settings)
+            self.assertEqual(rc, 1)
+            self.assertIn(f"MISSING PreToolUse: {gone} (in command)", out)
+            self.assertIn("1 missing hook path(s)", out)
+
     def test_malformed_json_returns_1(self):
         with tempfile.TemporaryDirectory() as d:
             settings = Path(d) / "settings.json"
@@ -1111,7 +1177,10 @@ class CheckHooksTest(unittest.TestCase):
             settings = Path(d) / "settings.json"
             settings.write_text(json.dumps({"hooks": {
                 "Stop": "not a list",
-                "SessionStart": [None, {"hooks": "nope"}, {"hooks": [None, {"command": 3}]}],
+                "SessionStart": [
+                    None, {"hooks": "nope"}, {"hooks": [None, {"command": 3}]},
+                    {"hooks": 5}, {"hooks": True},
+                ],
             }}), encoding="utf-8")
 
             rc, out = self._run(settings)
