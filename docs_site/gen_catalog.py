@@ -200,6 +200,7 @@ SKILL_GROUPS: list[tuple[str, list[str]]] = [
         [
             "code-navigation",
             "create-adr",
+            "publish-adrs",
             "modular-design",
             "layered-api-design",
             "handle-pr-comments",

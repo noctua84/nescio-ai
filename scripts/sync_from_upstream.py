@@ -247,6 +247,7 @@ FRAMEWORK_PATHS = [
     "serena.mcp.example.json",
     "CLAUDE.local.md.example",
     "scrub-terms.local.example",
+    "adr-publish.toml.example",
 ]
 
 
