@@ -99,17 +99,37 @@ How we know the entire plan is complete
 ### Complexity Classification
 
 Every task must carry a `Complexity` tier. This is your estimate — the
-orchestrator routes to the right builder variant from it and does not reclassify:
+orchestrator routes to the right builder variant from it and does not reclassify.
+
+**Classify on reasoning load, never on diff size.** Line count is the most
+tempting metric and the most misleading: a mechanical rename across eight files
+can run 400 lines and need no judgment at all, while a 30-line change to a state
+machine can hinge on a design decision. A task is not `complex` because it is
+long, and not `simple` because it is short.
 
 | Tier | When to use |
 |---|---|
-| `simple` | Mechanical — no design judgment, no ambiguity, under 50 lines, well-understood pattern |
-| `standard` | Moderate — some judgment required, 50–200 lines, one or two design decisions |
-| `complex` | High reasoning load — architecture decisions, cross-system impact, significant ambiguity |
+| `simple` | Mechanical and unambiguous — the pattern to copy already exists and is named in the task, there is no decision to make, and there is one obvious way to do it |
+| `standard` | Some judgment — one or two *local* decisions, an existing pattern needs adapting rather than copied, or the change spans a couple of modules |
+| `complex` | Design judgment — an architectural decision, cross-system impact, genuine ambiguity about what correct means, or a new pattern with no precedent in the codebase |
 
-When in doubt between two tiers, choose the higher one. If a `simple` task turns
-out to be complex at execution time, `builder-simple` returns `BLOCKED` — that is
-the correct outcome, not a classification failure.
+The deciding question: **does this task require a decision that the plan and the
+surrounding code have not already settled?** No → `simple`. Yes, and the decision
+is local to one module → `standard`. Yes, and it is architectural or crosses a
+system boundary → `complex`.
+
+When in doubt between two tiers, choose the **lower** one. This is deliberate and
+it inverts the usual instinct: all three tiers carry an identical contract — same
+method, same mandatory verification, same output block — and differ only in which
+model runs them, so over-tiering buys no extra rigour, only a higher price for
+the same behaviour. Mis-tiering downward is also self-correcting and cheap: the
+implementer returns `BLOCKED` naming what proved harder, and the orchestrator
+escalates one tier. That is the designed path, not a classification failure.
+Mis-tiering upward is invisible and never corrected — nothing ever reports that
+Opus was unnecessary.
+
+Do not inflate a tier to signal that a task matters, and do not use `complex` to
+mean "get this right". Every tier is held to the same verification bar.
 
 ### Maximise Parallelism
 - One task = one module/concern = 1-3 files
