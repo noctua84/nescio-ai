@@ -193,7 +193,11 @@ class DeletionMirroringTest(_ThemedFixtureTestCase):
         self.assertTrue((self.dst / "agents" / "cato.md").exists(), "fixture sanity")
 
         rc, out, err = _run_main(
-            ["--upstream", str(self.up), "--dest", str(self.dst), "--apply"]
+            # --allow-deletes: this test's whole subject is that a genuine
+            # upstream deletion is mirrored onto the themed file, so it must
+            # authorise the deletion the gate would otherwise refuse.
+            ["--upstream", str(self.up), "--dest", str(self.dst),
+             "--apply", "--allow-deletes"]
         )
 
         self.assertEqual(rc, 0, err)

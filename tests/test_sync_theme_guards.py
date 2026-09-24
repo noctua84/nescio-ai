@@ -300,7 +300,12 @@ class SyncThemeGuardsTest(unittest.TestCase):
 
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
+            # --allow-deletes: this fixture's plan deletes the nine untouched
+            # philosopher charters, and the deletion gate now refuses without it.
+            # The subject here is the desync *warning*, not the gate, so the test
+            # authorises the deletions in order to reach what it asserts on.
+            rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst),
+                           "--apply", "--allow-deletes"])
 
         self.assertEqual(rc, 0)
         self.assertIn("planner.md", err.getvalue())

@@ -250,9 +250,25 @@ copies just the framework files across.
   python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
   python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --diff     # dry run + per-file content diff
   python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
+  python scripts/sync_from_upstream.py --upstream ... --apply --allow-deletes   # perform, deletions authorised
   ```
 
   Review the diff, then commit it in your instance like any other change.
+
+- **Deletions need an explicit opt-in.** Additions and updates apply freely, but
+  `--apply` refuses (exit 2, nothing written) when the plan deletes anything from
+  your instance unless you pass `--allow-deletes`. Deletions are the only
+  irreversible part of a sync: an added or updated file is recoverable from
+  upstream by definition, while a deleted instance file may be untracked or
+  gitignored and exist nowhere else. The plan therefore reports deletions in
+  their own section with a count, and says how many of them git could not restore
+  — on a real instance that number is the difference between "annoying" and
+  "gone", and it is why reading the dry run is not enough on its own.
+
+  The dry run is never gated; it is how you review the list before authorising
+  it. There is deliberately no interactive prompt: a prompt makes the exit status
+  depend on whether stdin is a terminal, and can block indefinitely when the tool
+  is called programmatically.
 
 - **Your memory stays private.** It lives only in your instance's own remote —
   the sync never reads or writes it, and you never push framework changes back to
