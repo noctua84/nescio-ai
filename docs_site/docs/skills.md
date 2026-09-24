@@ -3,7 +3,7 @@
 
 # Skills
 
-Nescio ships 35 skills in `skills/`. Each one is a directory holding a
+Nescio ships 36 skills in `skills/`. Each one is a directory holding a
 `SKILL.md` whose YAML frontmatter declares a `name`, a `description`, and
 whether the skill is `user-invocable`. Skills are loaded on demand, and the
 `description` is what that decision is made against, so it is reproduced
@@ -20,7 +20,7 @@ Skill names are identifiers, and are set in mono throughout.
 | Detection and incident response | `detection-rule`, `incident-response-plan`, `ir-playbook` |
 | Compliance frameworks | `compliance-gap-analysis`, `iso27001-isms`, `soc2-report`, `pci-dss-assessment`, `hipaa-assessment` |
 | AI and prompt engineering | `llm-application-architecture`, `rag-system-design`, `agent-evaluation`, `prompt-engineering-guide`, `prompt-evaluation-harness`, `prompt-testing-plan` |
-| Development workflow | `code-navigation`, `create-adr`, `modular-design`, `layered-api-design`, `handle-pr-comments`, `dependency-pr-ci-fix`, `gh-milestones-projects`, `repo-hygiene`, `adopt-config` |
+| Development workflow | `code-navigation`, `create-adr`, `publish-adrs`, `modular-design`, `layered-api-design`, `handle-pr-comments`, `dependency-pr-ci-fix`, `gh-milestones-projects`, `repo-hygiene`, `adopt-config` |
 
 ## Security engineering
 
@@ -201,6 +201,12 @@ Use when locating, reading, or editing code — finding where a symbol is define
 Use when recording an architecture decision, proposing an architectural change, or checking whether a proposed change conflicts with an existing decision. Writes an ADR in this brain's lightweight format and reconciles it against every existing ADR. Triggers on "create ADR", "architecture decision record", "document this decision", "does this conflict with an existing ADR".
 
 [`skills/create-adr/SKILL.md`](https://github.com/noctua84/nescio-ai/blob/main/skills/create-adr/SKILL.md)
+
+### `publish-adrs`
+
+Publish the allowlisted, implemented ADRs from memory/repo/*/adr/ into a documentation repository as transformed copies, with a generated index. Use when an ADR graduates to accepted/as-built, when an ADR body changed, or when preparing a docs repo for outside readers. Triggers on "publish ADRs", "sync ADRs to the docs repo", "update the documentation ADRs".
+
+[`skills/publish-adrs/SKILL.md`](https://github.com/noctua84/nescio-ai/blob/main/skills/publish-adrs/SKILL.md)
 
 ### `modular-design`
 

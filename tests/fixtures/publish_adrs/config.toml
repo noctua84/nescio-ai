@@ -1,0 +1,18 @@
+[target]
+github = "acme/docs-repo"
+path_env = "ACME_DOCS_PATH"
+adr_root = "adr"
+reserved_from = 1000
+template = "skills/create-adr/adr-template.md"
+
+[repos.alpha]
+github = "acme/alpha"
+brain_dirs = ["alpha", "alpha-old"]
+
+[repos.beta]
+github = "acme/beta"
+brain_dirs = ["beta"]
+
+[publish]
+"alpha" = ["0002-thing.md", "0009-later.md"]
+"beta" = ["0001-b.md", "unnumbered-note.md"]

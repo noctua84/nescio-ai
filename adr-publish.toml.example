@@ -1,0 +1,34 @@
+# ADR publisher config — copy to `adr-publish.toml` (committed; it IS your
+# curation) and fill in. `python scripts/publish_adrs.py` reads it.
+#
+# Publishes an allowlisted subset of memory/repo/<dir>/adr/*.md into a
+# documentation repository as transformed copies: brain frontmatter and
+# brain-only links are replaced, an index is generated, un-listed copies are
+# removed. Only list decisions that are actually implemented.
+
+[target]
+github = "your-org/your-docs-repo"     # the docs checkout's origin URL must contain this
+path_env = "YOUR_DOCS_PATH"            # env var holding the local checkout path
+adr_root = "adr"                       # folder inside the docs repo
+reserved_from = 1000                   # numbers >= this are authored in the docs repo; never touched
+template = "skills/create-adr/adr-template.md"   # brain-relative; copied to <adr_root>/TEMPLATE.md
+
+# One [repos.<slug>] per folder under <adr_root>. `brain_dirs` lists the
+# memory/repo/ directories that feed it — more than one when the brain grew
+# two names for one repository.
+[repos.widget-service]
+github = "your-org/widget-service"
+brain_dirs = ["widget-service", "widget-service-old-name"]
+
+[repos.web]
+github = "your-org/web"
+brain_dirs = ["web"]
+
+# Allowlist keyed by brain dir. Keep excluded files as comments with the
+# reason, so the next reader does not re-litigate them.
+[publish]
+"widget-service" = [
+  "0001-example-decision.md",
+  # "0002-not-yet-built.md"  -- proposed; nothing on main implements it
+]
+"web" = ["0001-another-decision.md"]
