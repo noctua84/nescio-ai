@@ -88,6 +88,28 @@ def iter_files(root: Path):
 
 
 def main() -> int:
+    # Ensure both streams can emit the glyphs this report contains, under a
+    # Windows cp1252 console or pipe. Without it a single unencodable character
+    # in a WARN snippet raises UnicodeEncodeError mid-report — and because the
+    # WARN loop prints *before* the FAIL block, a benign arrow or CJK character
+    # in some unrelated file aborts the run and hides every secret finding that
+    # came after it. The traceback then exits 1, which is also this script's
+    # "found forbidden content" status, so a caller cannot tell a crash from a
+    # real leak — and CI's `scrub` job goes red looking like one.
+    #
+    # stderr is guarded too: `load_custom_terms` reports a bad regex there and
+    # interpolates the operator's own pattern, which is exactly the kind of
+    # string that may not be cp1252-representable.
+    #
+    # Same guard as `harvest_nudge.py`, `promote_learnings.py`,
+    # `assess_repo_readiness.py`, `wiki_index.py`, `mark_adopted.py` and
+    # `repo_hygiene_apply.py`; pinned by `tests/test_console_encoding_guard.py`.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     custom = load_custom_terms()
     fails: list[tuple[str, Path, int, str]] = []
     warns: list[tuple[str, Path, int, str]] = []
