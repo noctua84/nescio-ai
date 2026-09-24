@@ -113,10 +113,15 @@ long, and not `simple` because it is short.
 | `standard` | Some judgment — one or two *local* decisions, an existing pattern needs adapting rather than copied, or the change spans a couple of modules |
 | `complex` | Design judgment — an architectural decision, cross-system impact, genuine ambiguity about what correct means, or a new pattern with no precedent in the codebase |
 
-The deciding question: **does this task require a decision that the plan and the
-surrounding code have not already settled?** No → `simple`. Yes, and the decision
-is local to one module → `standard`. Yes, and it is architectural or crosses a
-system boundary → `complex`.
+The deciding question: **does this task require a decision that the plan, the
+Discovery Brief and the surrounding code have not already settled?** No →
+`simple`. Yes, and the decision is local to one module → `standard`. Yes, and it
+is architectural or crosses a system boundary → `complex`.
+
+The Discovery Brief is worth consulting before classifying, not only before
+planning: a task whose decisions the brief has already settled is cheaper to
+classify *and* cheaper to execute, and reading it first is what keeps a
+broad-but-mechanical task from being tiered up out of caution.
 
 When in doubt between two tiers, choose the **lower** one. This is deliberate and
 it inverts the usual instinct: all three tiers carry an identical contract — same
