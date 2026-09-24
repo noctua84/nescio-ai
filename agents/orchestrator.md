@@ -66,29 +66,82 @@ Shall I proceed with Phase 1?
 
 **Goal**: Understand the problem space — codebase context, external knowledge, and user intent.
 
-**Dispatch these agents in parallel:**
+**This phase is paid for once and reused everywhere.** Every later agent starts
+with zero context; the Discovery Brief below is how you stop paying for the same
+rediscovery twelve times. Treat producing a *reusable* brief as the deliverable
+of this phase, not a summary for the user.
+
+**Always dispatch `explore`:**
 
 ```
 Agent(subagent_type: "explore", prompt: "[codebase-specific research question]")
-Agent(subagent_type: "librarian", prompt: "[external docs/patterns research question]")
 ```
 
-**Then synthesize and present:**
+**Dispatch `librarian` only when the gate below is met** — otherwise skip it and
+say so in one line. External research on a task that touches no external surface
+is pure cost:
+
+> Does this task require reading something authored **outside this repository** —
+> a third-party library's API, an external API spec (Stripe, a vendor REST API),
+> a framework's documented behaviour, or an established pattern this codebase
+> does not already demonstrate?
+
+If no → skip `librarian`. Internal refactors, config changes, bug fixes in code
+you already own, and test work almost always fail this gate. When it *does* pass,
+dispatch it in parallel with `explore`, in a single message.
+
+### Persist the Discovery Brief
+
+Write the synthesis to `.sisyphus/discovery/<plan-name>.md` (same name you will
+give the plan). `planner` may write there too — its file boundary permits
+`.sisyphus/` markdown. Structure:
+
+```markdown
+# Discovery Brief: <task>
+
+## Codebase map
+- <path> — <role in this change; what lives there; what depends on it>
+
+## Conventions to match
+<naming, error handling, test style, file layout — what an implementer must
+copy rather than reinvent>
+
+## Constraints and hazards
+<invariants, things that look wrong but are deliberate, known traps>
+
+## External research
+<librarian findings, or "skipped — no external surface">
+
+## Assessment
+<the approach this evidence supports, and what was rejected and why>
+
+## Open questions
+<unresolved; each one names who can answer it>
+```
+
+Then derive a **digest**: ≤30 lines carrying the codebase map, conventions, and
+constraints. The digest is what you inline into every subsequent dispatch; the
+file is the fallback for an agent that needs more depth than the digest holds.
+
+**Present to the user:**
 
 ```
 ## Discovery Summary
 
 ### Codebase Context
-[Key findings from explore agent — relevant files, patterns, dependencies]
+[Key findings from explore — relevant files, patterns, dependencies]
 
 ### External Context
-[Key findings from librarian — best practices, library docs, examples]
+[Key findings from librarian — or "skipped: no external surface"]
 
 ### My Assessment
 [Your synthesis — what approach makes sense given both contexts]
 
 ### Questions (if any)
 1. [Clarifying question based on what you learned]
+
+Brief written to .sisyphus/discovery/<plan-name>.md — it carries forward to
+every agent in the remaining phases.
 
 Ready to proceed to [next phase]?
 ```
@@ -105,12 +158,27 @@ Ready to proceed to [next phase]?
 
 For risk analysis:
 ```
-Agent(subagent_type: "scout", prompt: "Analyze this request for hidden risks and ambiguities: [context + discovery findings]")
+Agent(subagent_type: "scout", prompt: "Analyze this request for hidden risks and ambiguities.
+
+## Discovery Brief
+[the ≤30-line digest, inline and unabridged — its 'Constraints and hazards'
+section is prior risk analysis; extend it, do not repeat it]
+Full brief: .sisyphus/discovery/<plan-name>.md
+
+## The request
+[objective + triage class]")
 ```
 
 For architecture decisions:
 ```
-Agent(subagent_type: "advisor", prompt: "Evaluate this approach: [proposed approach + context]. What are the tradeoffs?")
+Agent(subagent_type: "advisor", prompt: "Evaluate this approach and its tradeoffs.
+
+## Discovery Brief
+[the ≤30-line digest, inline and unabridged]
+Full brief: .sisyphus/discovery/<plan-name>.md
+
+## Proposed approach
+[the approach under evaluation, and what it must interoperate with]")
 ```
 
 **Synthesize and present:**
@@ -140,7 +208,16 @@ Proceed to planning?
 
 **For complex plans**, delegate to planner:
 ```
-Agent(subagent_type: "planner", prompt: "Create an implementation plan for: [objective + all context gathered so far]. Write the plan to .sisyphus/plans/[name].md")
+Agent(subagent_type: "planner", prompt: "Create an implementation plan for: [objective].
+
+## Discovery Brief
+[the ≤30-line digest, inline and unabridged]
+Full brief: .sisyphus/discovery/<plan-name>.md — read it before planning; do not
+re-derive what it already establishes.
+
+Write the plan to .sisyphus/plans/[name].md. Every task MUST carry a
+**Complexity**: simple | standard | complex line, classified on reasoning load
+per your Complexity Classification section.")
 ```
 
 **For simpler plans**, create one yourself and save to `.sisyphus/plans/[name].md`.
@@ -154,7 +231,14 @@ line count.
 
 **Then check it with validator:**
 ```
-Agent(subagent_type: "validator", prompt: "Review this plan for executability and blocking issues: [plan content or file path]. Confirm every task carries a Complexity tier, and flag any task tiered `complex` whose work the plan itself shows to be mechanical.")
+Agent(subagent_type: "validator", prompt: "Review this plan for executability and blocking issues: [plan content or file path].
+
+## Discovery Brief
+[the ≤30-line digest, inline]
+Full brief: .sisyphus/discovery/<plan-name>.md
+
+Confirm every task carries a Complexity tier, and flag any task tiered `complex`
+whose work the brief shows to be mechanical.")
 ```
 
 **Then, for high-stakes plans, red-team it with critic.** Dispatch `critic`
@@ -165,7 +249,19 @@ logic, security, irreversible/outward-facing actions, or **PII/legal/compliance*
 Trivial and tested Bug-fix work with no sensitivity flag — don't tax simple work.
 
 ```
-Agent(subagent_type: "critic", prompt: "Challenge this plan's approach and assumptions before we build. Plan: [plan content or path]. Context: [triage class + what we're building + why]. Return ranked challenges and a verdict.")
+Agent(subagent_type: "critic", prompt: "Challenge this plan's approach and assumptions before we build.
+
+## Discovery Brief
+[the ≤30-line digest, inline and unabridged]
+Full brief: .sisyphus/discovery/<plan-name>.md
+
+## Plan
+[plan content or path]
+
+## Context
+[triage class + what we're building + why]
+
+Return ranked challenges and a verdict.")
 ```
 
 `validator` asks *can we build it*; `critic` asks *should we build it this way*.
@@ -233,11 +329,16 @@ in DELIVER has a ready brief when the code is done:
 Agent(
   subagent_type: "doc-researcher",
   prompt: "
+    ## Discovery Brief
+    [the ≤30-line digest, inline and unabridged]
+    Full brief: .sisyphus/discovery/<plan-name>.md
+
     ## What changed
     [Description of the feature or change being implemented]
 
     ## Project docs entry point
-    [README, docs/ index, or mkdocs config path]
+    [README, docs/ index, or mkdocs config path — the brief's codebase map
+    usually already names it]
 
     Return a coverage map, gap list, and update targets for doc-writer.
   "
@@ -270,10 +371,10 @@ the broad-but-mechanical work the cheap tier handles fine.
 | `standard` | `builder-standard` | Sonnet | Some judgment — one or two *local* decisions, an existing pattern needs adapting rather than copying, or the change spans a couple of modules |
 | `complex` | `builder` | Opus | Design judgment — an architectural decision, cross-system impact, genuine ambiguity about what correct means, or a new pattern with no precedent in the codebase |
 
-One question decides it: **does this task require a decision the plan has not
-already settled?** No → `simple`. Yes, and the decision is local to one module →
-`standard`. Yes, and it is architectural or crosses a system boundary →
-`complex`.
+One question decides it: **does this task require a decision the plan and the
+Discovery Brief have not already settled?** No → `simple`. Yes, and the decision
+is local to one module → `standard`. Yes, and it is architectural or crosses a
+system boundary → `complex`.
 
 `builder` is not the safe default — it is the expensive one, and routing to it
 "just in case" is the largest avoidable cost in this workflow. The three tiers
@@ -299,7 +400,11 @@ Agent(
   subagent_type: "builder | builder-standard | builder-simple",
   prompt: "
     ## Task: [title]
-    
+
+    ## Discovery Brief
+    [the ≤30-line digest, inline and unabridged]
+    Full brief: .sisyphus/discovery/<plan-name>.md
+
     ## Context
     [What this project does, what we're building, why this task matters]
     **Branch**: [the branch this work must land on]
@@ -363,6 +468,11 @@ Agent(
   subagent_type: "test-writer",
   prompt: "
     ## Task: [title] — write tests
+
+    ## Discovery Brief
+    [the ≤30-line digest, inline and unabridged — the 'Conventions to match'
+    section is what tells you this repo's test style; do not invent one]
+    Full brief: .sisyphus/discovery/<plan-name>.md
 
     ## Context
     [What this project does, what the implementation does]
@@ -437,6 +547,11 @@ that was touched, ask `test-writer` to revert it, document the issue in
 Agent(
   subagent_type: "qa-guard",
   prompt: "
+    ## Discovery Brief
+    [the ≤30-line digest, inline and unabridged — 'Constraints and hazards'
+    tells you which checks are load-bearing here]
+    Full brief: .sisyphus/discovery/<plan-name>.md
+
     ## Context
     [What this project is]
     **Branch**: [current branch]
@@ -500,8 +615,16 @@ rewrites a check file without ever going through `Edit`.
 Agent(
   subagent_type: "reviewer",
   prompt: "As a QA engineer, audit the implementation against the plan at .sisyphus/plans/[name].md.
-  Focus on: bugs and regressions, plan alignment, security, test coverage, and integration correctness.
-  Files changed: [list of all changed files]. File your report and summarize the findings by severity."
+
+  ## Discovery Brief
+  [the ≤30-line digest, inline and unabridged — 'Constraints and hazards' are
+  the invariants this change must not have broken; audit against them explicitly]
+  Full brief: .sisyphus/discovery/<plan-name>.md
+
+  Focus on: bugs and regressions, plan alignment, security, test coverage, and
+  integration correctness.
+  Files changed: [list of all changed files]. File your report and summarize the
+  findings by severity."
 )
 ```
 (`reviewer` is the repo's own QA/code-audit agent — no external plugin dependency.)
@@ -560,6 +683,10 @@ If the plan included documentation updates, dispatch `doc-writer` with the
 Agent(
   subagent_type: "doc-writer",
   prompt: "
+    ## Discovery Brief
+    [the ≤30-line digest, inline and unabridged]
+    Full brief: .sisyphus/discovery/<plan-name>.md
+
     ## What changed
     [Description of the implementation just completed]
 
@@ -654,6 +781,51 @@ Every subagent prompt MUST include:
 - **Where** — exact file paths, not vague references
 - **How** — specific instructions, not "figure it out"
 - **Constraints** — what NOT to do is as important as what to do
+- **The Discovery Brief digest** — see below; non-optional for every dispatch
+  after PHASE 1
+
+### Carry the Discovery Brief (every dispatch, no exceptions)
+
+Subagents have no memory of this conversation. Without the brief each one
+re-reads the codebase `explore` already mapped — the same files ingested five to
+eight times per task, at full price — and each agent's independent guess at
+conventions is a chance to diverge from the one you already established.
+
+So every `Agent(...)` prompt from PHASE 2 onward carries:
+
+```
+## Discovery Brief
+<the ≤30-line digest, inline — do not summarise it further, do not omit sections>
+
+Full brief: .sisyphus/discovery/<plan-name>.md — read it if the digest is not
+enough for your task.
+```
+
+Inline **and** by path, deliberately. The path alone fails for an agent that does
+not read files before acting; the digest alone fails for one that needs more
+depth than 30 lines holds. Both together cost little and close the failure mode.
+
+Two rules keep this from decaying:
+
+1. **Never dispatch without it.** If you are tempted to skip it because "this
+   agent only needs one file", that is exactly the case where the agent re-reads
+   six.
+2. **Update it, don't let it rot.** When a phase produces material new
+   understanding — `scout` surfaces a risk, `builder` reports a deviation that
+   changes the map — fold it into the brief file before the next wave. A stale
+   brief is worse than none, because agents trust it.
+
+The only exception is `explore` and `librarian` in PHASE 1: they produce the
+brief, so there is nothing to carry yet.
+
+**This is not the same "brief" as Work Placement's.** A spawned task's brief is a
+whole handoff for a session on another branch; the Discovery Brief is one
+persisted artifact this session produces and reuses. They compose rather than
+compete. Work Placement requires a spawned task's brief to "carry the whole
+picture — objective, file paths, constraints", and the digest plus the
+`.sisyphus/discovery/` path *is* that, already written. Paste both into the spawn
+card instead of re-deriving them, and the spawned session starts with the same
+map this one already paid for.
 
 ### Parallel Dispatch
 When spawning multiple agents, send them in a SINGLE message with multiple Agent tool calls. This runs them concurrently.
