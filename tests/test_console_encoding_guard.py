@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import mark_adopted  # noqa: E402
 import repo_hygiene_apply  # noqa: E402
+import scrub_check  # noqa: E402
 import wiki_index  # noqa: E402
 
 from hooks import harvest_nudge, record_stop as rs  # noqa: E402
@@ -142,6 +143,75 @@ class HarvestNudgeGuardTest(unittest.TestCase):
         text = emitted.decode("utf-8")
         self.assertIn("WITHOUT stamping", text)
         self.assertIn(self.UNENCODABLE, text)
+
+
+class ScrubCheckGuardTest(unittest.TestCase):
+    """`scrub_check.py` echoes file content it does not control, so it needs this most.
+
+    Its failure mode differs from the three entry points above. They crash on an
+    early, side-effect-free error path — noisy but harmless. `scrub_check` crashes
+    *mid-report*, and because the WARN loop prints before the FAIL block, one
+    unencodable character in a benign warning aborts the run before any secret
+    finding is shown. The traceback then exits 1, which is also the script's own
+    "found forbidden content" status, so a caller cannot distinguish a crash from
+    a real leak — and the `scrub` CI job goes red looking like one.
+
+    Fixtures are assembled by concatenation so this file does not itself contain
+    the patterns it triggers: `scrub_check.py` scans the whole repo and
+    `SKIP_FILES` does not exempt `tests/`.
+    """
+
+    # WARNs as "windows home path" and carries U+2192, which cp1252 cannot encode.
+    WARN_LINE = "C:" + "/Users/" + "someone" + "/" + "notes.txt" + "  \u2192 see docs"
+    # An AWS access key id shape, built at runtime so the literal lands in no file.
+    FAIL_LINE = "aws_access_key_id = " + "AKIA" + "A" * 16
+
+    def _run(self, root: Path):
+        """Run main() over `root` with a genuinely cp1252-backed stdout."""
+        stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        with mock.patch.object(scrub_check, "ROOT", root), \
+                mock.patch.object(sys, "stdout", stream), \
+                mock.patch.object(sys, "argv", ["scrub_check.py", str(root)]):
+            rc = scrub_check.main()
+        stream.flush()
+        return rc, stream.buffer.getvalue().decode("utf-8"), stream
+
+    def test_main_reconfigures_stdout_before_printing(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a-warns.md").write_text(self.WARN_LINE + "\n", encoding="utf-8")
+            rc, out, stream = self._run(Path(d))
+        self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
+        self.assertEqual(rc, 0, "WARN-only is still a clean run")
+        self.assertIn("a-warns.md", out, "the warning must be reported, not swallowed")
+        # The arrow that would have raised is now encodable on this stream.
+        self.assertIn("\u2192", out)
+
+    def test_a_secret_finding_survives_a_warning_printed_before_it(self):
+        # The masking case. Unguarded, the WARN print raises and the FAIL block
+        # never runs: a real secret goes unreported while the exit code still
+        # reads "found something". Both files must appear, and in that order.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "a-warns.md").write_text(self.WARN_LINE + "\n", encoding="utf-8")
+            (Path(d) / "b-leaks.md").write_text(self.FAIL_LINE + "\n", encoding="utf-8")
+            rc, out, _stream = self._run(Path(d))
+        self.assertEqual(rc, 1, "a FAIL match must exit 1")
+        self.assertIn("FAIL", out, "the FAIL block must be reached")
+        self.assertIn("b-leaks.md", out, "the secret finding must survive the warning before it")
+        self.assertIn("a-warns.md", out, "and the warning must still be reported")
+        self.assertLess(
+            out.index("a-warns.md"), out.index("b-leaks.md"),
+            "WARN is printed before FAIL; if that ever changes, this test's "
+            "premise about which finding gets masked needs re-examining",
+        )
+
+    def test_a_clean_tree_reports_clean(self):
+        # Guards against the fixture itself being wrong: if WARN_LINE stopped
+        # matching, the two tests above would pass vacuously on an empty report.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "fine.md").write_text("nothing to see here\n", encoding="utf-8")
+            rc, out, _stream = self._run(Path(d))
+        self.assertEqual(rc, 0)
+        self.assertIn("scrub: clean", out)
 
 
 if __name__ == "__main__":
