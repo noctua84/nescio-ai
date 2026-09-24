@@ -50,16 +50,22 @@ ALLOWED_MODELS = {
 }
 
 # Claude Code accepts a `[1m]` suffix on a model name to request the 1M-context
-# variant. It is part of the model *identifier*, not a separate setting: running
-# an agent whose frontmatter declares `model: claude-sonnet-5[1m]` and reading
-# `claude -p --output-format json` reports `"contextWindow": 1000000` under a
-# `claude-sonnet-5[1m]` modelUsage key whose `canonicalModel` is `claude-sonnet-5`.
+# variant. In the CLI it is part of the model *identifier*, not a separate
+# setting: running an agent whose frontmatter declares `model: claude-sonnet-5[1m]`
+# and reading `claude -p --output-format json` reports `"contextWindow": 1000000`
+# under a `claude-sonnet-5[1m]` modelUsage key whose `canonicalModel` is
+# `claude-sonnet-5` (CLI 2.1.274).
 #
-# An agent's frontmatter `model` overrides `settings.json`'s `model` wholesale,
-# suffix included — so a `"model": "opus[1m]"` in settings is dead config for any
-# session running an agent that names its own model, and every agent here does.
-# An agent that needs the long window must therefore carry the suffix itself.
-# See CONTRIBUTING.md.
+# In the CLI an agent's frontmatter `model` also overrides `settings.json`'s
+# `model` wholesale, suffix included — so a `"model": "opus[1m]"` in settings is
+# dead config for any session running an agent that names its own model, and
+# every agent here does. An agent that needs the long window must therefore carry
+# the suffix itself.
+#
+# The Claude Desktop app reportedly ignores the frontmatter and takes the window
+# from its own settings, so the suffix is a CLI-surface fix. That half is operator
+# report, not something measured here. See CONTRIBUTING.md for both claims and
+# their provenance.
 #
 # No agent in this repo carries it by default: the coordinator is the one that
 # accumulates every subagent report in a single context and so the one that can
