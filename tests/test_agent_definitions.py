@@ -49,6 +49,37 @@ ALLOWED_MODELS = {
     "claude-haiku-4-5",
 }
 
+# Claude Code accepts a `[1m]` suffix on a model name to request the 1M-context
+# variant. It is part of the model *identifier*, not a separate setting: running
+# an agent whose frontmatter declares `model: claude-sonnet-5[1m]` and reading
+# `claude -p --output-format json` reports `"contextWindow": 1000000` under a
+# `claude-sonnet-5[1m]` modelUsage key whose `canonicalModel` is `claude-sonnet-5`.
+#
+# An agent's frontmatter `model` overrides `settings.json`'s `model` wholesale,
+# suffix included — so a `"model": "opus[1m]"` in settings is dead config for any
+# session running an agent that names its own model, and every agent here does.
+# An agent that needs the long window must therefore carry the suffix itself.
+# See CONTRIBUTING.md.
+#
+# No agent in this repo carries it by default: the coordinator is the one that
+# accumulates every subagent report in a single context and so the one that can
+# exceed 200K, but whether a given deployment needs that is an instance decision,
+# and the 1M variant is priced differently. Instances opt in rather than
+# inheriting it.
+CONTEXT_WINDOW_SUFFIX = "[1m]"
+
+
+def _base_model(model: object) -> object:
+    """Strip an optional context-window suffix, leaving anything else untouched.
+
+    One occurrence only, so a doubled or miscased suffix survives the strip and
+    fails the allowlist check rather than being quietly forgiven.
+    """
+    if isinstance(model, str) and model.endswith(CONTEXT_WINDOW_SUFFIX):
+        return model[: -len(CONTEXT_WINDOW_SUFFIX)]
+    return model
+
+
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 # A dispatch declaration in the orchestrator charter. The value may name
@@ -345,7 +376,11 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
         for path in paths:
             with self.subTest(agent=path.stem):
                 model = self._frontmatter(path).get("model")
-                self.assertIn(model, ALLOWED_MODELS, f"{path.name}: unexpected model {model!r}")
+                self.assertIn(
+                    _base_model(model),
+                    ALLOWED_MODELS,
+                    f"{path.name}: unexpected model {model!r}",
+                )
 
     def test_description_is_substantive(self):
         paths = _agent_files()
@@ -356,6 +391,56 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
                 self.assertGreaterEqual(
                     len(description), 40, f"{path.name}: description too thin to route on"
                 )
+
+
+class TestContextWindowSuffix(unittest.TestCase):
+    """The allowlist accepts an optional context-window suffix, and only a valid one.
+
+    No agent in this repo carries the suffix, so `test_model_is_allowed` cannot
+    exercise the stripping on its own — it would pass identically if `_base_model`
+    were a no-op or if it stripped greedily. These pin the rule directly.
+
+    Deliberately *not* asserted here: which agents may carry the suffix. That is
+    an instance decision (see `CONTEXT_WINDOW_SUFFIX`), so a tree-state assertion
+    belongs with the mechanism that records the instance's choice, not here — a
+    bare "no agent may carry it" test would be correct for this repo and wrong
+    for every instance that opts in, and this file is overlaid onto those
+    instances by `sync_from_upstream.py`.
+    """
+
+    def test_strips_exactly_one_suffix(self):
+        self.assertEqual(_base_model("claude-opus-5[1m]"), "claude-opus-5")
+        self.assertEqual(_base_model("claude-sonnet-5[1m]"), "claude-sonnet-5")
+
+    def test_an_unsuffixed_model_passes_through_unchanged(self):
+        for model in ALLOWED_MODELS:
+            with self.subTest(model=model):
+                self.assertEqual(_base_model(model), model)
+
+    def test_a_suffixed_allowed_model_is_accepted(self):
+        for model in sorted(ALLOWED_MODELS):
+            with self.subTest(model=model):
+                self.assertIn(_base_model(model + CONTEXT_WINDOW_SUFFIX), ALLOWED_MODELS)
+
+    def test_a_malformed_suffix_is_not_forgiven(self):
+        # Each of these must still fail the allowlist, so a typo in a charter is
+        # caught rather than silently downgrading the agent to the default window.
+        for bad in (
+            "claude-opus-5[1m][1m]",  # doubled — only one strip
+            "claude-opus-5[1M]",  # miscased — the suffix is literal
+            "claude-opus-5[2m]",  # no such variant
+            "claude-opus-5x[1m]",  # unknown base model
+            "claude-opus-5 [1m]",  # stray space, would not parse as one token
+            "[1m]claude-opus-5",  # prefix, not suffix
+        ):
+            with self.subTest(model=bad):
+                self.assertNotIn(_base_model(bad), ALLOWED_MODELS)
+
+    def test_a_missing_model_is_not_treated_as_valid(self):
+        # `_base_model` must not turn a missing frontmatter key into something
+        # that passes an `assertIn` against a set of strings.
+        self.assertIsNone(_base_model(None))
+        self.assertNotIn(_base_model(None), ALLOWED_MODELS)
 
 
 class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
