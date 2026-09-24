@@ -161,9 +161,17 @@ near-miss renders **dest, after applying**.
 Usage:
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai            # dry run
     python scripts/sync_from_upstream.py --upstream /path/to/nescio-ai --apply    # perform
+    python scripts/sync_from_upstream.py --upstream ... --apply --allow-deletes   # + deletions
 
 A themed instance needs no follow-up re-render: the sync materialises upstream
 into the instance's own theme and writes themed bytes directly.
+
+``--apply`` refuses (exit 2, nothing written) when the plan contains deletions
+unless ``--allow-deletes`` is given or the operator confirms at a prompt; with no
+terminal to prompt on it simply refuses. Deletions are the only irreversible part
+of a sync — an added or updated file is recoverable from upstream, a deleted
+instance file may be untracked or gitignored and exist nowhere else. Additions
+and updates are never gated. See ``_deletion_gate``.
 """
 
 from __future__ import annotations
@@ -174,6 +182,7 @@ import difflib
 import filecmp
 import io
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -367,6 +376,150 @@ def apply_sync(upstream: Path, dest: Path, paths=FRAMEWORK_PATHS):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, target)
     return added, updated, deleted
+
+
+# How many deletion paths the gate lists inline before deferring to the dry run.
+# The gate's job is to make the operator stop, not to replace the plan; a
+# four-figure deletion list printed at a prompt is unreadable and gets scrolled
+# past, which is worse than a short list plus a pointer to the full one.
+_GATE_LIST_CAP = 40
+
+
+def _untracked_deletions(dest: Path, deleted) -> set[str] | None:
+    """Which of `deleted` git could not restore, or ``None`` when undeterminable.
+
+    One ``git ls-files`` call for the whole set rather than a per-file query: a
+    plan can name thousands of deletions and this runs on the interactive path.
+
+    Returns ``None`` — not an empty set — when git is missing, `dest` is not a
+    repository, or the call fails. ``None`` means *unknown*, and the caller must
+    never present unknown as "all recoverable". The three-valued return is
+    deliberate and is the same discipline `_theme_common` applies with
+    `UNTERMINATED_FENCE`: two different facts must not share one sentinel.
+
+    **Informational only — this never changes the gate's decision.** A tracked
+    file is still deleted, still needs the opt-in, and `git checkout` restoring
+    it is a step the operator has to know to take. What the annotation does is
+    distinguish "annoying but recoverable" from "gone", which is the difference
+    that decides whether a four-figure deletion count is worth reading.
+    """
+    if not deleted:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--"],
+            cwd=str(dest),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    # Compare POSIX-normalised: `plan_sync` builds paths with `Path(entry) / rel`,
+    # so they are backslash-separated on Windows, while `git ls-files` always
+    # emits forward slashes.
+    tracked = {line.strip().replace("\\", "/") for line in proc.stdout.splitlines()}
+    tracked.discard("")
+    return {rel for rel in deleted if rel.replace("\\", "/") not in tracked}
+
+
+def _describe_deletions(dest: Path, deleted, *, already_done: bool,
+                        cap: int | None = None, stream=None) -> None:
+    """Print the deletion section: count, list, recoverability annotation.
+
+    Shared by the gate and `_report` so the two cannot drift in wording — an
+    operator who read one and then sees the other should recognise it.
+
+    `cap` truncates the list and says how many were withheld. The gate caps
+    because a four-figure list at a prompt gets scrolled past; `_report` passes
+    ``None`` and prints every path, because the dry run *is* the thing the
+    operator is meant to read. Capping the report would hide exactly what this
+    change exists to surface.
+
+    The item lines keep the `  - delete  <path>` shape `_report` has always
+    printed. That is load-bearing rather than cosmetic:
+    `tests/test_sync_theme_mirroring.py` recovers the plan from stdout with
+    `^  - delete\\s+(.+)$`, since `_report` only prints the triple and never
+    returns it.
+    """
+    out = stream if stream is not None else sys.stdout
+    verb = "were deleted from" if already_done else "would be DELETED from"
+    print(f"\n{len(deleted)} file(s) {verb} this instance:", file=out)
+    shown = deleted if cap is None else deleted[:cap]
+    for rel in shown:
+        print(f"  - delete  {rel}", file=out)
+    if cap is not None and len(deleted) > cap:
+        print(f"  ... and {len(deleted) - cap} more "
+              "(run without --apply for the full list)", file=out)
+
+    untracked = _untracked_deletions(dest, deleted)
+    if untracked is None:
+        print("  ! could not determine which of these git could restore "
+              "(git unavailable, or this is not a repository) — assume none", file=out)
+    elif untracked:
+        print(f"  ! {len(untracked)} of these are NOT tracked by git here, so git "
+              "cannot restore them. Gitignored and instance-authored content under "
+              "a framework path lands in this bucket.", file=out)
+    else:
+        print("  (all of these are tracked by git here, so `git checkout` can "
+              "restore them — the opt-in is still required)", file=out)
+
+
+def _deletion_gate(args, dest: Path, deleted) -> bool:
+    """May this run delete instance files? Prints why, and asks when it can.
+
+    Deletions are the only genuinely destructive part of a sync. An added or
+    updated file is recoverable from upstream by definition — upstream is where it
+    came from. A deleted instance file may exist nowhere else: it can be
+    untracked, gitignored, or instance-authored content that happens to live under
+    a framework path.
+
+    Before this gate the only thing standing between an operator and those
+    deletions was reading the dry-run plan carefully, which made the tool's safety
+    contingent on the plan being quiet enough to read. Every source of plan noise
+    therefore became a safety issue, and they kept appearing: CRLF made two thirds
+    of an "updated" list phantom, the philosopher theme made 25 entries phantom
+    permanently for every themed instance, and an allowlist change needs two passes
+    so a pass can under-report. Each was fixable one source at a time; none of them
+    protects against the next source nobody has found yet.
+
+    This guards the destructive side directly instead, which bounds the blast
+    radius of *any* future legibility bug for a fraction of the code of a
+    per-source fix. It is defence in depth, not a replacement for fixing noise.
+
+    **No interactive prompt, deliberately.** #138 floated "prompt otherwise,
+    refuse when not a TTY" alongside the flag. Rejecting the prompt: `isatty()`
+    makes the exit status environment-dependent — 2 in CI, a blocking `input()`
+    at a terminal — so the same invocation means two different things, and any
+    programmatic caller (the test suite included) can hang indefinitely on a
+    read nobody is servicing. A tool whose contract is "exit 2 means refused"
+    should not have a branch that never returns. The habit-skipping concern the
+    prompt was meant to address is better served by making the refusal loud: it
+    prints the count, the paths, and how many of them git cannot restore, so the
+    operator sees the consequence before re-running with the flag.
+
+    Returns True to proceed. Refusals print to stderr and return False; `main`
+    turns that into exit 2 after writing nothing, matching the house convention
+    that 2 means "refused / could not honour the claim".
+    """
+    if not deleted:
+        return True
+    if getattr(args, "allow_deletes", False):
+        print(f"--allow-deletes given: {len(deleted)} deletion(s) pre-authorised.")
+        return True
+
+    print(f"error: this sync would delete {len(deleted)} file(s) from {dest}, and "
+          "deletions need an explicit opt-in.", file=sys.stderr)
+    # Everything about a refusal goes to stderr, so a caller piping stdout gets
+    # nothing that looks like a successful plan.
+    _describe_deletions(dest, deleted, already_done=False,
+                        cap=_GATE_LIST_CAP, stream=sys.stderr)
+    print("no files were changed. Review the dry run (drop --apply) for the full "
+          "list, then re-run with --allow-deletes once it is what you expect.",
+          file=sys.stderr)
+    return False
 
 
 def _self_was_replaced(dest: Path, added, updated) -> bool:
@@ -609,9 +762,19 @@ def _report(args, dest: Path, added, updated, deleted, diff_text: str, *,
 
     verb = "synced" if args.apply else "would change"
     print(f"{verb}: {len(added)} added, {len(updated)} updated, {len(deleted)} deleted")
-    for label, items in (("+ add   ", added), ("~ update", updated), ("- delete", deleted)):
+    for label, items in (("+ add   ", added), ("~ update", updated)):
         for it in items:
             print(f"  {label}  {it}")
+
+    # Deletions get their own headed section rather than sitting as the third of
+    # three equally-weighted lists. The headline above keeps its exact shape —
+    # several tests assert on "N added, N updated, N deleted" — but the list that
+    # follows is no longer visually interchangeable with the other two, because it
+    # is not: an added or updated file is recoverable from upstream, a deleted
+    # instance file may exist nowhere else. Printed in full, never capped; this is
+    # the dry run's whole purpose.
+    if deleted:
+        _describe_deletions(dest, deleted, already_done=bool(args.apply))
 
     if diff_text:
         print()
@@ -644,6 +807,12 @@ def main(argv=None) -> int:
     ap.add_argument("--diff", action="store_true",
                     help="after the summary, show per-file content diffs so you can see "
                          "exactly WHAT would change (works with dry run; no --apply needed)")
+    ap.add_argument("--allow-deletes", action="store_true",
+                    help="authorise --apply to delete instance files that upstream no "
+                         "longer has. Without it, a plan containing deletions prompts on "
+                         "a terminal and refuses (exit 2, nothing written) when stdin is "
+                         "not one. Deletions are the only irreversible part of a sync; "
+                         "additions and updates are never gated.")
     args = ap.parse_args(argv)
 
     upstream = args.upstream.resolve()
@@ -848,6 +1017,11 @@ def main(argv=None) -> int:
         added, updated, deleted = plan_sync(upstream, dest)
         diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
         if args.apply:
+            # Gate before the first write, not after: `apply_sync` unlinks
+            # everything in `deleted` before it copies anything, so a refusal
+            # that came later would already have destroyed the files.
+            if not _deletion_gate(args, dest, deleted):
+                return 2
             apply_sync(upstream, dest)
         return _report(args, dest, added, updated, deleted, diff_text, theme=None)
 
@@ -1006,6 +1180,12 @@ def main(argv=None) -> int:
                 diff_text += (f"net-new: {len(added)} added file(s), {len(updated)} updated, "
                               f"{len(deleted)} deleted\n")
         if args.apply:
+            # One gate over the *combined* triple, before either half writes. Two
+            # gates would let the agents half delete and then refuse on the other
+            # half, leaving a partially-synced tree — and the operator's answer
+            # would have been about a different list than the one acted on.
+            if not _deletion_gate(args, dest, deleted):
+                return 2
             apply_sync(root, dest, paths=["agents"])
             apply_sync(upstream, dest, paths=others)
 
