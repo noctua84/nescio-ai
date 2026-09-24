@@ -73,6 +73,58 @@ The crew diagram (`brand/make_diagrams.py`, inlined on the docs homepage) is
 **not** regenerated from `agents/`. It draws a fixed subset and is a known
 manual follow-up, tracked separately — adding an agent does not update it.
 
+### Choosing an agent's model
+
+The allowlist is `ALLOWED_MODELS` in `tests/test_agent_definitions.py`. Anything
+not in it fails `test_model_is_allowed` on the required `tests` job.
+
+**In the CLI, an agent's frontmatter `model` overrides `settings.json`'s
+`model` wholesale.** Not merged, not defaulted — replaced. Measured on Claude
+Code CLI 2.1.274: an agent declaring `model: claude-haiku-4-5`, run against a
+`settings.json` declaring `"model": "opus[1m]"`, reported only Haiku keys in the
+`modelUsage` block of `claude -p --output-format json`. Every agent in this repo
+declares its own `model`, so in that surface a settings-level `model` controls
+none of them.
+
+The consequence is a silent failure worth naming explicitly, because it looks
+like configuration and behaves like nothing: setting `"model": "opus[1m]"` in
+`settings.json` and assuming a CLI session gets a 1M window. It does not. The
+window stays at the default, long sessions hit the limit and fail rather than
+extend, and no error points at the mismatch.
+
+**The Claude Desktop app does not behave this way.** Reported by an operator and
+not re-verified here: Desktop takes the context window from the app's own
+settings regardless of what an agent's frontmatter declares, so an app configured
+for 1M gets 1M whatever the charter says. Configure the two surfaces separately.
+The practical consequence is that a frontmatter suffix is a **CLI** fix — if long
+sessions hit the limit in Desktop, the app setting is what needs changing, and
+editing charters will appear to do nothing at all.
+
+Establish which surface you actually care about before changing either one. The
+measurement above covers the CLI only; Desktop's precedence has not been probed
+in this repo, so that half of the claim rests on operator experience rather than
+a reproducible check.
+
+**In the CLI, the context window is part of the model identifier.** Claude Code
+accepts a `[1m]` suffix — `model: claude-opus-5[1m]` — to request the 1M-context
+variant. It is not a separate setting, so it travels with the frontmatter and is
+overridden along with it. Verified the same way and on the same version: an agent
+declaring `claude-sonnet-5[1m]` reports `"contextWindow": 1000000` under a
+`claude-sonnet-5[1m]` `modelUsage` key whose `canonicalModel` is
+`claude-sonnet-5`.
+
+`ALLOWED_MODELS` accepts a suffixed name via `CONTEXT_WINDOW_SUFFIX`; the strip
+removes exactly one occurrence, so `[1m][1m]`, `[1M]` and `[2m]` all still fail
+rather than quietly downgrading the agent to the default window.
+
+No agent here carries the suffix by default. The coordinator is the one that can
+exceed 200K — it accumulates every subagent report in a single context, while
+subagents each get a fresh, small one — but whether a given deployment needs
+that is an instance decision, and the 1M variant is priced differently. If you
+add it to an agent in this repo, say why in the PR; if you are an instance
+overlaying this one, expect `sync_from_upstream.py` to revert it, since `agents/`
+is a framework path, and expect it to have no effect at all in Desktop.
+
 ## Adding a skill
 
 Create `skills/<name>/SKILL.md` with `name` / `description` frontmatter and the
