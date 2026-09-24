@@ -64,7 +64,7 @@ durable repo memory:
    file's basename, the repo it belongs to, how many records it holds, and the
    newest record in it (`max_ts`). Keep the printed path — step 5's
    `manifest.json` and step 7's `receipt.json` land in the same directory, and
-   step 8 stamps *from* `read.json`.
+   step 10 stamps *from* `read.json`.
 
    Capturing both together is the whole point: it is what makes the later stamp
    **verifiable**. The watermark asserts "these records were read and
@@ -88,7 +88,7 @@ durable repo memory:
 
    `begin_harvest.py` prints the read-time, the `read.json` path, and a per-repo
    trail/record count. A subject repo with no trails is reported rather than
-   refused — that just means step 8 will stamp nothing for it.
+   refused — that just means step 10 will stamp nothing for it.
 
    Then, for the declared subject, list and read every producer under
    [Sources](#sources): the auto-memory store, the learning-trail JSONL (when
@@ -165,7 +165,7 @@ durable repo memory:
    `memory/learning-log.md`, and prints one summary line per note it wrote or
    updated. It does **no git work at all** — nothing is staged, and freshly
    created notes are left untracked. Keep that summary: it is the list of paths
-   you stage by hand in step 10. Do not restate its logic here; read
+   you stage by hand in step 9. Do not restate its logic here; read
    `scripts/promote_learnings.py` and `scripts/_learning_common.py` for the
    details.
 
@@ -173,69 +173,24 @@ durable repo memory:
    the manifest (same `eval/learnings/<timestamp>/` dir), recording what this
    pass actually did: the manifest it consumed, how many notes were promoted and
    skipped, the targets written, and when. The summary names its path. The
-   receipt is an **audit record, not a gate** — you can hand it to step 8 with
+   receipt is an **audit record, not a gate** — you can hand it to step 10 with
    `--receipt`, where it produces warnings (notably when `promoted` is 0), but it
    can never block a correctly-declared stamp. `--dry-run` names where the
    receipt would go and writes none.
-8. **Stamp the harvest watermark (scoped to the trails step 1 declared).** Run,
-   passing the `read.json` written by `begin_harvest.py` — and, optionally, the
-   receipt from step 7:
-
-   ```bash
-   python scripts/mark_harvested.py --read eval/learnings/<timestamp>/read.json \
-       --receipt eval/learnings/<timestamp>/receipt.json
-   ```
-
-   The manifest **is** the scope. Only the trails `read.json` names are stamped;
-   nothing else under `<config>/learning-trail/` is touched. Each of those trails
-   gets its **own `max_ts`** — the newest record that file actually held when
-   step 1 opened it — never a single global read-time. That is what makes the
-   watermark honest: it can never claim coverage past the last record actually
-   seen in that file.
-
-   The Stop-hook pruner reads that watermark: records at or below it count as
-   reviewed and age out on the normal retention window, and records above it are
-   never pruned.
-
-   Three properties worth knowing:
-
-   - **Never backward.** A trail whose watermark is already newer than this
-     manifest's `max_ts` is left alone and reported as unchanged. A concurrent or
-     later harvest cannot be undone by an older one replaying its manifest.
-   - **Records written after the read stay protected.** Anything appended to a
-     trail after step 1 scanned it — including this harvest session's own turns —
-     is above that trail's `max_ts` and therefore above the watermark. Deriving
-     the stamp from what was actually read, rather than from `now()`, is what
-     prevents the harvest from marking its own in-flight exhaust as harvested and
-     aging it out undistilled.
-   - **A trail with nothing in it is skipped, not stamped.** An entry whose
-     `max_ts` is null (no parseable records), or whose file has since vanished,
-     is reported as skipped. There is no timestamp that was honestly read, so
-     none is written.
-
-   **Refusing to stamp is not failing.** If `--read` is missing, unreadable, not
-   valid JSON, of an unknown schema version, or names no usable trail, the script
-   writes **nothing**, prints a banner with the exact re-run command, drops a
-   `.harvest-pending-<repo_key>` marker in the learning-trail dir (keyed per repo, so
-   one repo's unfinished harvest never clears or masks another's) — and **returns 0**. That
-   is deliberate: this step runs after the notes, the ledger, `MEMORY.md` and
-   `readiness.md` are already on disk, so exiting non-zero here would strand you
-   with memory changed and the trail unstamped. `hooks/harvest_nudge.py` surfaces
-   the pending marker at the next session start so the unfinished harvest is
-   remembered; a successful stamp clears it. If you see that banner, fix the
-   manifest path and re-run the command it prints — do not hand-edit watermarks.
-
-   Warnings from `--receipt` (an unreadable receipt, a wrong schema version, or
-   `promoted: 0`) are printed and then the stamp proceeds. Reading a trail and
-   deciding to keep nothing is a legitimate harvest; the trail was still read.
-
-   If a *previous* stamp went wide and marked trails that were never read, see
-   [Reverting a bad stamp](#reverting-a-bad-stamp).
-9. **Update readiness.** For each repo touched, update
+8. **Update readiness.** For each repo touched, update
    `memory/repo/<repo>/readiness.md` — bump `last_updated`, refresh the rolling
    outcome summary, and add or clear recurring flags. This is the tracked
    summary Phase 3's autonomy dial reads; see `memory/repo/myrepo/readiness.md`
    for the format. Stage only that file.
+
+   **The count lags one cycle, deliberately.** `compute_readiness.py` derives
+   *Un-harvested turns* from each trail's watermark (`scripts/compute_readiness.py:186-262`),
+   and the watermark is not stamped until step 10 — after delivery. So the number
+   committed here still counts the records this harvest has just read. It
+   self-corrects at the next harvest. That is accepted rather than fixed because
+   readiness is **derived and regenerable** — re-running the script reproduces it
+   exactly — whereas the promoted notes are not, and gating the stamp on delivery
+   is what protects them. Do not read the committed count as current truth.
 
    The **counted** part — turns, sessions, span, recency, un-harvested turns,
    promotion density — is computed for you. Preview it, then write it:
@@ -252,7 +207,7 @@ durable repo memory:
    judgement stays yours: the outcome summary and the recurring flags are not
    derivable from the trail, so the script emits an explicit *insufficient
    data* note there instead of a number, and you write the real thing by hand.
-10. **Deliver via branch + PR — never commit the harvest on `main`.** The
+9. **Deliver via branch + PR — never commit the harvest on `main`.** The
     harvest itself has to run in the **main checkout**, not a worktree:
     `~/.claude/memory` symlinks to `<repo>/memory` and
     `scripts/promote_learnings.py` writes relative to the repo root, so promoted
@@ -264,7 +219,7 @@ durable repo memory:
     git switch -c chore/memory-harvest-<YYYY-MM-DD>
 
     # the exact paths this harvest wrote: every note from step 7's summary, the
-    # ledger, and the readiness file from step 9 — enumerated, never globbed
+    # ledger, and the readiness file from step 8 — enumerated, never globbed
     PATHS="memory/<scope>/<note>.md memory/learning-log.md memory/repo/<repo>/readiness.md"
 
     # stage by path. This step is on you: promote_learnings.py stages nothing,
@@ -296,6 +251,115 @@ durable repo memory:
     parallel harvests open). Commit promptly and switch back to `main`. If
     another session has staged work sitting in the index, do **not** sweep it
     into your commit; commit only the paths this harvest wrote.
+
+10. **Stamp the harvest watermark (scoped to the trails step 1 declared) — the
+    last step, deliberately after delivery.** Run, passing the `read.json`
+    written by `begin_harvest.py` — and, optionally, the receipt from step 7:
+
+    ```bash
+    python scripts/mark_harvested.py --read eval/learnings/<timestamp>/read.json \
+        --receipt eval/learnings/<timestamp>/receipt.json
+    ```
+
+    **Why the stamp is last.** It is the only irreversible step in the flow, and
+    the only one whose effect is invisible: once a trail's watermark advances,
+    those records read as reviewed, `hooks/harvest_nudge.py` stops counting them,
+    and no later harvest re-surfaces them. Step 9 is the only step that makes the
+    distillation *durable* — and it is also the likeliest to fail, because it
+    needs the network, `gh` auth, and an index clean enough to switch branches in
+    a clone shared with concurrent sessions.
+
+    Stamping before delivery therefore fails in the worst possible direction:
+    memory promoted, watermark advanced, PR never opened, and the source records
+    now marked read so nothing re-surfaces them. Not hypothetical — a downstream
+    instance lost an entire harvest this way and could only recover it from the
+    unmerged branch, precisely because the watermarks had already marked the
+    source records reviewed. With the stamp last, a failed delivery leaves the
+    records un-harvested, the count nudge keeps firing, and re-running the flow
+    is self-correcting rather than lossy. No new marker, script or detection
+    logic is needed to get that property; the ordering supplies it.
+
+    The residual gap is a PR that is opened and then never merged — the stamp has
+    happened and the notes live only on an unmerged branch. That is still much
+    better than an unpushed branch, because an open PR is a durable, queryable
+    artifact and `repo-hygiene` already protects open-PR branches from deletion.
+    If that residue proves real in practice, the fix is a SessionStart check that
+    reads recent `eval/learnings/*/receipt.json` and verifies each promoted target
+    exists under `memory/`: read-only, self-clearing once the PR merges, no new
+    state. Keep it bounded to recent receipts and use a filesystem check rather
+    than `git cat-file`, since trusting `origin/main` needs a fetch and network
+    in a SessionStart hook is worse than the problem it solves.
+
+    The manifest **is** the scope. Only the trails `read.json` names are stamped;
+    nothing else under `<config>/learning-trail/` is touched. Each of those trails
+    gets its **own `max_ts`** — the newest record that file actually held when
+    step 1 opened it — never a single global read-time. That is what makes the
+    watermark honest: it can never claim coverage past the last record actually
+    seen in that file.
+
+    The Stop-hook pruner is *designed* to read that watermark — records at or below
+    it count as reviewed and age out on the normal retention window, records above
+    it are never pruned — **but it does not currently run at all.** `_maybe_prune`
+    returns immediately unless a trail exceeds `PRUNE_SIZE_THRESHOLD`
+    (`hooks/record_stop.py:46`, 1,000,000 bytes), and the largest trail on a
+    well-used machine is a fraction of that, so `prune_lines`, the 14-day
+    `RETENTION_DAYS` window and the `ABSOLUTE_MAX_RECORDS` ceiling are all
+    unreachable in production. Trails only ever grow.
+
+    The watermark is therefore honest about coverage but carries no pruning
+    consequence yet. Do not "fix" that by lowering the threshold without auditing
+    the watermark population first. Any watermark written by the pre-fix global
+    `--all` path claims coverage of records that were never read, and those are
+    mechanically detectable: many files sharing one mtime, each holding a single
+    shared read-time rather than that trail's own `max_ts`. Sweep them with
+    `scripts/unmark_harvested.py` before touching the threshold — enabling
+    pruning against them permanently deletes un-distilled exhaust, and the
+    records are gone the moment the pruner runs. Expect a sweep to re-expose a
+    large backlog at once and the SessionStart nudge to start firing across many
+    repos; that is the honest state surfacing, not a regression.
+
+    Three properties worth knowing:
+
+    - **Never backward.** A trail whose watermark is already newer than this
+      manifest's `max_ts` is left alone and reported as unchanged. A concurrent or
+      later harvest cannot be undone by an older one replaying its manifest.
+    - **Records written after the read stay protected.** Anything appended to a
+      trail after step 1 scanned it — including this harvest session's own turns —
+      is above that trail's `max_ts` and therefore above the watermark. Deriving
+      the stamp from what was actually read, rather than from `now()`, is what
+      prevents the harvest from marking its own in-flight exhaust as harvested and
+      aging it out undistilled.
+    - **A trail with nothing in it is skipped, not stamped.** An entry whose
+      `max_ts` is null (no parseable records), or whose file has since vanished,
+      is reported as skipped. There is no timestamp that was honestly read, so
+      none is written.
+
+    **Refusing to stamp is not failing.** If `--read` is missing, unreadable, not
+    valid JSON, of an unknown schema version, or names no usable trail, the script
+    writes **nothing**, prints a banner with the exact re-run command, drops a
+    `.harvest-pending-<repo_key>` marker in the learning-trail dir (keyed per repo, so
+    one repo's unfinished harvest never clears or masks another's) — and **returns 0**. That
+    is deliberate: by the time this step runs the notes, the ledger, `MEMORY.md`
+    and `readiness.md` are not merely on disk but **delivered** — on a branch with
+    a PR open — so exiting non-zero here would strand you with memory published
+    and the trail unstamped. `hooks/harvest_nudge.py` surfaces
+    the pending marker at the next session start so the unfinished harvest is
+    remembered; a successful stamp clears it. If you see that banner, fix the
+    manifest path and re-run the command it prints — do not hand-edit watermarks.
+
+    Do not ignore that banner. With the stamp deferred to last, an unstamped
+    harvest has already published its notes, so the records it read still look
+    un-harvested: the next pass re-reads the same exhaust and can promote reworded
+    near-duplicates of notes that already exist, which the body-hash dedup will
+    not catch because the hash is of the nomination as submitted. Re-running the
+    printed command is cheap and closes the hole.
+
+    Warnings from `--receipt` (an unreadable receipt, a wrong schema version, or
+    `promoted: 0`) are printed and then the stamp proceeds. Reading a trail and
+    deciding to keep nothing is a legitimate harvest; the trail was still read.
+
+    If a *previous* stamp went wide and marked trails that were never read, see
+    [Reverting a bad stamp](#reverting-a-bad-stamp).
 
 ## Reverting a bad stamp
 
@@ -329,18 +393,26 @@ dry run before adding `--apply`.
 - Never `git add -A`. The promote tool stages nothing at all, so staging is the
   operator's job: `git add` each promoted note (from the tool's summary), the
   ledger, and the readiness update — every one of them by path.
-- Never commit the harvest on `main` — deliver through a branch + PR (step 10).
+- Never commit the harvest on `main` — deliver through a branch + PR (step 9).
   `main` is unprotected, and an unreviewed memory note silently misleads every
   future session that reads it.
+- Never stamp the watermark (step 10) before the PR is open (step 9). The stamp
+  is irreversible and invisible; delivery is what makes the notes durable. Doing
+  them in the other order has already cost a downstream instance an entire
+  harvest — see step 10's *Why the stamp is last*. If delivery fails, stop with
+  the trail unstamped: that is recoverable, and the nudge will keep pointing at
+  it.
 - Never widen the harvest's scope after the read. Scope is declared once, at
   step 1, by `scripts/begin_harvest.py` — including any `--repo` you pass — and
-  step 8 stamps that declaration and nothing else. If you realise mid-pass that
+  step 10 stamps that declaration and nothing else. If you realise mid-pass that
   another repo's trail belongs in scope, open a fresh harvest for it rather than
   editing `read.json` to cover records you never opened.
 - Do not delete the source stores unless the user asks; harvesting is a copy +
-  curate, not a move. The learning-trail pruning is harvest-aware: within each
-  trail, records newer than that trail's watermark (stamped by step 8's
-  `scripts/mark_harvested.py`, at that trail's own `max_ts`) are never pruned;
-  the 14-day retention window applies only to already-harvested records. A trail
-  no harvest ever declared has no watermark at all, so age alone never prunes it
-  — only the absolute record ceiling does.
+  curate, not a move. The learning-trail pruning is harvest-aware *by design*:
+  within each trail, records newer than that trail's watermark (stamped by step
+  10's `scripts/mark_harvested.py`, at that trail's own `max_ts`) are never
+  pruned, and the 14-day retention window applies only to already-harvested
+  records. In practice the pruner never fires — it is gated on a 1 MB trail size
+  that no trail reaches (see the note at step 10) — so nothing is
+  pruned today, harvested or not. Do not assume pruning has cleaned anything up,
+  and do not treat a trail's size as evidence that retention is working.
