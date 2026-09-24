@@ -97,7 +97,7 @@ def mark_trails_harvested(trails: list[Path], *, now: datetime | None = None) ->
 # ---- the pending marker --------------------------------------------------
 
 
-def pending_name(git_root_path: str) -> str:
+def pending_name(repo_root_path: str) -> str:
     """Marker filename for one repository.
 
     The marker was originally a single machine-global ``.harvest-pending``, which
@@ -108,16 +108,30 @@ def pending_name(git_root_path: str) -> str:
     sat there every *other* repo on the machine got A's message in place of its
     own count nudge — one broken harvest blinding ~100 repos' reminders.
 
-    Keying on ``repo_key(git_root)`` — the identity `record_stop.py` already uses
-    for the trail filename — makes each repo's reminder independent. The priority
-    of pending-over-count is deliberate and kept; only the scope changes.
+    Keying on ``repo_key(<repo root>)`` makes each repo's reminder independent.
+    The priority of pending-over-count is deliberate and kept; only the scope
+    changes.
+
+    It must be the **repository** root, not the worktree root — i.e. element 1 of
+    ``record_stop.git_roots``, the same identity ``_trail_scope.current_repo_root``
+    uses. Keying on the worktree is finer than per-repo and strictly worse here:
+    worktrees are ephemeral (this framework's own ``repo-hygiene`` skill deletes
+    them), so a marker written in worktree A is orphaned the moment A is removed,
+    and neither a later session in the main checkout nor ``clear_pending`` from
+    another worktree can ever read or clean it. That is total silence on an
+    unfinished harvest — the one outcome this marker exists to prevent.
     """
-    return PENDING_PREFIX + rs.repo_key(git_root_path)
+    return PENDING_PREFIX + rs.repo_key(repo_root_path)
 
 
 def pending_path(cwd: str | None = None) -> Path:
-    """Path of the marker for the repo containing ``cwd`` (default: the real cwd)."""
-    return rs.trail_dir() / pending_name(rs.git_root(cwd or os.getcwd()))
+    """Path of the marker for the repo containing ``cwd`` (default: the real cwd).
+
+    Resolves through ``git_roots``' second element (the repository), so a harvest
+    opened from inside a linked worktree leaves a marker the main checkout can
+    still find after that worktree is deleted.
+    """
+    return rs.trail_dir() / pending_name(rs.git_roots(cwd or os.getcwd())[1])
 
 
 def write_pending(reason: str, read_arg: str | None, *, cwd: str | None = None) -> None:

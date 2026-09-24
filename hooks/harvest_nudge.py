@@ -49,15 +49,18 @@ NUDGE_SOURCES = {"startup", "resume"}
 PENDING_PREFIX = ".harvest-pending-"
 
 
-def pending_name(git_root_path: str) -> str:
-    """Marker filename for one repository — see mark_harvested.pending_name."""
-    return PENDING_PREFIX + rs.repo_key(git_root_path)
+def pending_name(repo_root_path: str) -> str:
+    """Marker filename for one repository — see mark_harvested.pending_name.
+
+    Takes the **repository** root, not the worktree root, matching the writer.
+    """
+    return PENDING_PREFIX + rs.repo_key(repo_root_path)
 
 
-def pending_message(git_root_path: str) -> str:
+def pending_message(repo_root_path: str) -> str:
     """Reminder about *this repo's* unstamped harvest, or '' when there is none.
 
-    Scoped to ``git_root_path``: a marker left by some other repo on this machine
+    Scoped to ``repo_root_path``: a marker left by some other repo on this machine
     is none of this session's business, and must not displace the count nudge the
     current repo would otherwise have got.
 
@@ -67,7 +70,7 @@ def pending_message(git_root_path: str) -> str:
     otherwise have got.
     """
     try:
-        path = rs.trail_dir() / pending_name(git_root_path)
+        path = rs.trail_dir() / pending_name(repo_root_path)
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return ""
@@ -116,15 +119,32 @@ def nudge(event: dict) -> str:
     if event.get("source") not in NUDGE_SOURCES:
         return ""
     cwd = str(event.get("cwd") or os.getcwd())
-    # One git_root call serves both the marker name and the trail name — they are
-    # the same repo identity, and the hook must stay cheap.
-    root = rs.git_root(cwd)
+    # One git_roots call serves both the marker name and the trail name — they are
+    # the same repo identity, and the hook must stay cheap. Element [1] is the
+    # *repository* root, not [0] (the worktree): this is the identity
+    # `_trail_scope.current_repo_root` and `begin_harvest.py` use, so the nudge
+    # and the harvest agree about which repo is being discussed. Keying on the
+    # worktree made both halves wrong — a marker written in a worktree was
+    # orphaned when that worktree was deleted, and a session started in a fresh
+    # worktree counted only that worktree's near-empty trail, so the threshold
+    # was unreachable in exactly the worktree-driven workflow this framework
+    # mandates.
+    root = rs.git_roots(cwd)[1]
     # This repo's unfinished harvest outranks "you have records": the first is a
     # job left half-done, the second is the normal accumulation it was meant to
     # clear. Another repo's marker is not consulted at all.
     pending = pending_message(root)
     if pending:
         return pending
+    # KNOWN UNDERCOUNT: this reads only the repo's *canonical* trail, not the
+    # aggregate across its worktree trails, so the count is a lower bound and a
+    # repo whose recent work all happened in worktrees can stay below the
+    # threshold. Closing that gap means sweeping the machine-global trail dir
+    # (potentially hundreds of files on a well-used machine, with a possible `git`
+    # subprocess per unattributable trail) inside a *synchronous* SessionStart
+    # hook — a latency tax on every session start, paid for a reminder. Not worth
+    # it: the nudge is a tripwire, `begin_harvest.py` does the accurate aggregate,
+    # and the message already says "(N+)".
     trail = rs.trail_dir() / f"{rs.repo_key(root)}.jsonl"
     if not trail.exists():
         return ""

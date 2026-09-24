@@ -24,8 +24,14 @@ class HarvestNudgeTest(unittest.TestCase):
             os.environ["CLAUDE_CONFIG_DIR"] = saved
 
     def _trail_for(self, work: str) -> Path:
-        """The trail path harvest_nudge/record_stop resolve for a working dir."""
-        return rs.trail_dir() / f"{rs.repo_key(rs.git_root(work))}.jsonl"
+        """The trail path harvest_nudge resolves for a working dir.
+
+        Mirrors `nudge()`'s identity: `git_roots(...)[1]`, the *repository* root.
+        In a plain TemporaryDirectory that equals the worktree root, so every test
+        using this helper is unaffected by the distinction — which is exactly why
+        none of them caught the worktree-scoping bug. See WorktreeScopingTest.
+        """
+        return rs.trail_dir() / f"{rs.repo_key(rs.git_roots(work)[1])}.jsonl"
 
     def _seed_trail(self, work: str, *, n_unharvested: int, watermark: datetime):
         """Write a trail with a watermark and `n_unharvested` newer records."""
@@ -219,7 +225,7 @@ class HarvestNudgeTest(unittest.TestCase):
 
     def _write_marker(self, payload, work):
         """Write the marker for the repo containing ``work``; return its path."""
-        p = rs.trail_dir() / harvest_nudge.pending_name(rs.git_root(work))
+        p = rs.trail_dir() / harvest_nudge.pending_name(rs.git_roots(work)[1])
         p.write_text(
             payload if isinstance(payload, str) else json.dumps(payload),
             encoding="utf-8",
@@ -386,7 +392,7 @@ class HarvestNudgeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as cfg, tempfile.TemporaryDirectory() as work:
             saved = self._with_config(cfg)
             try:
-                root = rs.git_root(work)
+                root = rs.git_roots(work)[1]
                 self.assertEqual(
                     harvest_nudge.pending_name(root),
                     mark_harvested.pending_name(root),
@@ -415,6 +421,177 @@ class HarvestNudgeTest(unittest.TestCase):
             else:
                 os.environ["CLAUDE_HARVEST_NUDGE_THRESHOLD"] = saved_env
             importlib.reload(harvest_nudge)
+
+
+def _has_git():
+    return bool(rs._git(os.getcwd(), "--version"))
+
+
+def _init_repo(path: str) -> None:
+    """`git init` a temp repo with one commit, using repo-local identity only.
+
+    Never touches global git config. Mirrors the helper of the same name in
+    test_record_stop.py; duplicated rather than imported so this file stays
+    self-contained.
+    """
+    rs._git(path, "init", "-q")
+    rs._git(path, "config", "user.email", "test@example.invalid")
+    rs._git(path, "config", "user.name", "Test")
+    rs._git(path, "config", "commit.gpgsign", "false")
+    Path(path, "seed.txt").write_text("seed\n", encoding="utf-8")
+    rs._git(path, "add", "seed.txt")
+    rs._git(path, "commit", "-q", "-m", "seed")
+
+
+class WorktreeScopingTest(unittest.TestCase):
+    """The nudge and the pending marker key on the *repository*, not the worktree.
+
+    Every other test in this file runs in a plain TemporaryDirectory, where the
+    worktree root and the repository root are the same path — so they cannot
+    distinguish the two identities, and the whole suite passed while production
+    was keyed on the wrong one. These use a real `git worktree add`.
+
+    Both halves of the bug are covered: the count nudge read a fresh worktree's
+    own near-empty trail (threshold unreachable in a worktree-driven workflow),
+    and a pending marker written inside a worktree was orphaned when that worktree
+    was deleted — unreadable from the main checkout, uncleanable by
+    `clear_pending`, so an unfinished harvest went permanently silent.
+    """
+
+    def _with_config(self, d):
+        saved = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = d
+        return saved
+
+    def _restore_config(self, saved):
+        if saved is None:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            os.environ["CLAUDE_CONFIG_DIR"] = saved
+
+    @contextlib.contextmanager
+    def _repo_and_worktree(self):
+        """Yield ``(repo_path, worktree_path)`` for a real linked worktree."""
+        if not _has_git():
+            self.skipTest("git not available")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _init_repo(str(repo))
+            wt = Path(d) / "wt"
+            rs._git(str(repo), "worktree", "add", "-q", "-b", "side", str(wt))
+            if not (wt / "seed.txt").exists():
+                self.skipTest("git worktree add unavailable")
+            yield repo, wt
+
+    def _import_mark_harvested(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        import mark_harvested  # noqa: E402
+
+        return mark_harvested
+
+    def test_identities_actually_differ_inside_a_worktree(self):
+        # Guards the premise of every test below: if git_roots collapsed the two,
+        # these would pass vacuously and prove nothing.
+        with self._repo_and_worktree() as (repo, wt):
+            worktree_root, repo_root = rs.git_roots(str(wt))
+            self.assertEqual(Path(worktree_root).resolve(), wt.resolve())
+            self.assertEqual(Path(repo_root).resolve(), repo.resolve())
+            self.assertNotEqual(
+                rs.repo_key(worktree_root),
+                rs.repo_key(repo_root),
+                "the two identities must produce different trail/marker names",
+            )
+
+    def test_nudge_from_worktree_counts_the_repo_trail(self):
+        with self._repo_and_worktree() as (repo, wt):
+            with tempfile.TemporaryDirectory() as cfg:
+                saved = self._with_config(cfg)
+                saved_thresh = harvest_nudge.NUDGE_THRESHOLD
+                try:
+                    # Seed the repo's canonical trail, keyed on the repo root.
+                    repo_key = rs.repo_key(rs.git_roots(str(repo))[1])
+                    trail = rs.trail_dir() / f"{repo_key}.jsonl"
+                    wm = datetime(2026, 7, 1, tzinfo=timezone.utc)
+                    rs.write_watermark(rs.watermark_path(trail), wm)
+                    lines = [
+                        json.dumps({"ts": (wm + timedelta(hours=i + 1)).isoformat()})
+                        for i in range(5)
+                    ]
+                    trail.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                    harvest_nudge.NUDGE_THRESHOLD = 5
+
+                    # The worktree-keyed trail — what the buggy code looked for —
+                    # must not exist, so a pass can only come from the repo trail.
+                    wt_only = rs.trail_dir() / f"{rs.repo_key(rs.git_roots(str(wt))[0])}.jsonl"
+                    self.assertFalse(wt_only.exists())
+
+                    msg = harvest_nudge.nudge({"source": "startup", "cwd": str(wt)})
+                    self.assertIn("un-harvested", msg)
+                    self.assertIn("5", msg)
+                finally:
+                    harvest_nudge.NUDGE_THRESHOLD = saved_thresh
+                    self._restore_config(saved)
+
+    def test_marker_written_in_worktree_is_found_from_main_checkout(self):
+        mark_harvested = self._import_mark_harvested()
+        with self._repo_and_worktree() as (repo, wt):
+            with tempfile.TemporaryDirectory() as cfg:
+                saved = self._with_config(cfg)
+                try:
+                    mark_harvested.write_pending("test refusal", None, cwd=str(wt))
+
+                    # One marker, whichever side of the boundary you ask from.
+                    self.assertEqual(
+                        mark_harvested.pending_path(str(wt)),
+                        mark_harvested.pending_path(str(repo)),
+                    )
+                    # The hook duplicates the derivation rather than importing it,
+                    # so it must resolve to the same file the writer used.
+                    self.assertEqual(
+                        mark_harvested.pending_path(str(wt)),
+                        rs.trail_dir()
+                        / harvest_nudge.pending_name(rs.git_roots(str(repo))[1]),
+                    )
+                    # And a session in the main checkout actually sees the warning.
+                    msg = harvest_nudge.nudge({"source": "startup", "cwd": str(repo)})
+                    self.assertIn("WITHOUT stamping", msg)
+                    self.assertIn("test refusal", msg)
+                finally:
+                    self._restore_config(saved)
+
+    def test_marker_survives_worktree_deletion_and_can_be_cleared(self):
+        # The orphaning scenario end to end: refuse to stamp inside a worktree,
+        # delete the worktree (as repo-hygiene does), then confirm the main
+        # checkout still surfaces the warning and can clear it.
+        mark_harvested = self._import_mark_harvested()
+        with self._repo_and_worktree() as (repo, wt):
+            with tempfile.TemporaryDirectory() as cfg:
+                saved = self._with_config(cfg)
+                try:
+                    mark_harvested.write_pending("unfinished", None, cwd=str(wt))
+                    marker = mark_harvested.pending_path(str(wt))
+                    self.assertTrue(marker.exists())
+
+                    rs._git(str(repo), "worktree", "remove", "--force", str(wt))
+                    self.assertFalse(wt.exists())
+
+                    self.assertTrue(
+                        marker.exists(),
+                        "the marker must outlive the worktree it was written from",
+                    )
+                    msg = harvest_nudge.nudge({"source": "startup", "cwd": str(repo)})
+                    self.assertIn("WITHOUT stamping", msg)
+                    self.assertIn("unfinished", msg)
+
+                    mark_harvested.clear_pending(str(repo))
+                    self.assertFalse(marker.exists())
+                    self.assertEqual(
+                        harvest_nudge.nudge({"source": "startup", "cwd": str(repo)}),
+                        "",
+                    )
+                finally:
+                    self._restore_config(saved)
 
 
 if __name__ == "__main__":
