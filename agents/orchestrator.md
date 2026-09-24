@@ -145,9 +145,16 @@ Agent(subagent_type: "planner", prompt: "Create an implementation plan for: [obj
 
 **For simpler plans**, create one yourself and save to `.sisyphus/plans/[name].md`.
 
+**Whichever way the plan was produced, every task in it carries a tier.** When
+`planner` wrote it, the tiers are its estimates and you do not reclassify. When
+**you** wrote it, you owe the same `**Complexity**:` field — a self-authored plan
+full of unclassified tasks is how every task silently lands on the most expensive
+implementer. Classify with the criteria in Per-Task Dispatch (PHASE 4), not by
+line count.
+
 **Then check it with validator:**
 ```
-Agent(subagent_type: "validator", prompt: "Review this plan for executability and blocking issues: [plan content or file path]")
+Agent(subagent_type: "validator", prompt: "Review this plan for executability and blocking issues: [plan content or file path]. Confirm every task carries a Complexity tier, and flag any task tiered `complex` whose work the plan itself shows to be mechanical.")
 ```
 
 **Then, for high-stakes plans, red-team it with critic.** Dispatch `critic`
@@ -247,17 +254,45 @@ spawn it: work discovered mid-wave is by definition not what the user asked for.
 
 ### Per-Task Dispatch
 
-Select the builder variant from the task's complexity tier in the plan:
+Every task carries a tier. `planner` assigns one when it wrote the plan; **when
+you authored the plan yourself, you assign it.** An unclassified task is your own
+omission, not a licence to default upward.
 
-| Tier | Agent |
-|---|---|
-| `simple` | `builder-simple` |
-| `standard` | `builder-standard` |
-| `complex` or unclassified | `builder` |
+Classify on **reasoning load, not diff size.** Line count is a weak signal at
+best and misleading at worst: a mechanical rename across eight files can run 400
+lines and require no judgment, while a 30-line change to a state machine can
+require a design decision. Classifying by lines systematically over-tiers exactly
+the broad-but-mechanical work the cheap tier handles fine.
 
-The tier is planner's estimate — do not reclassify here. If `builder-simple`
-returns `BLOCKED` because a task proved more complex than expected, re-dispatch
-as `builder` (the task stays `simple` in the plan).
+| Tier | Agent | Model | Classify here when |
+|---|---|---|---|
+| `simple` | `builder-simple` | Haiku | Mechanical and unambiguous — the pattern to copy already exists, there is no decision to make, and there is one obvious way to do it |
+| `standard` | `builder-standard` | Sonnet | Some judgment — one or two *local* decisions, an existing pattern needs adapting rather than copying, or the change spans a couple of modules |
+| `complex` | `builder` | Opus | Design judgment — an architectural decision, cross-system impact, genuine ambiguity about what correct means, or a new pattern with no precedent in the codebase |
+
+One question decides it: **does this task require a decision the plan has not
+already settled?** No → `simple`. Yes, and the decision is local to one module →
+`standard`. Yes, and it is architectural or crosses a system boundary →
+`complex`.
+
+`builder` is not the safe default — it is the expensive one, and routing to it
+"just in case" is the largest avoidable cost in this workflow. The three tiers
+carry an **identical contract**: same method, same verification bar, same output
+block, same anti-patterns. They differ only in the model they run on. So
+over-tiering buys no additional rigour whatsoever — it buys the same behaviour at
+Opus prices. When in doubt between two tiers, choose the **lower** one; the
+escalation path below is cheap and exists precisely to catch a mis-tier.
+
+**Escalate one tier at a time.** If `builder-simple` returns `BLOCKED` because
+the task proved harder than classified, re-dispatch as `builder-standard` — not
+`builder`. Escalate again only if `standard` also blocks. Jumping straight to Opus
+on the first block discards two cheaper tiers' worth of evidence and is how a
+fleet drifts to always-Opus. The task keeps its original tier in the plan; note
+the escalation in the wave's progress update.
+
+A `BLOCKED` that names a missing **decision** is different — that goes to the
+user, not up a tier (see After Each Task, rule 4). Escalation is for "harder than
+expected", never for "underspecified".
 
 ```
 Agent(

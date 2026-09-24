@@ -86,19 +86,19 @@ Read-only architecture advisor. Deep reasoning for debugging, design decisions, 
 
 ### `builder`
 
-Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment, or work beyond the standard tier's 200-line band. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment: architectural decisions, cross-system impact, or genuine ambiguity. Same contract as the cheaper tiers, running on Opus. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
 **Model** `claude-opus-5` · [`agents/builder.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder.md)
 
 ### `builder-standard`
 
-Implementation specialist — standard tier. Moderate complexity tasks with some judgment, 50–200 lines, and one or two design decisions. Same contract as builder; runs on Sonnet. Use when the plan classifies the task as `standard`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+Implementation specialist — standard tier. Tasks needing some judgment: one or two local decisions, or an existing pattern that needs adapting rather than copying. Same contract as builder; runs on Sonnet. Use when the plan classifies the task as `standard`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
 **Model** `claude-sonnet-5` · [`agents/builder-standard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-standard.md)
 
 ### `builder-simple`
 
-Implementation specialist — simple tier. Mechanical tasks with no design judgment, no ambiguity, and under 50 lines. Same contract as builder; runs on Haiku for cost efficiency. Use when the plan classifies the task as `simple`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+Implementation specialist — simple tier. Mechanical, unambiguous tasks where the pattern to copy is already named and there is no decision to make. Same contract as builder; runs on Haiku for cost efficiency. Use when the plan classifies the task as `simple`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
 **Model** `claude-haiku-4-5` · [`agents/builder-simple.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-simple.md)
 
