@@ -109,7 +109,12 @@ class HarvestNudgeGuardTest(unittest.TestCase):
             saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
             os.environ["CLAUDE_CONFIG_DIR"] = cfg
             try:
-                marker = rs.trail_dir() / harvest_nudge.pending_name(rs.git_root(work))
+                # `git_roots(...)[1]` is the repository root — the identity
+                # `nudge()` and `mark_harvested.pending_path()` now use. In a plain
+                # TemporaryDirectory it equals the worktree root, so this test
+                # cannot distinguish them; `tests/test_harvest_nudge.py`'s
+                # WorktreeScopingTest covers that with a real linked worktree.
+                marker = rs.trail_dir() / harvest_nudge.pending_name(rs.git_roots(work)[1])
                 marker.write_text(
                     json.dumps(
                         {"reason": "read manifest not readable", "read": self.UNENCODABLE}
