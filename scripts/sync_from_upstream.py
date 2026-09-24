@@ -367,9 +367,18 @@ def plan_sync(upstream: Path, dest: Path, paths=FRAMEWORK_PATHS):
 
 
 def apply_sync(upstream: Path, dest: Path, paths=FRAMEWORK_PATHS):
-    """Perform the sync computed by :func:`plan_sync`; return the same triple."""
+    """Perform the sync computed by :func:`plan_sync`; return the same triple.
+
+    Instance-local deletions are skipped — see :func:`partition_deletions`. The
+    returned triple is the **raw** plan, matching `plan_sync`, so a caller sees
+    everything that was considered; `main` partitions separately for the gate and
+    the report. Filtering here as well as there is deliberate: `apply_sync` is
+    also called directly, and a caller who bypasses the gate must still not
+    delete content the instance owns.
+    """
     added, updated, deleted = plan_sync(upstream, dest, paths)
-    for rel in deleted:
+    act_on, _instance_local = partition_deletions(dest, deleted)
+    for rel in act_on:
         (dest / rel).unlink()
     for rel in added + updated:
         src = upstream / rel
@@ -424,6 +433,65 @@ def _untracked_deletions(dest: Path, deleted) -> set[str] | None:
     tracked = {line.strip().replace("\\", "/") for line in proc.stdout.splitlines()}
     tracked.discard("")
     return {rel for rel in deleted if rel.replace("\\", "/") not in tracked}
+
+
+def _gitignored_paths(dest: Path) -> "set[str] | None":
+    """Paths under `dest` its own `.gitignore` excludes, or ``None`` if unknown.
+
+    ``None`` means git is unavailable or `dest` is not a repository — the question
+    could not be answered. Callers must then treat *nothing* as known to be
+    instance-local and leave every deletion in the plan, so the gate still fires.
+    Treating unknown as ignorable would delete exactly the files whose
+    recoverability could not be checked, which is the one error this must not make.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--"],
+            cwd=str(dest),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
+
+
+def partition_deletions(dest: Path, deleted):
+    """Split planned deletions into ``(act on, leave alone as instance-local)``.
+
+    A path the destination's own `.gitignore` excludes is instance-owned by
+    definition — that is what ignoring it means — even when it sits under a
+    framework path. Vendor tooling writes there, the file is not in git, and
+    upstream has never heard of it. So "upstream no longer has this" carries no
+    information at all: upstream never did.
+
+    Without this, an instance that keeps vendor content under a framework path
+    sees every one of those files reported as a deletion on every sync. That is
+    not merely noise. It buries the deletions that *are* meaningful — genuine
+    upstream removals of tracked files — under thousands of lines, and it means
+    the only way to sync is `--allow-deletes`, which then also authorises
+    destroying content git cannot restore. A gate the operator must override on
+    every ordinary run is a gate that protects nothing.
+
+    Complementary to `_deletion_gate`, not a replacement for it: this removes one
+    source of false positives, the gate still bounds the blast radius of every
+    other source, including ones nobody has found yet.
+    """
+    if not deleted:
+        # The common case — an in-sync instance has nothing to delete — must not
+        # cost a subprocess.
+        return [], []
+    ignored = _gitignored_paths(dest)
+    if ignored is None:
+        return list(deleted), []
+    act: list[str] = []
+    local: list[str] = []
+    for rel in deleted:
+        (local if rel.replace("\\", "/") in ignored else act).append(rel)
+    return act, local
 
 
 def _describe_deletions(dest: Path, deleted, *, already_done: bool,
@@ -726,7 +794,7 @@ def _roster_without_representative(agents_dir: Path) -> dict[str, list[str]]:
 
 
 def _report(args, dest: Path, added, updated, deleted, diff_text: str, *,
-            theme: str | None) -> int:
+            theme: str | None, instance_local=()) -> int:
     """Print the plan (and post-run hints) and return `main`'s exit code.
 
     Extracted so the untheme'd and themed branches of `main()` cannot drift in
@@ -776,6 +844,15 @@ def _report(args, dest: Path, added, updated, deleted, diff_text: str, *,
     # the dry run's whole purpose.
     if deleted:
         _describe_deletions(dest, deleted, already_done=bool(args.apply))
+
+    if instance_local:
+        # Named rather than silently dropped. An operator comparing two runs would
+        # otherwise watch the deletion count fall with no explanation, and the
+        # entire value of that count is that it can be trusted.
+        print(f"\n{len(instance_local)} further file(s) under framework paths are "
+              "excluded by this instance's own .gitignore and were left alone: "
+              "instance-local content upstream has never had, so its absence "
+              "upstream is not a removal. A sync never deletes these.")
 
     if diff_text:
         print()
@@ -1015,7 +1092,11 @@ def main(argv=None) -> int:
         # Compute the plan first so a --diff preview can read dest files
         # *before* --apply overwrites them (renders "what would/did change"
         # either way).
-        added, updated, deleted = plan_sync(upstream, dest)
+        added, updated, raw_deleted = plan_sync(upstream, dest)
+        # Partition before anything reads the list: the gate must not refuse over
+        # files that will not be deleted, the diff must not render them, and the
+        # headline count must describe what the run will actually do.
+        deleted, instance_local = partition_deletions(dest, raw_deleted)
         diff_text = render_diff(upstream, dest, added, updated, deleted) if args.diff else ""
         if args.apply:
             # Gate before the first write, not after: `apply_sync` unlinks
@@ -1024,7 +1105,8 @@ def main(argv=None) -> int:
             if not _deletion_gate(args, dest, deleted):
                 return 2
             apply_sync(upstream, dest)
-        return _report(args, dest, added, updated, deleted, diff_text, theme=None)
+        return _report(args, dest, added, updated, deleted, diff_text,
+                       theme=None, instance_local=instance_local)
 
     # The renderer, imported lazily and only here.
     #
@@ -1153,7 +1235,11 @@ def main(argv=None) -> int:
         # thing one indirection later and hides stale orphans besides.
         a1 = plan_sync(root, dest, paths=["agents"])
         a2 = plan_sync(upstream, dest, paths=others)
-        added, updated, deleted = (x + y for x, y in zip(a1, a2))
+        added, updated, raw_deleted = (x + y for x, y in zip(a1, a2))
+        # Partition the *combined* list, once — not each half separately. Two
+        # partitions would run the git query twice and, worse, could disagree with
+        # the gate, which sees the combined list.
+        deleted, instance_local = partition_deletions(dest, raw_deleted)
 
         # Display-only: lets the diff header say which upstream file a themed
         # entry came from. Nothing depends on it.
@@ -1190,7 +1276,8 @@ def main(argv=None) -> int:
             apply_sync(root, dest, paths=["agents"])
             apply_sync(upstream, dest, paths=others)
 
-        return _report(args, dest, added, updated, deleted, diff_text, theme=theme)
+        return _report(args, dest, added, updated, deleted, diff_text, theme=theme,
+                       instance_local=instance_local)
 
 
 if __name__ == "__main__":

@@ -279,5 +279,124 @@ class UntrackedDeletionsTest(unittest.TestCase):
                          "a backslash-separated tracked path must still match")
 
 
+class InstanceLocalDeletionTest(unittest.TestCase):
+    """Gitignored content under a framework path is never deleted by a sync.
+
+    Uses a real git repository, because the whole mechanism is a `git ls-files`
+    query and a temp directory that is not a repo exercises only the fallback.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.up = base / "upstream"
+        self.dst = base / "dest"
+        for root in (self.up, self.dst):
+            _write(root / "install.py", "# installer\n")
+            _write(root / "agents" / "explore.md", "explore\n")
+        # Instance-local vendor content, gitignored, absent upstream.
+        _write(self.dst / ".gitignore", "skills/vendor/\n")
+        _write(self.dst / "skills" / "vendor" / "big.md", "vendor managed\n")
+        # Tracked instance content, absent upstream — a genuine deletion.
+        _write(self.dst / "scripts" / "old.py", "print('old')\n")
+        self.vendor = self.dst / "skills" / "vendor" / "big.md"
+        self.tracked_victim = self.dst / "scripts" / "old.py"
+
+        if not _git(self.dst, "--version"):
+            self.skipTest("git not available")
+        for arg in (["init", "-q"], ["config", "user.email", "t@e.invalid"],
+                    ["config", "user.name", "T"], ["config", "commit.gpgsign", "false"],
+                    ["add", "-A"], ["commit", "-q", "-m", "seed"]):
+            if not _git(self.dst, *arg):
+                self.skipTest(f"git {arg[0]} unavailable")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _run(self, *extra):
+        argv = ["--upstream", str(self.up), "--dest", str(self.dst), *extra]
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = sfu.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_the_fixture_really_has_both_kinds_of_deletion(self):
+        # Anti-vacuity: without one gitignored and one tracked deletion, every
+        # test below passes on a fixture that proves nothing.
+        ignored = sfu._gitignored_paths(self.dst)
+        self.assertIsNotNone(ignored, "precondition: dest must be a git repository")
+        self.assertIn("skills/vendor/big.md", ignored)
+        act, local = sfu.partition_deletions(self.dst, ["skills/vendor/big.md",
+                                                        "scripts/old.py"])
+        self.assertEqual(local, ["skills/vendor/big.md"])
+        self.assertEqual(act, ["scripts/old.py"])
+
+    def test_apply_leaves_gitignored_content_alone(self):
+        rc, out, err = self._run("--apply", "--allow-deletes")
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(self.vendor.exists(),
+                        "instance-local vendor content must survive a sync")
+        self.assertFalse(self.tracked_victim.exists(),
+                         "a genuine upstream removal must still be applied")
+
+    def test_the_gate_does_not_fire_over_instance_local_content(self):
+        # With the vendor content the only deletion, --apply needs no flag at all.
+        self.tracked_victim.unlink()
+        rc, out, err = self._run("--apply")
+        self.assertEqual(rc, 0, f"instance-local deletions must not need the opt-in: {err}")
+        self.assertTrue(self.vendor.exists())
+        self.assertNotIn("explicit opt-in", err)
+
+    def test_the_report_names_what_it_left_alone(self):
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("left alone", out,
+                      "silently dropping deletions would make the count untrustworthy")
+        self.assertIn("1 further file(s)", out)
+        # Paths are printed with platform separators (`plan_sync` builds them via
+        # `str(Path(...))`), so normalise before comparing.
+        listed = [p.replace("\\", "/") for p in _DELETE_LINE_RE.findall(out)]
+        self.assertNotIn("skills/vendor/big.md", listed,
+                         "instance-local content must not be listed as a deletion")
+
+    def test_a_tracked_deletion_is_still_gated(self):
+        # The partition must not become a way to wave deletions through: tracked
+        # content upstream removed is exactly what the gate exists for.
+        rc, out, err = self._run("--apply")
+        self.assertEqual(rc, 2)
+        self.assertTrue(self.tracked_victim.exists(), "a refusal must write nothing")
+        self.assertIn("scripts/old.py", err.replace("\\", "/"))
+        self.assertIn("all of these are tracked by git", err,
+                      "a tracked deletion should be reported as recoverable")
+
+
+class PartitionFallbackTest(unittest.TestCase):
+    """When gitignore status is unknown, nothing is treated as instance-local."""
+
+    def test_unknown_means_everything_stays_deletable(self):
+        # The fail-safe direction. Treating "could not determine" as "ignorable"
+        # would delete precisely the files whose recoverability was unchecked.
+        with mock.patch.object(sfu, "_gitignored_paths", return_value=None):
+            act, local = sfu.partition_deletions(Path("."), ["a.md", "b.md"])
+        self.assertEqual(act, ["a.md", "b.md"])
+        self.assertEqual(local, [])
+
+    def test_no_git_query_when_there_is_nothing_to_partition(self):
+        # Nothing to partition means no reason to ask git anything. This is the
+        # common case — an in-sync instance produces no deletions at all — so it
+        # must not cost a subprocess on every run.
+        with mock.patch.object(sfu.subprocess, "run",
+                               side_effect=AssertionError("git must not be invoked")):
+            self.assertEqual(sfu.partition_deletions(Path("."), []), ([], []))
+
+    def test_windows_separators_are_normalised(self):
+        with mock.patch.object(sfu, "_gitignored_paths",
+                               return_value={"skills/vendor/big.md"}):
+            act, local = sfu.partition_deletions(
+                Path("."), ["skills\\vendor\\big.md", "scripts\\old.py"])
+        self.assertEqual(local, ["skills\\vendor\\big.md"])
+        self.assertEqual(act, ["scripts\\old.py"])
+
+
 if __name__ == "__main__":
     unittest.main()
