@@ -18,6 +18,9 @@ a **conflict** and is never overwritten silently:
                                    / --claude-md consent choice (see install_settings
                                    / install_claude_md).
     python install.py --dry-run    preview any of the above without writing
+    python install.py --check      read-only: list every hook wired in
+                                   ~/.claude/settings.json whose interpreter or
+                                   script path no longer exists; exit 1 if any
 
 The content merge itself (which `allow` rules / CLAUDE.md lines are worth
 keeping) stays a human/AI judgment step — see the /adopt-config skill. This
@@ -30,6 +33,7 @@ import argparse
 import json
 import os
 import platform
+import shlex
 import shutil
 import sys
 from datetime import datetime
@@ -419,6 +423,87 @@ def _norm_path(p: str) -> str:
     return os.path.normcase(os.path.normpath(p))
 
 
+def _is_venv_interpreter(path: str) -> bool:
+    """True if ``path`` sits inside a virtualenv: a ``pyvenv.cfg`` lives in its
+    parent or grandparent (``.venv/Scripts/python.exe`` on Windows,
+    ``.venv/bin/python`` on POSIX) — the same signal CPython's getpath uses to
+    detect a venv.
+    """
+    if not path:
+        return False
+    parent = Path(path).parent
+    return (parent / "pyvenv.cfg").is_file() or (parent.parent / "pyvenv.cfg").is_file()
+
+
+def _resolve_hook_interpreter() -> tuple[str | None, str | None]:
+    """Return ``(interpreter, note)`` for the Python to wire into hook commands.
+
+    ``interpreter`` is the absolute path to wire, or ``None`` when none is safe
+    to wire. ``note`` is a one-line human explanation to print when the choice
+    is not simply ``sys.executable`` (``None`` when it is).
+
+    Outside a virtualenv (``sys.prefix == sys.base_prefix``) the answer is
+    ``sys.executable``. Inside one it must not be: a venv is disposable, and a
+    hook wired to ``.venv/Scripts/python.exe`` dies silently the day the venv is
+    rebuilt — Claude Code does not surface a failed hook spawn (#144). So we
+    resolve the *base* interpreter the venv was created from, trying in order:
+
+    1. ``sys._base_executable``. It is what the ``venv`` module itself uses and
+       it survives non-standard bases such as uv-managed Pythons, where
+       ``sys.base_prefix`` is ``%APPDATA%\\uv\\python\\cpython-3.14-...`` rather
+       than a conventional install. In a venv CPython's getpath always derives
+       it from ``pyvenv.cfg``'s ``home``, never leaving it equal to the venv
+       path.
+    2. ``Path(sys.base_prefix)/python.exe`` (Windows) or
+       ``Path(sys.base_prefix)/bin/python3.X``, ``.../python3``, ``.../python``
+       (POSIX) — because ``_base_executable`` is private and undocumented, can
+       be an *unverified guess* on POSIX (``<home>/python`` that does not exist)
+       and can be empty on macOS framework builds (gh-96861).
+
+    A candidate counts only if it is an absolute path, is a real file, is not
+    itself a venv interpreter, and does not live under ``sys.prefix``.
+    """
+    if sys.prefix == sys.base_prefix:
+        return sys.executable, None
+
+    candidates: list[str] = []
+    base_executable = getattr(sys, "_base_executable", None)
+    if base_executable:
+        candidates.append(str(base_executable))
+    base = Path(sys.base_prefix)
+    if os.name == "nt":
+        candidates.append(str(base / "python.exe"))
+    else:
+        major, minor = sys.version_info[:2]
+        candidates.extend([
+            str(base / "bin" / f"python{major}.{minor}"),
+            str(base / "bin" / "python3"),
+            str(base / "bin" / "python"),
+        ])
+
+    venv_dir = _norm_path(sys.prefix) + os.sep
+    for candidate in candidates:
+        if not os.path.isabs(candidate):
+            continue
+        if not os.path.isfile(candidate):
+            continue
+        if _is_venv_interpreter(candidate):
+            continue
+        if _norm_path(candidate).startswith(venv_dir):
+            continue
+        return candidate, (
+            f"running inside a virtualenv ({sys.executable}); wiring the base "
+            f"interpreter {candidate} instead — a venv is disposable and a hook "
+            "wired to one dies silently when the venv is rebuilt"
+        )
+
+    tried = ", ".join(candidates) or "nothing"
+    return None, (
+        f"running inside a virtualenv ({sys.executable}) and no base interpreter "
+        f"could be resolved (tried: {tried}) — re-run install.py from a system Python"
+    )
+
+
 def _hook_group(matcher: str | None, entries: list) -> dict:
     """Build a hooks group, with ``matcher`` serialised ahead of ``hooks``.
 
@@ -448,8 +533,12 @@ def _wire_command_hook(
     Claude Code does not expand ${CLAUDE_CONFIG_DIR}, ~, or $HOME inside a hook
     command/args, so a user-level hook must be wired with an install-time
     resolved absolute path. The interpreter is the running Python
-    (``sys.executable``) and the script is the symlinked
-    ``<config_dir>/hooks/<script_name>``.
+    (``sys.executable``) — unless that is a virtualenv interpreter, in which
+    case ``_resolve_hook_interpreter`` substitutes the *base* Python the venv
+    was created from, or skips the hook entirely (with a printed reason, also
+    under ``--dry-run``) when no base can be found. A venv is disposable and a
+    hook wired to one dies silently when it is rebuilt (#144). The script is
+    the symlinked ``<config_dir>/hooks/<script_name>``.
 
     The write goes into ~/.claude/settings.json — the only user-scope settings
     file Claude Code reads (settings.local.json is ignored at user scope). That
@@ -466,6 +555,11 @@ def _wire_command_hook(
     place, never duplicated and never silently skipped, when either half has
     drifted: the recorded interpreter ``command`` (e.g. a Python upgrade moved
     ``sys.executable``) or the group's ``matcher``. Both are fixed in one pass.
+    One exception: interpreter drift is *not* repaired when the recorded command
+    still resolves on disk and the replacement would be a virtualenv
+    interpreter — that is a downgrade, not a repair (it is how #144 turned a
+    working wiring into a dead one), so the command is kept and only the
+    matcher half is fixed.
     Comparing on the script path alone was the older behaviour and it was wrong:
     adding a matcher to an already-wired hook printed "already wired" and left
     the old unscoped entry in place, still firing on every tool call.
@@ -496,7 +590,14 @@ def _wire_command_hook(
     under ``--dry-run``), so we never wire a hook to a script the ``hooks/``
     symlink failed to create.
     """
-    interpreter = sys.executable
+    interpreter, note = _resolve_hook_interpreter()
+    if interpreter is None:
+        # Deliberately not gated on dry_run: a preview must show the skip, not
+        # pretend it would wire something.
+        print(f"  skipping {event_name} hook: {note}")
+        return
+    if note is not None:
+        print(f"  {event_name} hook: {note}")
     script = config_dir / "hooks" / script_name
     script_str = str(script)
     norm_script = _norm_path(script_str)
@@ -561,11 +662,27 @@ def _wire_command_hook(
 
     if existing is not None:
         # Already wired for this script. Leave it untouched unless the recorded
-        # interpreter drifted (e.g. sys.executable moved after a Python upgrade)
-        # or the group's matcher no longer matches what we were asked to wire —
-        # either way re-point it in place so nothing stale or wrongly-scoped
-        # lingers. Both are repaired in the same pass.
-        interpreter_ok = existing.get("command") == interpreter
+        # interpreter drifted (e.g. the resolved interpreter moved after a
+        # Python upgrade) or the group's matcher no longer matches what we were
+        # asked to wire — either way re-point it in place so nothing stale or
+        # wrongly-scoped lingers. Both are repaired in the same pass.
+        existing_cmd = existing.get("command")
+        interpreter_ok = existing_cmd == interpreter
+        if (
+            not interpreter_ok
+            and isinstance(existing_cmd, str)
+            and os.path.isfile(existing_cmd)
+            and _is_venv_interpreter(interpreter)
+        ):
+            # Never "repair" a command that still resolves on disk down to a
+            # virtualenv interpreter — that is the exact downgrade behind #144.
+            # Defence-in-depth for routes _resolve_hook_interpreter cannot see:
+            # PYTHONHOME set bypasses CPython's venv detection, so
+            # sys.prefix == sys.base_prefix while sys.executable is still the
+            # venv path; embedded interpreters; future refactors of rule 1.
+            print(f"  {event_name} hook: keeping {existing_cmd} — not downgrading "
+                  f"a resolvable interpreter to the virtualenv one {interpreter}")
+            interpreter_ok = True
         matcher_ok = existing_group.get("matcher") == matcher
         if interpreter_ok and matcher_ok:
             print(f"  {event_name} hook already wired in {local_path} — leaving it")
@@ -582,7 +699,8 @@ def _wire_command_hook(
             if not matcher_ok:
                 print(f"      matcher {existing_group.get('matcher')!r} -> {matcher!r}")
             return
-        existing["command"] = interpreter
+        if not interpreter_ok:
+            existing["command"] = interpreter
         args = existing.get("args")
         if not (isinstance(args, list) and any(
             isinstance(a, str) and _norm_path(a) == norm_script for a in args
@@ -658,6 +776,94 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
         use_async=False,
         dry_run=dry_run,
     )
+
+
+def check_hooks(settings_path: Path) -> int:
+    """Report every hook in ``settings_path`` whose command or args path is gone.
+
+    Read-only. Claude Code does not surface a failed hook spawn, so a hook whose
+    interpreter or script vanished (a rebuilt venv, a moved Python — #144) dies
+    silently; this is the check that makes it visible. Only absolute paths are
+    existence-checked: a relative or bare command such as ``echo hi`` resolves
+    through PATH at spawn time and is reported ``OK`` untested.
+
+    ``command`` can be either shape Claude Code accepts: this repo's own wiring
+    (a bare interpreter in ``command`` plus a ``args`` list) or Claude Code's
+    native shape, a full command line (``"<interpreter> <script> [flags]"``).
+    The command line is split with ``shlex`` (unbalanced quotes fall back to
+    testing the whole string as one token); only the first token is checked as
+    the command path proper, and any further token that is itself an absolute
+    path is existence-checked too and reported with a ``(in command)`` suffix
+    so a vanished script is still caught in the native shape.
+
+    Walks the same shapes ``_wire_command_hook`` does and skips anything
+    malformed rather than crashing on a hand-edited file. Returns 1 if any path
+    is missing (or the file cannot be parsed), else 0.
+    """
+    if not settings_path.exists():
+        print(f"no {settings_path} — no hooks wired")
+        return 0
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"! could not parse {settings_path} ({e})")
+        return 1
+
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    if not isinstance(hooks, dict):
+        hooks = {}
+
+    missing = 0
+    for event, group_list in hooks.items():
+        if not isinstance(group_list, list):
+            continue
+        for group in group_list:
+            if not isinstance(group, dict):
+                continue
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if not isinstance(command, str):
+                    continue
+                args = entry.get("args") or []
+                str_args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
+                entry_ok = True
+
+                try:
+                    tokens = shlex.split(command, posix=(os.name != "nt"))
+                except ValueError:
+                    tokens = [command] if command else []
+                if os.name == "nt":
+                    tokens = [t[1:-1] if len(t) >= 2 and t[:1] == t[-1:] == '"' else t for t in tokens]
+
+                head, rest = (tokens[0], tokens[1:]) if tokens else (command, [])
+                if os.path.isabs(head) and not os.path.exists(head):
+                    print(f"MISSING {event}: {head}")
+                    missing += 1
+                    entry_ok = False
+                for tok in rest:
+                    if os.path.isabs(tok) and not os.path.exists(tok):
+                        print(f"MISSING {event}: {tok} (in command)")
+                        missing += 1
+                        entry_ok = False
+
+                for arg in str_args:
+                    if os.path.isabs(arg) and not os.path.exists(arg):
+                        print(f"MISSING {event}: {arg} (args)")
+                        missing += 1
+                        entry_ok = False
+                if entry_ok:
+                    print(f"OK {event}: {command} {' '.join(str_args)}".rstrip())
+
+    if missing:
+        print(f"{missing} missing hook path(s)")
+        return 1
+    print("all hook paths resolve")
+    return 0
 
 
 def do_relink(stamp: str, dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choice: str) -> int:
@@ -819,7 +1025,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--claude-md", choices=CLAUDEMD_CHOICES, default=None,
                     help="CLAUDE.md integration: import | replace | skip "
                          "(prompted if omitted; required when non-interactive)")
+    ap.add_argument("--check", action="store_true",
+                    help="report every hook in ~/.claude/settings.json whose command "
+                         "or args path does not exist on disk; exit 1 if any (read-only)")
     args = ap.parse_args(argv)
+
+    if args.check:
+        # Read-only report; must run before the consent resolvers below, which
+        # prompt (or error when non-interactive).
+        return check_hooks(CLAUDE_DIR / "settings.json")
 
     print(f"Repo:   {REPO_DIR}")
     print(f"Target: {CLAUDE_DIR}")
