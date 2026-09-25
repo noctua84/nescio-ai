@@ -33,8 +33,10 @@ durable repo memory:
   original source).
 - `<config>/learning-trail/*.jsonl` — the per-turn activity trail written by the
   `record_stop.py` Stop hook, where `<config>` is `$CLAUDE_CONFIG_DIR` or
-  `~/.claude`. One JSONL file per repo (`<repo-key>.jsonl`), pruned to a rolling
-  window; raw session exhaust, not conclusions.
+  `~/.claude`. One JSONL file per repo (`<repo-key>.jsonl`); raw session exhaust,
+  not conclusions. **Not** pruned to a rolling window in practice — the Stop-hook
+  pruner is designed to age harvested records out but never runs, so trails only
+  grow. Step 10 carries the detail and the threshold.
 - the current project's `.claude/memory/review-learnings/` — durable
   regression / security / architecture notes the GitHub PR-review action
   committed into the target repo (see `github-action/`). Present only in repos

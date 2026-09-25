@@ -1,18 +1,39 @@
 #!/usr/bin/env python3
 """Revert one bad *global* harvest stamp by deleting the watermarks it wrote.
 
-`scripts/mark_harvested.py` used to stamp every trail on the machine. On
-2026-08-20 a harvest of a single repository stamped **105** watermarks with one
-identical instant; only ~9 of them belonged to the repo that was actually read.
-The other ~96 declared **2,438 records reviewed that no harvest ever opened**.
-This script undoes exactly that: given the offending instant, it finds the
-watermarks holding it and removes them.
+`scripts/mark_harvested.py` used to infer its scope at stamp time, so `--all`
+swept every `<config>/learning-trail/*.jsonl` on the machine. One harvest of one
+repository then stamped every trail it could see with one identical instant,
+declaring records reviewed that no harvest ever opened. Fixed in `da3380b`, but
+the watermarks already on disk keep asserting that coverage, and this script
+removes them.
+
+## Identifying the stamp — group by content, never by mtime
+
+The signature is mechanical: many watermarks holding **one identical value**,
+written within a fraction of a second of each other, where a legitimate
+per-trail stamp gives every file its own instant. Survey the values and take the
+one with an implausible count.
+
+Do not identify candidates by modification time instead. A correct repo-scoped
+harvest run across several repositories writes many watermarks seconds apart with
+*distinct* contents, so an mtime cluster looks exactly like a global stamp and
+sweeping it destroys honest coverage. On the machine where this was measured,
+grouping by mtime reported five clusters (113 / 19 / 11 / 10 / 3); grouping by
+content found only the 113 were shared, and the other 43 were legitimately
+earned. Same files, opposite conclusion.
+
+Two sweeps have been cleaned with this tool and neither matches the other, which
+is why no incident's numbers belong in a framework file: 105 watermarks /
+~2,438 records, and later 113 watermarks / 2,494 records all holding
+`2026-08-27T15:19:53.221744+00:00`. Measure yours and pass it to `--stamp`,
+which compares **parsed instants**, not strings.
 
 ## Why deletion, and not restoring the previous value
 
 Because there is no previous value left to restore. `record_stop.write_watermark`
 is a whole-file `os.replace` — the prior timestamp was overwritten in place, and
-every one of the 105 files on disk now holds the *same* instant, so nothing older
+every affected file on disk now holds the *same* instant, so nothing older
 survives anywhere to copy back from. Deletion is also the state the consumers
 already understand: `record_stop._is_unharvested` reads a missing watermark as
 ``watermark is None`` and treats **every** parseable record as un-harvested. That
@@ -23,17 +44,27 @@ back in front of a human.
 
 `hooks/harvest_nudge.py` counts records newer than the watermark and reminds the
 operator at `NUDGE_THRESHOLD` (20 by default). A watermark stamped *after* every
-record in its trail makes that count 0 for ever, so the nudge went silent for
-~96 repositories on 2026-08-20 and has stayed silent since. Removing the
-watermark restores the count and the reminder with it. That is the real, present
-harm being repaired — the report below leads with it.
+record in its trail makes that count 0 for ever, so the nudge goes silent for
+every repository it touched and stays silent. Removing the watermark restores the
+count and the reminder with it.
+
+The nudge is not the whole harm, and describing it as the harm understates this.
+Step 1 of `/harvest-memory` selects what to read by the same predicate, so a
+spurious watermark makes the harvest itself a **silent no-op**: it finds nothing
+un-harvested in those repositories, promotes nothing, reports success, and the
+records stay undistilled. The loop is not merely unreminded, it is incapable of
+acting. Expect the exposed backlog to dwarf the nudge threshold — one sweep
+returned 2,494 records across fourteen repositories, and the total un-harvested
+backlog behind it was 2,811.
 
 The pruner is deliberately *not* oversold here. `record_stop._maybe_prune`
 returns immediately unless a trail exceeds ``PRUNE_SIZE_THRESHOLD`` (1,000,000
-bytes) and the largest trail on the machine that prompted this tool was 212 KB,
-so nothing was on the verge of being deleted. Claiming otherwise would be a
-scare, and the tool would deserve less trust the next time it says something is
-urgent.
+bytes), and on a well-used machine the largest trail is a fraction of that, so
+nothing is on the verge of being deleted and this tool cannot cause a loss.
+Claiming otherwise would be a scare, and the tool would deserve less trust the
+next time it says something is urgent. Re-measure the largest trail before
+relying on either half of that sentence — it is an observation about one machine
+at one time, not a constant.
 
 ## What it costs — read this before running with --apply
 

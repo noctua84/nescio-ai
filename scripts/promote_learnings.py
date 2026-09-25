@@ -85,6 +85,11 @@ from _learning_common import (
     priority,
 )
 
+# `READ_NAME` belongs to begin_harvest.py because that is what writes the file.
+# Imported rather than repeated here so the stamp command printed at the end of a
+# promote cannot drift from the filename the read manifest actually has.
+from begin_harvest import READ_NAME  # noqa: E402
+
 # Every nomination must carry these before anything is written — a malformed
 # object fails its own line cleanly (rc 1) instead of raising KeyError mid-run
 # after earlier notes already wrote.
@@ -269,7 +274,15 @@ def _prune_target_lines(lines: list[str], target: str) -> list[str]:
     """Drop ledger entries whose ``<target>`` field equals ``target``.
 
     Used when a note is overwritten: its old body hashed to a different value, so
-    the superseded ledger line would otherwise linger and count toward the cap.
+    the superseded ledger line would otherwise linger as a second entry for one
+    note. That is not cosmetic — ``compute_readiness.count_promotions`` reports
+    how many notes a repo has, and two lines for one note reads as two notes.
+
+    Only an overwrite prunes, because only an overwrite has provenance to compare
+    against. A note whose ``[Source: ...]`` line is missing or unparseable takes
+    the ``verb = "write"`` path instead, appends rather than replaces, and so
+    accumulates a second line every time its body changes. Deduping the ledger
+    therefore does not survive a harvest unless provenance coverage is fixed too.
     """
     kept: list[str] = []
     for ln in lines:
@@ -303,6 +316,29 @@ def _record_ledger(
     else:
         lines.append(line)  # new content — append
     ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def stamp_command(staging_dir: Path, receipt_path: Path | None = None) -> str:
+    """The paste-ready `mark_harvested.py` invocation for this run's staging dir.
+
+    The read manifest and the receipt share one staging dir, so both paths are
+    derivable here without the operator transcribing either.
+
+    This exists because the chain otherwise breaks at exactly the step that cannot
+    fail loudly. `begin_harvest.py` prints a paste-ready `next:` line, but until
+    now `promote_learnings.py` printed only `receipt <path>` and left the stamp
+    command to be hand-assembled — and `mark_harvested.py` treats a missing or
+    wrong `--read` as a *refusal that still returns 0* and drops a pending marker.
+    A typo there is a silently unstamped harvest, not an error: the records stay
+    protected, the next session start nudges again, and nothing says why.
+    """
+    cmd = (
+        "python scripts/mark_harvested.py "
+        f'--read "{staging_dir / READ_NAME}"'
+    )
+    if receipt_path is not None:
+        cmd += f' --receipt "{receipt_path}"'
+    return cmd
 
 
 def write_receipt(
@@ -499,6 +535,10 @@ def promote(
     if receipt_dir is not None:
         if dry_run:
             summary.append(f"would write receipt {receipt_dir / RECEIPT_NAME}")
+            # No `next:` stamp line here, deliberately. A dry run promoted
+            # nothing, so nothing was reviewed, and stamping would assert a read
+            # that did not happen. Printing the command would invite exactly the
+            # unstamped-harvest bug in reverse: a watermark over unread records.
         else:
             # Notes and ledger are already on disk; a receipt we cannot write is
             # a lost proof, not a failed promote. Warn and keep rc 0 — same
@@ -512,6 +552,7 @@ def promote(
                     targets=promoted_targets,
                 )
                 summary.append(f"receipt   {receipt_path}")
+                summary.append(f"next: {stamp_command(receipt_dir, receipt_path)}")
             except OSError as e:
                 summary.append(
                     f"⚠  receipt not written to {receipt_dir / RECEIPT_NAME}: {e} "
@@ -519,6 +560,9 @@ def promote(
                     f"mark_harvested.py warns about that and stamps anyway, so fix "
                     f"the path if you want the record, not to unblock the stamp."
                 )
+                # --receipt is advisory, so the stamp is still the right next
+                # step; omit it rather than point at a file that does not exist.
+                summary.append(f"next: {stamp_command(receipt_dir)}")
 
     return 0, summary
 

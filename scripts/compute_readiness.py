@@ -265,12 +265,24 @@ def collect_activity(
 
 
 def count_promotions(ledger: dict[str, tuple[str, str]], name: str) -> int:
-    """Ledger entries whose target falls under `repo/<name>/`."""
+    """Distinct promoted notes whose target falls under `repo/<name>/`.
+
+    Counted by target, not by ledger entry. One note can hold two ledger lines
+    when its body changed between promotions: `promote_learnings._record_ledger`
+    prunes the superseded line only on an *overwrite*, and a note with no
+    parseable `[Source: ...]` line takes the append path instead. Two lines for
+    one note is not two notes, and readiness reports notes.
+
+    Duplicate *hashes* never reached here — `parse_ledger` keys by hash, so an
+    identical re-nomination collapses on the way in. Only a target promoted under
+    two different hashes inflated the count.
+    """
     prefix = f"repo/{name}/"
-    return sum(
-        1 for _, target in ledger.values()
+    return len({
+        posix_path(target)
+        for _, target in ledger.values()
         if posix_path(target).startswith(prefix)
-    )
+    })
 
 
 def summarise(
