@@ -2,7 +2,7 @@
 """Open a harvest by declaring, on the record, which trails it is about to read.
 
 Run at step 1 of `/harvest-memory`, before anything is read. It captures the
-read-time and writes `read.json` into the run's staging dir; step 8
+read-time and writes `read.json` into the run's staging dir; step 10
 (`mark_harvested.py`) stamps exactly the trails named there and nothing else.
 
 **Why a declaration rather than a default.** The watermark is not bookkeeping —
@@ -27,7 +27,7 @@ harvest's subject.
 
 Every trail's `max_ts` is bounded by the read-time, because nothing written after
 the file was opened can have been read. That bound is what stops a single
-clock-skewed record from handing step 8 a watermark reaching weeks into the
+clock-skewed record from handing step 10 a watermark reaching weeks into the
 future — see `scan_trail` for why the two directions of clock error are not
 equally dangerous.
 
@@ -217,9 +217,9 @@ def main(argv: list[str] | None = None) -> int:
 
     A subject repo with no trails is reported, not refused: a repo may simply
     never have run a session on this machine. It is printed loudly all the same,
-    because it is the difference between "step 8 will stamp this repo" and "step
-    8 will stamp nothing for this repo", and that is exactly the confusion this
-    script exists to end.
+    because it is the difference between "step 10 will stamp this repo" and
+    "step 10 will stamp nothing for this repo", and that is exactly the confusion
+    this script exists to end.
     """
     read_at = datetime.now(timezone.utc)
 
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         names = claimed[root]
         if not names:
             print(
-                f"{root}: no learning-trails — step 8 will stamp nothing for this repo"
+                f"{root}: no learning-trails — step 10 will stamp nothing for this repo"
             )
             continue
         total = sum(by_name[n]["records"] for n in names)

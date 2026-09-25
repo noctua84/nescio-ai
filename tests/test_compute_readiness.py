@@ -319,6 +319,38 @@ class SummariseTest(unittest.TestCase):
             (stats,) = cr.summarise(trail, memory, resolve_live=False, today=TODAY)
             self.assertEqual(stats["promotions"], 1)
 
+    def test_one_note_promoted_twice_counts_once(self):
+        """Two ledger lines for one target is one promoted note, not two.
+
+        `promote_learnings._record_ledger` prunes the superseded line only on an
+        *overwrite*, and a note with no parseable `[Source: ...]` line takes the
+        append path instead — so such a note gains a second line under a new body
+        hash every time it changes. Readiness reports notes, so it must count
+        targets.
+
+        Duplicate *hashes* are a different case and never reach `count_promotions`:
+        `parse_ledger` keys by hash, so an identical re-nomination collapses on
+        the way in. Both shapes are seeded here to keep the two apart.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            trail = root / "learning-trail"
+            memory = root / "memory"
+            _seed_trail(trail, "a", [_rec("2026-08-10T10:00:00+00:00", "C:/p/myrepo")])
+            _ledger(memory, [
+                # One note, two distinct body hashes -> one promotion.
+                "- 2026-08-11 | repo/myrepo/x.md | aaaaaaaaaaaa | promoted: x",
+                "- 2026-08-12 | repo/myrepo/x.md | bbbbbbbbbbbb | promoted: x revised",
+                # A genuinely different note in the same repo.
+                "- 2026-08-13 | repo/myrepo/y.md | cccccccccccc | promoted: y",
+                # Identical re-nomination: collapses in parse_ledger, not here.
+                "- 2026-08-14 | repo/myrepo/z.md | dddddddddddd | promoted: z",
+                "- 2026-08-14 | repo/myrepo/z.md | dddddddddddd | promoted: z",
+            ])
+            (stats,) = cr.summarise(trail, memory, resolve_live=False, today=TODAY)
+            # x, y, z -- not the four surviving ledger entries.
+            self.assertEqual(stats["promotions"], 3)
+
     def test_results_sorted_by_repo_name(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

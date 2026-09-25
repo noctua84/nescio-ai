@@ -906,5 +906,77 @@ class ConsoleEncodingTest(unittest.TestCase):
             self.assertIn("receipt not written to", out)
 
 
+class StampCommandTest(unittest.TestCase):
+    """The paste-ready `mark_harvested.py` line printed at the end of a promote.
+
+    `begin_harvest.py` prints a `next:` line, and `mark_harvested.py` treats a
+    missing or wrong `--read` as a refusal that *still returns 0* and drops a
+    pending marker. So the one step that used to require hand-assembling two
+    absolute paths is the one whose failure is silent — a typo there is an
+    unstamped harvest, not an error. These pin the emitted command.
+    """
+
+    def test_stamp_command_names_the_read_manifest_beside_the_receipt(self):
+        staging = Path("eval/learnings/20260925T000000")
+        cmd = pl.stamp_command(staging, staging / "receipt.json").replace("\\", "/")
+        self.assertTrue(cmd.startswith("python scripts/mark_harvested.py"), cmd)
+        self.assertIn('--read "eval/learnings/20260925T000000/read.json"', cmd)
+        self.assertIn('--receipt "eval/learnings/20260925T000000/receipt.json"', cmd)
+
+    def test_stamp_command_omits_an_absent_receipt(self):
+        cmd = pl.stamp_command(Path("run"))
+        self.assertIn("--read", cmd)
+        self.assertNotIn("--receipt", cmd)
+
+    def test_success_prints_exactly_one_stamp_command(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            rc, summary = pl.promote([_nom()], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+
+            nxt = [s for s in summary if s.startswith("next:")]
+            self.assertEqual(len(nxt), 1, summary)
+            flat = nxt[0].replace("\\", "/")
+            self.assertIn(f"{run_dir.name}/read.json", flat)
+            self.assertIn("--receipt", flat)
+            self.assertIn("receipt.json", flat)
+
+    def test_dry_run_prints_no_stamp_command(self):
+        # Nothing was promoted, so nothing was reviewed; stamping would assert a
+        # read that never happened. The omission is deliberate, not an oversight.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            run_dir.mkdir()
+
+            rc, summary = pl.promote(
+                [_nom()], repo_dir=repo, dry_run=True, receipt_dir=run_dir
+            )
+            self.assertEqual(rc, 0, summary)
+            self.assertFalse([s for s in summary if s.startswith("next:")], summary)
+
+    def test_receipt_failure_still_prints_a_stamp_command(self):
+        # --receipt is advisory, so stamping is still the right next step — it
+        # must simply not point at a file that was never written.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            _seed_repo(repo)
+            run_dir = Path(d) / "run"
+            (run_dir / "receipt.json").mkdir(parents=True)
+
+            rc, summary = pl.promote([_nom()], repo_dir=repo, receipt_dir=run_dir)
+            self.assertEqual(rc, 0, summary)
+
+            nxt = [s for s in summary if s.startswith("next:")]
+            self.assertEqual(len(nxt), 1, summary)
+            self.assertIn("--read", nxt[0])
+            self.assertNotIn("--receipt", nxt[0])
+
+
 if __name__ == "__main__":
     unittest.main()
