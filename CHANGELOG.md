@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.7.0](https://github.com/noctua84/nescio-ai/compare/v1.6.0...v1.7.0) (2026-09-25)
+
+
+### Features
+
+* **adr:** upstream the ADR publishing pipeline ([48f6ba3](https://github.com/noctua84/nescio-ai/commit/48f6ba3523e5f8e7dffb4e62a379af15dec29365))
+* **adr:** upstream the ADR publishing pipeline ([0bd09ab](https://github.com/noctua84/nescio-ai/commit/0bd09abd631fe52cb4a37cea376ecd190d6725b4))
+* **sync:** gate deletions behind an explicit opt-in in --apply ([63af6da](https://github.com/noctua84/nescio-ai/commit/63af6dadfa7721bff8f7d0cbda514004221e0ecd))
+* **sync:** gate deletions behind an explicit opt-in in --apply ([774d6d4](https://github.com/noctua84/nescio-ai/commit/774d6d45e35bb270f279f61184f8f4ea15627dd6)), closes [#138](https://github.com/noctua84/nescio-ai/issues/138)
+* **sync:** never delete what the instance's own .gitignore excludes ([d1991cf](https://github.com/noctua84/nescio-ai/commit/d1991cfc0fc995f507cf223464e41a89b73da1e0))
+
+
+### Bug Fixes
+
+* [fix] harden --check for native command strings; pin venv-candidate filters ([#144](https://github.com/noctua84/nescio-ai/issues/144)) ([c577e45](https://github.com/noctua84/nescio-ai/commit/c577e45ca7e46d6dc3bf4a6f939cf2d4615ef1f7))
+* [impl] never wire hooks to a virtualenv interpreter; add --check ([#144](https://github.com/noctua84/nescio-ai/issues/144)) ([b46483c](https://github.com/noctua84/nescio-ai/commit/b46483cb5fd8f2ebea0430fecb49d65c8d399001))
+* **agents:** stop builder tier routing from failing open to Opus ([c9ae7f9](https://github.com/noctua84/nescio-ai/commit/c9ae7f9db23fe8cda4943f1f45be1201512f8f7e))
+* **agents:** stop builder tier routing from failing open to Opus ([cd20561](https://github.com/noctua84/nescio-ai/commit/cd20561171bc40962d5897a2155b620590020c3d))
+* **harvest:** close the four defects that would corrupt a large harvest run ([43dc7bf](https://github.com/noctua84/nescio-ai/commit/43dc7bf8b2e66222c7193fcfdb20c910a857955e))
+* **harvest:** close the four defects that would corrupt a large harvest run ([b6f51f0](https://github.com/noctua84/nescio-ai/commit/b6f51f0c73540197c09a2ee39499d612de7a2435)), closes [#53](https://github.com/noctua84/nescio-ai/issues/53)
+* **harvest:** key the nudge and pending marker on the repo, not the worktree ([264f529](https://github.com/noctua84/nescio-ai/commit/264f529ac7e16f78460a9cc031c411831728964b))
+* **harvest:** key the nudge and pending marker on the repo, not the worktree ([d12a721](https://github.com/noctua84/nescio-ai/commit/d12a721f885be298e2830d3a2091a909190bb609))
+* **harvest:** stamp the watermark after delivery, not before ([dbab707](https://github.com/noctua84/nescio-ai/commit/dbab707bbe0acc66d95145aa1664c39f36e5f67b))
+* **harvest:** stamp the watermark after delivery, not before ([753935e](https://github.com/noctua84/nescio-ai/commit/753935efd10b473677e70859934a8f8026543588))
+* **install:** never wire hooks to a virtualenv interpreter; add --check ([f797d7b](https://github.com/noctua84/nescio-ai/commit/f797d7bc21db2d4b1d72fa814df0f1b38f84baad))
+* **scrub:** guard stdout and stderr so a warning cannot mask a secret finding ([7c20069](https://github.com/noctua84/nescio-ai/commit/7c20069cdd9ea02f33a1da02fbbd3f74d0d5b9e7))
+* **scrub:** guard stdout and stderr so a warning cannot mask a secret finding ([591f5b4](https://github.com/noctua84/nescio-ai/commit/591f5b49404d524d26f9663813619fbc12ea3f16))
+
+
+### Performance Improvements
+
+* **orchestrator:** carry a Discovery Brief into every subagent dispatch ([a2796ff](https://github.com/noctua84/nescio-ai/commit/a2796ff47fdf2710e289b5a532bd850002af5788))
+* **orchestrator:** carry a Discovery Brief into every subagent dispatch ([d2dc99c](https://github.com/noctua84/nescio-ai/commit/d2dc99c33163cbb95b400cbba3ba4e385f6ca20c))
+
+
+### Documentation
+
+* **agents:** record model precedence; accept a [1m] context-window suffix ([814cae7](https://github.com/noctua84/nescio-ai/commit/814cae7385ad196d9dcbb06bc2a0deaca52614b3))
+* **agents:** record model precedence; accept a [1m] context-window suffix ([e079706](https://github.com/noctua84/nescio-ai/commit/e079706e924c28577ec002bdc3eebab61059586b))
+* **agents:** scope the model-precedence claim to the CLI surface ([f047eca](https://github.com/noctua84/nescio-ai/commit/f047ecaeb6ec65f985c503bd7004dd28ec51f376))
+
 ## [1.6.0](https://github.com/noctua84/nescio-ai/compare/v1.5.1...v1.6.0) (2026-09-10)
 
 
