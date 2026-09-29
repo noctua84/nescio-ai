@@ -35,6 +35,9 @@ need rewriting every time a version goes out.
 - The learning loop's core: session-trail capture (Stop hook), `/harvest-memory`
   distillation, human-gated promotion into version-controlled `memory/`, and
   harvest-aware pruning so un-harvested learnings can't age out.
+- A learning log that keeps its whole history — the 150-line compaction is retired,
+  so the promotion record stays a usable dataset for the generalization tier rather
+  than a rolling window that discards its own evidence.
 - A write path through that loop you can actually trust: a harvest watermark, a
   promotion receipt, and stamp rollback when a promotion doesn't land
   ([ADR 0003](memory/repo/nescio/adr/0003-learning-loop-write-path-verified.md)).
@@ -56,7 +59,6 @@ Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 The memory subsystem, end to end: capture → harvest → promote → generalize → measure.
 
-- `loop` [#53](https://github.com/noctua84/nescio-ai/issues/53) — learning-log: retain full promotion history as a generalization dataset (retire the 150-line compaction)
 - `cross-repo` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
 - `cross-repo` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
 - `cross-repo` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
