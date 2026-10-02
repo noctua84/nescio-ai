@@ -6,5 +6,7 @@
 - [nescio-adr-0001-no-agent-frameworks](0001-no-agent-frameworks-in-nescio.md) — Nescio's runtime install path stays dependency-free and framework-free; agent frameworks and harness experimentation live in a separate repo, not here.
 - [nescio-adr-0002-defer-semantic-retrieval](0002-defer-semantic-retrieval-for-memory.md) — The learning loop keeps curated-index retrieval; no vector database or graph framework, because the corpus is empty and the binding constraint is the write path, not retrieval.
 - [nescio-adr-0003-learning-loop-write-path](0003-learning-loop-write-path-verified.md) — The harvest declares its subject before reading and stamps only those trails, each at its own max_ts; corrects ADR 0002's "corpus is empty" evidence, which measured the template repo instead of the installed brain.
+- [nescio-adr-0004-session-verdict-from-transcript](0004-session-verdict-from-transcript.md) — A session's clean/flagged/unknown verdict is a tool-error rate over its own transcript, above a named threshold and behind a minimum-call floor; unknown is a first-class state that no missing evidence may collapse into clean.
+- [nescio-adr-0005-memory-moves-to-a-retrieval-service](0005-memory-moves-to-a-retrieval-service.md) — Semantic retrieval is adopted as a separate HTTP service that becomes the system of record; notes are indexed by their human-written summary rather than chunked, and the deterministic machinery — precedence, hash dedup, watermarks, ledger — stays exact and authoritative.
 
 <!-- memory-index:generated end -->

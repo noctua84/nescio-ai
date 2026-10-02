@@ -2,14 +2,26 @@
 name: nescio-adr-0002-defer-semantic-retrieval
 description: The learning loop keeps curated-index retrieval; no vector database or graph framework, because the corpus is empty and the binding constraint is the write path, not retrieval.
 type: adr
-status: proposed
+status: superseded by ADR 0005
 ---
 
 # ADR 0002: Defer semantic retrieval for the learning loop
 
 ## Status
 
-Proposed.
+**Superseded by [ADR 0005](0005-memory-moves-to-a-retrieval-service.md).** The
+decision below — defer the vector database — is withdrawn: semantic retrieval is
+adopted as a separate HTTP service that becomes the system of record.
+
+The *reasoning* largely survives, and ADR 0005 is narrow because of it. This ADR
+was right that a similarity score cannot express the contradiction precedence, so
+that precedence stays exact and authoritative rather than being approximated by
+ranking. Two of the four revisit triggers named below were never instrumented and
+the other two had not fired when ADR 0005 was written (corpus 424 of ~500) — see
+its `## Context` for why it is deliberately ahead of its own trigger.
+
+Note also that ADR 0003 had already corrected this ADR's "the corpus is empty"
+evidence, which measured the template repo rather than the installed brain.
 
 ## Context
 

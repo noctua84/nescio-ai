@@ -59,6 +59,28 @@ Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 The memory subsystem, end to end: capture → harvest → promote → generalize → measure.
 
+**Pending architecture change — read this before picking anything below up.**
+`memory/` stops being the system of record. Semantic retrieval moves to a separate
+HTTP service (`nescio-memory`: PostgreSQL + pgvector, `qwen3-embedding:0.6b` at 384
+dimensions), recorded in
+[ADR 0005](memory/repo/nescio/adr/0005-memory-moves-to-a-retrieval-service.md),
+which supersedes ADR 0002. The service boundary is deliberate: it keeps the
+framework's install path dependency-free, per ADR 0001.
+
+The entries below are **re-scoped, not rewritten.** #11 and #41 are largely answered
+or made moot — ingest and query are what the service provides, and an Obsidian view
+over `memory/` assumes the files stay the record. #10 and #34 keep their intent but
+change shape against a service. #35, #36, #38, #40 and #70 are unaffected, because
+they sit on the capture and readiness side rather than on storage. #2, and the
+unmilestoned wiki-engine work, hardens the `MEMORY.md` generator that a database
+replaces — worth holding rather than extending.
+
+What the move costs is the part worth reading. Four properties are free while memory
+is files in git — the review gate (which *is* a diff review), symlink distribution,
+history and correction, and any way to read the corpus back out — and none of them
+transfer. See #160.
+
+- [#160](https://github.com/noctua84/nescio-ai/issues/160) — memory moves to a retrieval service: egress, retraction, provenance + curation metadata, a replacement review gate, distribution, migration
 - `cross-repo` [#10](https://github.com/noctua84/nescio-ai/issues/10) — cross-repo generalization tier (learning-path step 2)
 - `cross-repo` [#11](https://github.com/noctua84/nescio-ai/issues/11) — knowledge ingest + query + capture bridge (step 3)
 - `cross-repo` [#34](https://github.com/noctua84/nescio-ai/issues/34) — learning-store bridge: CI review-learnings ↔ brain (phase 2.2)
