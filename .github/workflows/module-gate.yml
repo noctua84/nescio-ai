@@ -1,0 +1,45 @@
+name: module-gate
+
+# PR-only: on `push` there is no PR body to pass as --ack-file, and the
+# symmetric-difference base (`origin/main...HEAD`) is meaningless outside a
+# PR's own diff.
+on:
+  pull_request:
+
+jobs:
+  module-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The default shallow clone has no merge base, so `git diff
+          # <base>...<head>` can't find the symmetric difference and the gate
+          # would fail to run at all.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The PR body is untrusted text. Write it to a file via an env var
+      # rather than interpolating `${{ github.event.pull_request.body }}`
+      # directly into a `run:` block, which would be a shell-injection vector.
+      - name: Collect PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" > /tmp/pr-body.txt
+
+      # --base is omitted deliberately: GitHub Actions sets GITHUB_BASE_REF to
+      # the PR's base branch name on every pull_request run, and module_gate.py
+      # resolves that to origin/$GITHUB_BASE_REF on its own when --base isn't
+      # passed. Excludes below are long-form prose records, not modules --
+      # growing them is not the thing this gate is watching for.
+      - run: |
+          python scripts/module_gate.py \
+            --head HEAD \
+            --ack-file /tmp/pr-body.txt \
+            --exclude 'docs/plans/**' \
+            --exclude 'docs/specs/**' \
+            --exclude '.sisyphus/**' \
+            --exclude 'CHANGELOG.md' \
+            --exclude 'docs/usage/data.json'
