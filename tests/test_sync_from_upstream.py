@@ -429,13 +429,15 @@ class MainCliTest(unittest.TestCase):
 
     def test_dry_run_does_not_write(self):
         _write(self.up / "skills" / "s" / "SKILL.md", "new\n")
-        rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst)])
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst)])
         self.assertEqual(rc, 0)
         self.assertFalse((self.dst / "skills" / "s" / "SKILL.md").exists())
 
     def test_apply_writes(self):
         _write(self.up / "skills" / "s" / "SKILL.md", "new\n")
-        rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = sfu.main(["--upstream", str(self.up), "--dest", str(self.dst), "--apply"])
         self.assertEqual(rc, 0)
         self.assertTrue((self.dst / "skills" / "s" / "SKILL.md").exists())
 
