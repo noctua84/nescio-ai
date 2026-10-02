@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import sys
@@ -69,7 +71,8 @@ class InstallModuleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "settings.json"
             f.write_text("real", encoding="utf-8")
-            dest = self.install.backup(f, "20260101-000000", dry_run=False)
+            with contextlib.redirect_stdout(io.StringIO()):
+                dest = self.install.backup(f, "20260101-000000", dry_run=False)
             self.assertFalse(f.exists())
             self.assertTrue(dest.exists())
             self.assertEqual(dest.read_text(encoding="utf-8"), "real")
@@ -79,7 +82,8 @@ class InstallModuleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "settings.json"
             f.write_text("real", encoding="utf-8")
-            self.install.backup(f, "20260101-000000", dry_run=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.install.backup(f, "20260101-000000", dry_run=True)
             self.assertTrue(f.exists())
 
     def test_is_conflict_false_for_missing(self):
@@ -117,6 +121,9 @@ class SymlinkTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         import importlib
         self.install = importlib.import_module("install")
+        # install.symlink() narrates every branch (linked/already
+        # linked/failed/restored) to stdout; every test here calls it.
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def test_restores_old_symlink_when_recreate_fails(self):
         # Regression (issue #31): dst is an existing symlink pointing at an OLD
@@ -218,6 +225,9 @@ class RelinkIntegrationTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         import importlib
         self.install = importlib.import_module("install")
+        # do_relink() always narrates (settings/CLAUDE.md/symlink status, and a
+        # final summary line) regardless of which branch a test exercises.
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def _repo(self, repo: Path):
         (repo / "settings.json").write_text(
@@ -345,6 +355,9 @@ class ClaudeMdInstallTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         import importlib
         self.install = importlib.import_module("install")
+        # install_claude_md() prints on every branch (skip/replace/import,
+        # dry-run previews, and the idempotent "already imports" case).
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def _run(self, repo: Path, home: Path, choice: str, *, dry_run=False) -> str:
         """Point install at temp dirs, seed the repo CLAUDE.md, run. Returns the
@@ -464,19 +477,25 @@ class ResolveSettingsChoiceTest(unittest.TestCase):
     def test_interactive_default_full(self, ):
         # blank input at the top prompt -> full (all three)
         with mock.patch("builtins.input", side_effect=[""]), \
-             mock.patch("sys.stdin.isatty", return_value=True):
+             mock.patch("sys.stdin.isatty", return_value=True), \
+             contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(install.resolve_settings_choice(None),
                              frozenset({"agent", "permissions", "plugins"}))
 
     def test_interactive_custom(self):
         # custom -> agent yes (blank), permissions no, plugins yes
         with mock.patch("builtins.input", side_effect=["custom", "", "n", "y"]), \
-             mock.patch("sys.stdin.isatty", return_value=True):
+             mock.patch("sys.stdin.isatty", return_value=True), \
+             contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(install.resolve_settings_choice(None),
                              frozenset({"agent", "plugins"}))
 
 
 class InstallSettingsPartsTest(unittest.TestCase):
+    def setUp(self):
+        # install_settings() prints on every branch (skip/wrote/would write).
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+
     def _setup(self, tmp):
         # Fake framework settings.json with all three parts.
         fw = {"agent": "orchestrator",
@@ -530,6 +549,11 @@ class InstallSettingsPartsTest(unittest.TestCase):
 
 
 class SettingsCliIntegrationTest(unittest.TestCase):
+    def setUp(self):
+        # install_settings()/main() print status lines on every path exercised
+        # below (settings: wrote ..., and main()'s Repo:/Target: banner).
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+
     def test_part_list_end_to_end(self):
         with tempfile.TemporaryDirectory() as tmp:
             fw = {"agent": "orchestrator",
