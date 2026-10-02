@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Test authorship specialist. Writes and extends tests for implemented code — verifies the intended interface, not the current output. Hard file boundary: may not touch implementation files under any circumstances. Distinct from builder (writes production code), reviewer (audits already-built code), and qa-guard (makes CI checks pass mechanically).
+description: "Test authorship specialist. Writes and extends tests for implemented code — verifies the intended interface, not the current output. Hard file boundary: may not touch implementation files under any circumstances. Distinct from builder (writes production code), reviewer (audits already-built code), and qa-guard (makes CI checks pass mechanically)."
 model: claude-opus-5
 ---
 

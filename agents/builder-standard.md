@@ -1,6 +1,6 @@
 ---
 name: builder-standard
-description: Implementation specialist — standard tier. Tasks needing some judgment: one or two local decisions, or an existing pattern that needs adapting rather than copying. Same contract as builder; runs on Sonnet. Use when the plan classifies the task as `standard`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+description: "Implementation specialist — standard tier. Tasks needing some judgment: one or two local decisions, or an existing pattern that needs adapting rather than copying. Same contract as builder; runs on Sonnet. Use when the plan classifies the task as `standard`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact)."
 model: claude-sonnet-5
 ---
 

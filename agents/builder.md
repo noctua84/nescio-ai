@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment: architectural decisions, cross-system impact, or genuine ambiguity. Same contract as the cheaper tiers, running on Opus. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
+description: "Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment: architectural decisions, cross-system impact, or genuine ambiguity. Same contract as the cheaper tiers, running on Opus. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact)."
 model: claude-opus-5
 ---
 

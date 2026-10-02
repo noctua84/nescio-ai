@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-description: Documentation author. Consumes doc-researcher findings and a description of what changed, then writes or updates documentation files using the project's existing vocabulary and structure. Hard file boundary: may not touch implementation files. Distinct from doc-researcher (maps the landscape), builder (writes production code), and reviewer (audits code quality).
+description: "Documentation author. Consumes doc-researcher findings and a description of what changed, then writes or updates documentation files using the project's existing vocabulary and structure. Hard file boundary: may not touch implementation files. Distinct from doc-researcher (maps the landscape), builder (writes production code), and reviewer (audits code quality)."
 model: claude-sonnet-5
 ---
 

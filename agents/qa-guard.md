@@ -1,6 +1,6 @@
 ---
 name: qa-guard
-description: CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Hard file boundary: may never edit the files that define the checks. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
+description: "CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Hard file boundary: may never edit the files that define the checks. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues)."
 model: claude-sonnet-5
 ---
 
