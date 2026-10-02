@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.7.1](https://github.com/noctua84/nescio-ai/compare/v1.7.0...v1.7.1) (2026-10-02)
+
+
+### Documentation
+
+* **adr:** adopt semantic retrieval as a service; supersede ADR 0002 ([86dfe88](https://github.com/noctua84/nescio-ai/commit/86dfe8894f105418ceef9b77a0b3f7a67bc82740))
+* **adr:** adopt semantic retrieval as a service; supersede ADR 0002 ([7872ee6](https://github.com/noctua84/nescio-ai/commit/7872ee6cf9062197bb08fb38ea9d56cc3997550b))
+* **adr:** land ADR 0004 and the [#70](https://github.com/noctua84/nescio-ai/issues/70) plan, with their calibration marked stale ([bb8afa0](https://github.com/noctua84/nescio-ai/commit/bb8afa04f1105685f35c017a317703d6d1b99738))
+* **roadmap:** move the shipped learning-log retention out of the planned list ([bd1a9de](https://github.com/noctua84/nescio-ai/commit/bd1a9de6ce0a09a69327f843613f3d9213254545))
+* **roadmap:** move the shipped learning-log retention out of the planned list ([7f99a2c](https://github.com/noctua84/nescio-ai/commit/7f99a2cd6d32a61fdfb178158c36fe079ab82157))
+
 ## [1.7.0](https://github.com/noctua84/nescio-ai/compare/v1.6.0...v1.7.0) (2026-09-25)
 
 
