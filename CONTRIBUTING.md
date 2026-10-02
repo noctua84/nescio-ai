@@ -189,6 +189,27 @@ forgot.
 - Keep PRs focused; describe the scope and how to verify.
 - Branch for changes; don't commit straight to the default branch.
 
+### The module gate
+
+`.github/workflows/module-gate.yml` runs `scripts/module_gate.py` on every PR.
+It trips when your PR **adds lines** to a file that is **already over the
+module-size tripwire** (400 lines by default; see `## Architecture` above for
+how a project overrides that). A file you only shrink never trips it, and
+neither does a file that stays under the tripwire.
+
+**Splitting is never required.** The obligation is to look and say what you
+found — the `modular-design` skill's three tests (reasons to change, shared
+state, call-graph shape) tell you what to look for. Clear the gate with one
+line in a commit message or the PR description:
+
+```
+Module-check: path/to/file.py — cohesive, one reason to change
+```
+
+`—`, `-`, and `:` are all accepted as the separator, case-insensitively. The
+free text just has to say something real — "looked, it's fine" is a verdict;
+an empty acknowledgement is not one.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the
