@@ -168,6 +168,10 @@ class _ThemedFixtureTestCase(unittest.TestCase):
         base = Path(self._tmp.name)
         self.up = base / "upstream"
         self.dst = base / "dest"
+        # _make_functional_checkout/_make_themed_dest_in_step_with call
+        # apply_theme.apply_theme() directly (not through _run_main), which
+        # narrates "switched crew" / "renamed ..." to stdout on every setUp.
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         _make_functional_checkout(self.up)
         _make_themed_dest_in_step_with(self.up, self.dst)
 

@@ -53,7 +53,9 @@ class ClobberGuardTest(unittest.TestCase):
             hand_edit = "# hand-edited by a human, do not clobber\n"
             core.write_text(hand_edit, encoding="utf-8")
 
-            written = gha.install_files(target, auth="oauth", ci_workflow_name="CI", force=False)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                written = gha.install_files(target, auth="oauth", ci_workflow_name="CI", force=False)
             self.assertNotIn(core, written)
             self.assertEqual(core.read_text(encoding="utf-8"), hand_edit)
 
@@ -79,7 +81,9 @@ class SetSecretTest(unittest.TestCase):
         old_call = gha.subprocess.call
         gha.subprocess.call = fake_call
         try:
-            rc = gha.set_secret(repo, auth)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = gha.set_secret(repo, auth)
         finally:
             gha.subprocess.call = old_call
         self.assertEqual(rc, 0)

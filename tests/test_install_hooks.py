@@ -35,6 +35,9 @@ class WireStopHookTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         self.install = importlib.import_module("install")
         _pin_not_a_venv(self)  # assertions below compare against sys.executable
+        # wire_stop_hook() narrates every branch (wired/re-wired/already
+        # wired/skipped) to stdout; every test here calls it.
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def _local(self, config_dir: Path) -> Path:
         return config_dir / "settings.json"
@@ -352,6 +355,9 @@ class WireSessionStartHookTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         self.install = importlib.import_module("install")
         _pin_not_a_venv(self)  # assertions below compare against sys.executable
+        # wire_sessionstart_hook() narrates every branch to stdout; every test
+        # here calls it.
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def _local(self, config_dir: Path) -> Path:
         return config_dir / "settings.json"
@@ -464,6 +470,9 @@ class WireCommandHookMatcherTest(unittest.TestCase):
         sys.path.insert(0, str(ROOT))
         self.install = importlib.import_module("install")
         _pin_not_a_venv(self)  # assertions below compare against sys.executable
+        # _wire_command_hook() narrates every branch to stdout; every test
+        # here calls it (via self._wire).
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def _local(self, config_dir: Path) -> Path:
         return config_dir / "settings.json"
