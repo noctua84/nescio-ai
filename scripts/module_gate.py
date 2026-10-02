@@ -259,6 +259,17 @@ def format_success(hits_acked: list[dict], tripwire: int) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The failure banner's "Module-check: <path> — ..." example, and any
+    # non-ASCII repo-relative path a hit reports, can carry characters a
+    # legacy Windows console (cp1252) cannot encode -- which would turn a
+    # correctly-failing gate into a crash indistinguishable from a pass.
+    # Reconfigure to UTF-8 up front, before any print (guarded -- a
+    # redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
     parser = argparse.ArgumentParser(
         description=(
             "Fail a PR that grows an already over-tripwire file without an "

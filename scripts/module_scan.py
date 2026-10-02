@@ -216,6 +216,15 @@ def format_report(result: dict, top: int | None) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A non-ASCII tracked file path would appear verbatim in the report; a
+    # legacy Windows console (cp1252) would raise UnicodeEncodeError on it.
+    # Reconfigure to UTF-8 up front, before any print (guarded -- a
+    # redirected StringIO in tests has no reconfigure).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
+
     parser = argparse.ArgumentParser(
         description="Report tracked files over the module-size tripwire.",
     )

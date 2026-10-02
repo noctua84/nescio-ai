@@ -23,6 +23,7 @@ reminder disappears, identically, every session, because the marker persists.
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import mark_adopted  # noqa: E402
+import module_gate  # noqa: E402
+import module_scan  # noqa: E402
 import repo_hygiene_apply  # noqa: E402
 import scrub_check  # noqa: E402
 import wiki_index  # noqa: E402
@@ -96,6 +99,112 @@ class WikiIndexGuardTest(unittest.TestCase):
         self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
         # The summary lines this script prints on the success path carry — and ⚠.
         # They are encodable on this stream now.
+        stream.write("⚠\n")
+
+
+def _git(repo: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8"
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"`git {' '.join(args)}` failed in {repo} (exit {proc.returncode}):\n"
+            f"{proc.stderr.strip() or proc.stdout.strip()}"
+        )
+    return proc.stdout.strip()
+
+
+class ModuleGateGuardTest(unittest.TestCase):
+    def test_main_reconfigures_stdout_before_printing(self):
+        # `--repo` pointing at a directory that is not a git repository hits
+        # the GateError path (exit 2) before any stdout output -- an early,
+        # side-effect-free error path like the other classes above.
+        # module_gate prints the GateError message to stderr, not stdout --
+        # git's own diagnostic text on a non-repo --base/--head is verbose, so
+        # stderr is captured too, or it leaks straight into the real console
+        # (this suite's own stdout leak is pre-existing and tracked
+        # separately; a new stderr leak from this test would not be).
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            not_a_repo = Path(d) / "not-a-repo"
+            not_a_repo.mkdir()
+            rc, stream = _run_with_cp1252_stdout(
+                module_gate.main,
+                [
+                    "module_gate.py",
+                    "--repo", str(not_a_repo),
+                    "--base", "main",
+                    "--head", "HEAD",
+                ],
+            )
+        self.assertEqual(rc, 2)
+        self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
+        # The failure banner's "Module-check: <path> — ..." example, and any
+        # non-ASCII repo-relative path a hit reports, are encodable now.
+        stream.write("—\n")
+
+    def test_failure_banner_survives_a_cp1252_stdout(self):
+        # The banner printed by `format_failure` is where the em dash this fix
+        # exists for actually lives ("Module-check: <path> — ..."); a guard
+        # test that only exercises the early-error path above would miss it.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / "repo"
+            repo.mkdir()
+            _git(repo, "init", "-b", "main")
+            _git(repo, "config", "user.email", "test@example.invalid")
+            _git(repo, "config", "user.name", "Test")
+            _git(repo, "config", "commit.gpgsign", "false")
+
+            (repo / "README.md").write_text("x\n" * 5, encoding="utf-8")
+            _git(repo, "add", "--", "README.md")
+            _git(repo, "commit", "-m", "chore: initial commit")
+            base_sha = _git(repo, "rev-parse", "HEAD")
+
+            (repo / "big.py").write_text("x\n" * 450, encoding="utf-8")
+            _git(repo, "add", "--", "big.py")
+            _git(repo, "commit", "-m", "feat: grow big.py")
+            head_sha = _git(repo, "rev-parse", "HEAD")
+
+            stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+            argv = [
+                "module_gate.py",
+                "--repo", str(repo),
+                "--base", base_sha,
+                "--head", head_sha,
+            ]
+            with mock.patch.object(sys, "stdout", stream), \
+                    mock.patch.object(sys, "argv", argv):
+                rc = module_gate.main()
+            stream.flush()
+            emitted = stream.buffer.getvalue()
+
+        self.assertEqual(rc, 1, "an unacknowledged hit must fail the gate")
+        self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
+        text = emitted.decode("utf-8")
+        self.assertIn("module-gate: FAIL", text)
+        self.assertIn("big.py", text)
+        self.assertIn("—", text, "the em dash in the Module-check example")
+
+
+class ModuleScanGuardTest(unittest.TestCase):
+    def test_main_reconfigures_stdout_before_printing(self):
+        # `--repo` pointing at a directory that is not a git repository makes
+        # `git ls-files` fail; the scan still completes (0 files, clean report)
+        # rather than raising, exercising the guard ahead of that print.
+        # `tracked_files` prints its git failure to stderr; capture it so this
+        # test doesn't add its own noise to the real console.
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            not_a_repo = Path(d) / "not-a-repo"
+            not_a_repo.mkdir()
+            rc, stream = _run_with_cp1252_stdout(
+                module_scan.main,
+                ["module_scan.py", "--repo", str(not_a_repo)],
+            )
+        self.assertEqual(rc, 0)
+        self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
+        # A non-ASCII tracked file path appearing in the report would be
+        # encodable on this stream now.
         stream.write("⚠\n")
 
 
