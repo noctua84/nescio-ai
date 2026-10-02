@@ -124,10 +124,48 @@ durable repo memory:
    | `body` | The note body (markdown), portability-rewritten per step 4. |
    | `source` | Source class: `user override` \| `empirical` \| `agent inference`. |
    | `date` | `YYYY-MM-DD` the learning was observed. |
+   | `unrouted` | **Optional.** `true` declares that you could not determine where to file this learning. Switches the nomination onto the unrouted path below; omit it (or leave it false) for every ordinary nomination. |
+   | `unrouted_reason` | Required **only** when `unrouted` is true: one line on why no target could be determined. |
 
    All fields are required; a nomination missing any of them (or naming a
    `scope` bucket / `source` outside the sets above, or a `target` that escapes
    `memory/`) is rejected before anything is written.
+
+   **If you cannot decide where a learning belongs, say so — do not guess at a
+   target.** A nomination may declare itself unrouted, and that declaration is a
+   first-class outcome rather than an error:
+
+   ```json
+   [
+     {
+       "unrouted": true,
+       "unrouted_reason": "spans the payment and booking services; neither repo owns the refund clock",
+       "name": "cross-service refund clock ownership",
+       "description": "who owns the 24h refund window when two services share it",
+       "body": "The learning text, portability-rewritten per step 4...",
+       "source": "empirical",
+       "date": "2026-10-03"
+     }
+   ]
+   ```
+
+   An unrouted nomination carries `unrouted_reason`, `name`, `description`,
+   `body`, `source` and `date`. It must **not** carry `target` or `scope` — a
+   nomination claiming it has no target while naming one is ambiguous and is
+   rejected, so drop the field rather than leaving it in. `type` is the *note's*
+   frontmatter type and there is no note, so it is not required either.
+
+   `promote_learnings.py` writes no note for it, does not count it as promoted,
+   does not add it to `memory/learning-log.md`, and **does not fail the run** —
+   the other nominations in the manifest promote exactly as normal. It is
+   counted in a durable per-repo tally that
+   `scripts/check_memory_triggers.py` reads as ADR 0002's third revisit
+   trigger. Guessing a target instead is what kept that trigger permanently
+   dark, so an honest declaration is strictly more valuable than a plausible
+   invention.
+
+   Still present the unrouted nominations in step 6's summary, flagged as such,
+   so the operator can route them by hand if they actually know the answer.
 
    Pick `source` by where the learning actually came from — an explicit user
    instruction is a `user override`, an observed test/CI/runtime outcome is
