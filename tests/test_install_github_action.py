@@ -13,6 +13,7 @@ class InstallFilesTest(unittest.TestCase):
             wrapper = target / ".github/workflows/claude-code-review.yml"
             learn = target / ".claude/memory/review-learnings"
             self.assertTrue(core.is_file()); self.assertTrue(wrapper.is_file())
+            self.assertIn(core, written); self.assertIn(wrapper, written)
             self.assertTrue((learn / ".gitkeep").is_file())
             self.assertTrue((learn / "README.md").is_file())
             body = core.read_text()
