@@ -28,6 +28,65 @@ jobs:
       - run: pip install pyyaml==6.0.3
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
 
+  # 79 Python files, ~30k lines, and until now the unittest suite above was the
+  # only automated gate this repository had. No linter, no formatter, no type
+  # checker ran anywhere. This job is the first of those: phase 1 of issue
+  # #162's static-analysis milestone.
+  #
+  # THE RULESET IS DELIBERATELY NARROW. `E9,F63,F7,F82` -- syntax errors,
+  # undefined names, and invalid comparisons -- is real breakage, not style.
+  # It was measured at 0 findings against origin/main before this job was
+  # added, so it is green from its first run, and every future red is a
+  # genuine regression, not a pre-existing backlog someone has to triage first.
+  #
+  # THE RULESET LIVES IN pyproject.toml, NOT HERE. `[tool.ruff.lint]` there is
+  # the single source of truth; this step deliberately does NOT pass
+  # `--select` on the command line. Repeating the list here would create a
+  # second copy with nothing policing agreement between them -- a local
+  # `uvx ruff check .` and this job would be free to drift apart silently.
+  # Reading the config from one place is what keeps them identical by
+  # construction instead of by discipline.
+  #
+  # THE RUFF VERSION IS PINNED HERE, AND NOWHERE ELSE, ON PURPOSE. An
+  # unpinned `uvx ruff` resolves to latest on every run, so a new ruff release
+  # could red this job on a commit that changed nothing -- breaking the
+  # "green on day one" promise above and training people to ignore the check.
+  # Everything else in this repository is pinned the same way: pyyaml==6.0.3
+  # above, uv.lock plus the `lockfile` tripwire below, mkdocs-material in two
+  # workflows. A version bump is a deliberate, reviewable commit, which is the
+  # point -- a bump is exactly when new findings deserve a human look. Writing
+  # `0.16.10` into pyproject.toml too would just create a second copy of this
+  # same problem, one version number instead of one rule list.
+  #
+  # `uvx` ships with `uv`, so `pip install uv` (the same install the
+  # `lockfile` job below uses) is all this needs; no separate ruff install.
+  #
+  # PRECONDITION, same as `roadmap` states for itself below: this job must NOT
+  # be added to main's required status checks in the same change that adds it.
+  # Branch protection currently requires exactly ["tests"]. Promote `lint` to
+  # required only once it has run green across several real merges. (Issue
+  # #162 phase 1.)
+  #
+  # DELIBERATELY NOT DONE: `ruff format` -- it would reformat 87 of 223 files
+  # in one shot, destroying `git blame` across roughly a third of the
+  # repository, which the Static analysis milestone charter rules out as a
+  # cost nobody asked to pay. Also not done: every other rule family --
+  # `F`, `RUF100`, `UP017`, `I001` and the rest are later phases, one rule
+  # family per PR, so each is reviewed on its own findings rather than landing
+  # as one undifferentiated wall of changes.
+  #
+  # No job-level `if:` here, matching `tests` and `lockfile`: it is cheap,
+  # it is green, and it runs on every trigger this workflow has.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install uv
+      - run: uvx ruff@0.16.10 check --output-format=github .
+
   # The docs_site/ tests are a second unittest root, and brand/ is a third --
   # this job runs both. `discover -s tests` above reaches neither, by design:
   # `tests/` is on FRAMEWORK_PATHS and syncs into derived instances, which never
