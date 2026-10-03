@@ -6,3 +6,11 @@ dependencies = []
 
 [dependency-groups]
 dev = ["pyyaml==6.0.3"]
+
+# Authoritative ruleset shared by a local `uvx ruff check .` and the `lint`
+# job in .github/workflows/tests.yml -- this file is the single source of
+# truth for *which* rules run, so CI and a local run can never disagree. The
+# ruff *version* is pinned in that workflow instead, not here, to avoid a
+# second place to keep in step. See issue #162 for the phased rollout plan.
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
