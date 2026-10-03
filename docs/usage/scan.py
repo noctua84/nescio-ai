@@ -1,4 +1,4 @@
-import os, glob, json, collections, datetime, sys
+import os, glob, json, collections
 
 root = os.path.expanduser(r'~\.claude\projects')
 files = glob.glob(os.path.join(root, '*', '*.jsonl'))
