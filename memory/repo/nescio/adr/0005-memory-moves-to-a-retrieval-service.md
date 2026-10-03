@@ -1,6 +1,6 @@
 ---
 name: nescio-adr-0005-memory-moves-to-a-retrieval-service
-description: Semantic retrieval is adopted as a separate HTTP service that becomes the system of record; notes are indexed by their human-written summary rather than chunked, and the deterministic machinery — precedence, hash dedup, watermarks, ledger — stays exact and authoritative.
+description: Semantic retrieval is adopted as a separate HTTP service that becomes the system of record; retrieval returns chunked passages rather than whole notes, and the deterministic machinery — precedence, hash dedup, watermarks, ledger — stays exact and authoritative.
 type: adr
 status: proposed
 ---
@@ -20,6 +20,9 @@ corrected ADR 0002's "the corpus is empty" evidence, and does not disturb
 [ADR 0001](0001-no-agent-frameworks-in-nescio.md) — see *Decision 2*.
 
 Tracked as [#160](https://github.com/noctua84/nescio-ai/issues/160).
+
+**Decision 3 was withdrawn on 2026-10-03 and Decision 4 corrected on the same day**,
+both before implementation. The rest of the ADR stands. See those sections.
 
 ## Context
 
@@ -122,32 +125,169 @@ in another repository does not. The service boundary is what makes this ADR
 compatible with ADR 0001 rather than a second reversal, and it should not be
 collapsed into the framework later for convenience.
 
-### 3. Notes are indexed by their summary, not by chunking their bodies
+### 3. ~~Notes are indexed by their summary, not by chunking their bodies~~ — WITHDRAWN
 
-Embed `name + description` — roughly 270 chars of purpose-written human summary —
-as the retrieval key, store the note alongside it, and return the **whole note** as
-the payload. `type` becomes a filter facet.
+> **Withdrawn 2026-10-03, before implementation.** Replaced by: **chunked passages
+> are the retrieval contract.** A search returns the spans that bear on the query,
+> each carrying enough identity to name the note it came from, and the caller
+> assembles a context out of them. The note stops being the retrieval unit. The
+> withdrawn text is preserved at the end of this section, because why it was wrong
+> is more useful than what it said.
 
-The default alternative, the service's current behaviour, is a 1000/200 sliding
-window over the body. On this corpus that produces about 2,431 vectors averaging
-5.7 per note, each a mid-argument slice of a curated note, cut at an offset rather
-than a boundary — because the median note has no headings. Only 6 of 424 notes fit
-a single 1000-char chunk.
+**This is settled by intent, not by measurement.** Decision 3's payload was the whole
+note. A store that answers with whole documents over HTTP is a semantic file finder
+— `memory/` with a network hop in front of it — and that is not
+retrieval-augmented generation. A RAG store exists to put relevant text into a
+generation context, and a 109,419-char document is not a context. Deciding this by
+experiment was a category error: I went looking for evidence to settle a question
+that the service's purpose already answered.
 
-Summary-indexing gives 424 vectors instead of ~2,431, 424 embedding calls instead
-of ~2,431 against a service that calls the embedder serially with no batching, and
-a retrieval unit that is the unit a human actually approved. Vector storage is
-irrelevant either way (651 KB at 384 dimensions, fp32).
+**The evaluation built to settle it could not have settled it.** The harness
+(`nescio-memory` [#34](https://github.com/noctua84/nescio-memory/pull/34)) scores
+*did the expected note appear in the top k*, which presupposes that the note is the
+retrieval unit; it is structurally unable to score passage retrieval. Its
+`mean_distinct_notes_at_k` diagnostic — which I read as evidence against chunking,
+because chunking spends result slots on repeats of one note — is only a cost under
+note-level retrieval. Under passage retrieval, several passages from one note is the
+intended behaviour. The metric encoded its own conclusion.
 
-This is a different ingest contract from the one the service has today: it must
-accept a structured note and store the document, not just raw text.
+**It nonetheless pointed the same way**, which is worth recording. On the 14-note
+synthetic corpus at 1024 dimensions, MRR@10 by query class:
 
-### 4. 384 dimensions is the model's capacity, and the schema is pinned to it
+| query class | `chunk` | `summary` | `hybrid` |
+|---|---|---|---|
+| `topic` — restates the note's subject (n=6) | 1.000 | 1.000 | 1.000 |
+| `buried` — a fact present once in the body (n=8) | 0.938 | **1.000** | 0.938 |
+| `oblique` — names a symptom, not the mechanism (n=6) | **0.917** | 0.500 | 0.733 |
 
-`vector(384)` matches what `qwen3-embedding:0.6b` produces; it is not a truncation
-with quality left on the table. Changing it is a breaking migration requiring a
-full re-embed, so a change of embedding model is a schema decision, not a config
-decision.
+Summary-indexing ties where the query restates the summary, wins where a buried fact
+is still reachable by topic, and collapses where the query names a symptom and not its
+mechanism — one note missed entirely, another at rank 6. That is the RAG case
+asserting itself through a metric built against it. Corroboration, not grounds:
+fourteen hand-authored notes and four discriminating queries decide nothing. The
+real-corpus run was abandoned once the question stopped being empirical.
+
+**`hybrid` is rejected too, and that one is a measurement result.** Both unit types in
+one shared cosine ranking was strictly dominated — it tied `chunk` on two classes
+and lost to it on the third (0.733 against 0.917) while costing five units per note.
+Neither route was dead weight (`summary` reached the note first on 14 of 20 queries,
+`chunk` on 6), so the fault is the shared ranking itself: it lets the weaker unit type
+take slots the stronger one would have won. "Store both and sort by distance" is not a
+design.
+
+**A per-note summary vector still has a job, and it is not retrieval.** The two
+capabilities this ADR claims as genuinely new — near-duplicate detection at
+promotion time, and cross-repo recurrence across the repo-scoped notes that
+[#10](https://github.com/noctua84/nescio-ai/issues/10) wants — are questions about
+*note identity*, and both want exactly one vector per note. That is a second index
+with a different job, queried by the deterministic layer rather than by search. It
+must not be ranked against passages.
+
+#### The original rejection measured the wrong population
+
+Chunking was rejected on *"the median note has no headings, so a window cuts
+mid-argument"*. Re-measured against the live brain on 2026-10-03 — 440 markdown
+files, of which 13 are generated `MEMORY.md` indexes, leaving **427 content notes**:
+
+| | notes | share | median chars | p90 | max |
+|---|---|---|---|---|---|
+| promotion-owned (`<!-- promoted:begin -->` block) | 91 | 21% | **1,775** | 3,053 | **7,646** |
+| hand-written / pre-pipeline | 336 | 79% | — | — | — |
+| whole notes | 427 | 100% | 2,333 | 5,311 | **109,419** |
+
+The learning loop's own output is well shaped. A promoted block is one nomination
+body, bounded in practice at 7,646 chars, occupying a median 82% of the note that
+holds it. The 109,419-char outlier and the missing headings belong to the 79% the
+pipeline never wrote. **This ADR measured the whole corpus and attributed its shape
+to the learning loop.**
+
+#### Headings were not the only boundary, and paragraphs are the real one
+
+Re-measured over the 423 notes excluding generated indexes and top-level documents:
+
+- **4,438 paragraphs**, median **268** chars, p90 787, max 8,136. Only **6.1%** exceed
+  1,000 chars, so a paragraph-first chunker needs a hard-split fallback for one
+  paragraph in sixteen and for no others.
+- A 1000/200 sliding window produces **2,198 chunks**, of which **98.2% begin or end
+  mid-paragraph**. That is the concrete cost of ignoring the structure that is there.
+- Headings: median 0 confirmed, but **44% of notes carry at least one**, and the notes
+  above p90 — precisely the ones where chunking matters — carry a median of 9.
+  The long tail is the *structured* part of the corpus, not the formless part.
+
+So the premise was too narrow rather than wrong. Markdown headings are genuinely
+absent from most notes; paragraph boundaries are not, and they are a usable semantic
+boundary that the corpus supplies for free.
+
+Two cautions on the above. Fewer, better-aligned chunks is a **boundary-quality**
+result, not a retrieval result — nothing here measures whether paragraph-aligned
+chunks retrieve better, and that remains unmeasured. And the measurement is of today's
+corpus, 79% of which predates the pipeline; as the promoted share grows the input
+shape shifts toward the tighter distribution in the table above.
+
+#### The finding that outranks all of this
+
+Promotion is lossy by construction, and the vector store is what can fix it.
+`_compose_note` (`scripts/promote_learnings.py:324`) **replaces** the managed block
+rather than appending to it — `rest[:b] + new_block + rest[e:]` — and the
+overwrite path (`:621-639`) resolves a second nomination for the same target by either
+overwriting the incumbent or discarding the incoming one. `_prune_target_lines`
+(`:386`) then removes the superseded hash from the ledger. The displaced learning
+survives only in git history.
+
+That is not a defect in the file layer; it is forced by it. **One file can hold one
+answer.** A vector store is not constrained that way: every nomination can persist as
+its own row carrying `source`, `date`, `type`, `scope`, `target` and its 12-hex body
+hash, with retrieval returning all of them and the deterministic precedence layer of
+*Decision 5* adjudicating at **read** time instead of destroying at **write** time.
+Precedence stays exact — the guarantee ADR 0002 was right about is untouched —
+and the corpus stops shrinking every time two sessions learn different things about
+the same target.
+
+This is the strongest argument for the migration, and this ADR failed to make it.
+Tracked for design under [#160](https://github.com/noctua84/nescio-ai/issues/160).
+
+#### The withdrawn text, as originally accepted
+
+> Embed `name + description` — roughly 270 chars of purpose-written human summary
+> — as the retrieval key, store the note alongside it, and return the **whole
+> note** as the payload. `type` becomes a filter facet.
+>
+> The default alternative, the service's current behaviour, is a 1000/200 sliding
+> window over the body. On this corpus that produces about 2,431 vectors averaging
+> 5.7 per note, each a mid-argument slice of a curated note, cut at an offset rather
+> than a boundary — because the median note has no headings. Only 6 of 424 notes
+> fit a single 1000-char chunk.
+>
+> Summary-indexing gives 424 vectors instead of ~2,431, 424 embedding calls instead
+> of ~2,431 against a service that calls the embedder serially with no batching, and
+> a retrieval unit that is the unit a human actually approved. Vector storage is
+> irrelevant either way (651 KB at 384 dimensions, fp32).
+>
+> This is a different ingest contract from the one the service has today: it must
+> accept a structured note and store the document, not just raw text.
+
+### 4. The vector width is the model's native width, and the schema is pinned to it
+
+`vector(1024)` matches what `qwen3-embedding:0.6b` produces. Changing it is a breaking
+migration requiring a full re-embed, so a change of embedding model is a schema
+decision, not a config decision.
+
+> **Corrected 2026-10-03.** This decision originally read *"384 dimensions is the
+> model's capacity"* and asserted that `vector(384)` was *"not a truncation with
+> quality left on the table"*. Both halves were false. The model emits **1024**, so
+> the service shipped a schema that could not store a single vector its own embedder
+> produced — `nescio-memory` was inert by default until
+> [#38](https://github.com/noctua84/nescio-memory/pull/38) set the dimension to 1024.
+> I recorded the figure from a remark in conversation without making one HTTP call to
+> check it, having flagged it as an open question earlier and then dropped the flag.
+> The decision's *shape* survives: the width is pinned to the model, and changing it
+> is a migration rather than a config edit.
+>
+> One correction to the reasoning rather than the number: truncation **is** available.
+> `qwen3-embedding` supports Matryoshka truncation through the `dimensions` parameter
+> of Ollama's `/api/embed`. The service calls the legacy `/api/embeddings` endpoint,
+> which ignores it, so a narrower vector is currently *unreachable* rather than
+> unavailable. If vector width ever becomes a cost question, that is the lever.
 
 ### 5. The deterministic layer is not replaced, and must not be approximated
 
@@ -183,7 +323,9 @@ relevant exists".
 | **Retrieval service as the record** (chosen) | Matches the stated intent; requires rebuilding four properties git provided free. |
 | Retrieval index *beside* the files, markdown stays the record | Strong option, rejected on intent. Would have kept the review gate, distribution and egress for nothing, reducing the work to ingest plus cache invalidation. Worth revisiting if the rebuild stalls. |
 | Keep deferring until a trigger fires | Rejected. Two triggers are uninstrumented, and the lead time for migration plus a replacement review gate exceeds the warning the remaining triggers would give. |
-| Chunk note bodies (service default) | Rejected on measurement: no heading boundaries, 5.7 fragments per curated note, 6× the embedding calls. |
+| **Chunked passages as the retrieval unit** | **Chosen 2026-10-03** — see Decision 3. Originally rejected on a measurement of the whole corpus, 79% of which the learning loop never wrote. The cost figures in that rejection stand; the rejection does not. |
+| Summary-indexed whole notes | Rejected on intent — Decision 3, withdrawn. Returning whole documents is a semantic file finder, not a RAG store. Retained for note-level identity work only. |
+| Both unit types in one cosine ranking (`hybrid`) | Rejected on measurement: strictly dominated by `chunk`, at five units per note. |
 | In-process embedding model | Rejected — violates ADR 0001. |
 
 ## Consequences
@@ -214,18 +356,28 @@ Further costs and risks:
 - **A proof of concept becomes a dependency.** v0.3.1 has no error handling for
   embedder or database failure (both surface as 500), no retry or batching on
   ingest, no rate limiting, and no structured audit of who ingested what.
-- **Ingest is serial.** One embedder round-trip per vector, no batching, no retry.
-  The largest note in the corpus is 109,009 chars; under body-chunking that is ~136
-  sequential calls where one network flake fails the request. Summary-indexing
-  reduces this to one call per note, which is a second reason for Decision 3.
+- **Ingest is serial, and chunking multiplies the cost.** One embedder round-trip per
+  vector, no batching, no retry. Withdrawing Decision 3 removes the mitigation that
+  decision provided, so batching and retry on the ingest path move from nice-to-have
+  to required. Measured while running the evaluation: ~3,000 serial calls take roughly
+  ninety minutes against a local Ollama at `NUM_PARALLEL:1`, and before a retry was
+  added a single 500 in that window discarded the entire run.
 - **The gain is real and partly new.** Two capabilities arrive that files could not
   provide: near-duplicate detection at promotion time (today's dedup is an exact
   hash, so a re-worded learning lands twice), and cross-repo recurrence over 308
   repo-scoped notes, which #10 has wanted and had no mechanism for.
 
-**To re-verify.** Whether the summary-indexed design actually retrieves better than
-body chunking on this corpus is asserted here from the corpus shape, not measured
-against queries — no retrieval evaluation exists yet. Build one before the ingest
-contract hardens. Also re-check the two uninstrumented ADR 0002 triggers: if the
-index really has stopped scaling, that is evidence worth having rather than
-inferring.
+**To re-verify.** The retrieval evaluation this section called for was built
+(`nescio-memory` [#34](https://github.com/noctua84/nescio-memory/pull/34)) and is what
+withdrew Decision 3 — but its metric scores note-level retrieval and must be
+replaced with passage-level relevance before it can evaluate the design that replaced
+it. The thirty hand-labelled queries over the live brain survive that change; the
+scoring does not. Two things are still unmeasured and neither should be guessed at:
+whether paragraph-aligned chunks actually *retrieve* better than offset-aligned ones,
+and how much recall the production path loses to HNSW approximation plus the
+`client_name` post-filter, which the in-memory exact-scan harness cannot see. Nothing
+should harden the ingest contract until the first of those lands.
+
+The four ADR 0002 triggers are now instrumented — see the amendment above. T4
+reports without judging, because no threshold has been chosen; that remains a decision
+rather than an implementation task.
