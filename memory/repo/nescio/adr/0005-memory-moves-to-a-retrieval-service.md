@@ -41,6 +41,49 @@ neither has fired:
 | a harvest cannot determine where to file a learning | not instrumented | unknowable |
 | agents observed grepping past the index | not instrumented | unknowable |
 
+> **Amendment, 2026-10-03.** Both halves of that table are now out of date, and the
+> correction matters because it is the evidence this ADR said it lacked.
+>
+> All four triggers are instrumented, by `scripts/check_memory_triggers.py` (#168,
+> landed in #170). Run it with `--memory-root <brain>/memory`. Re-measured with the
+> tool rather than by hand:
+>
+> | Trigger | Verdict | Measured |
+> |---|---|---|
+> | directory > ~100 notes | clear | **80** (`repo/soulsgate-ui`) — **80%** of the trigger |
+> | corpus > ~500 notes | clear | **427** — **85%** |
+> | harvest cannot route a learning | **unknown** | no tally yet — absence is not zero |
+> | agents grepping past the index | **unknown** | measured, but uncalibrated, so it cannot fire |
+>
+> Three corrections to what this ADR originally recorded:
+>
+> 1. **The directory figure was stale, not wrong.** Commit `4fa3aee` (2026-10-02)
+>    converged `memory/repo/ui/` into `memory/repo/soulsgate-ui/` after the original
+>    measurement, taking it from 49 to 80 and moving the lead off
+>    `soulsgate-payment`. The count was correct when taken.
+> 2. **The distribution matters more than the leader.** Three directories now sit
+>    near the line — 80, 73 and 68 — so this is a corpus-wide trend rather than one
+>    outlier, which is a stronger signal than the single figure above suggests.
+> 3. **Two triggers are instrumented but still cannot fire**, for different reasons.
+>    T3 has no tally because no harvest has declared an unrouted nomination since the
+>    instrument landed, and the checker reports that as `unknown` precisely because
+>    absence cannot distinguish "everything routed" from "never recorded". T4 is
+>    measured — 86% of sessions searched `memory/` at all, 28% did so *after*
+>    consulting an index, which is the causal reading the trigger's wording actually
+>    requires — but no threshold has been chosen, so it reports and does not judge.
+>    Choosing that number is a decision, not an implementation task.
+>
+> **What this does to the decision below.** It narrows the gap rather than closing
+> it. "Deliberately ahead of its own trigger" was accurate when written and is now
+> only just true: the corpus is 85% of the way, the largest directory 80%, and two
+> more directories are following it up. The reasoning in *Decision 1* is unchanged
+> and better supported — this is no longer inference about where the corpus is
+> heading. Nothing in `## Decision` is revised by this amendment.
+>
+> One caution for anyone calibrating against the transcript corpus (T4, and #70):
+> it grew from 3,118 files / 1,645 MB to 5,103 files / 4,116 MB inside a single day.
+> Any constant derived from it goes stale almost immediately; measure at use.
+
 Corpus growth is bursty because it advances in harvest runs rather than
 continuously: 151 notes on 2026-08-01, 365 on 2026-09-01, 424 on 2026-10-02. The
 500-note trigger is months away at the slow end and weeks at the fast end.
