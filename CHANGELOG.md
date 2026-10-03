@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.8.0](https://github.com/noctua84/nescio-ai/compare/v1.7.1...v1.8.0) (2026-10-03)
+
+
+### Features
+
+* [impl] let a harvest declare a learning it could not route ([5c389ad](https://github.com/noctua84/nescio-ai/commit/5c389ad07265d6a5a9d5b016b4aa159a2a1791d3)), closes [#168](https://github.com/noctua84/nescio-ai/issues/168)
+* [impl] report ADR 0002's four memory revisit triggers ([a7607d8](https://github.com/noctua84/nescio-ai/commit/a7607d8bfa0afb63d230543e347810a0ca430f93)), closes [#168](https://github.com/noctua84/nescio-ai/issues/168)
+* gate unacknowledged growth of oversized files in CI ([2bf5938](https://github.com/noctua84/nescio-ai/commit/2bf5938d2a43770b01ed33595f98b1159e55909b))
+* instrument ADR 0002's four memory revisit triggers ([870b46f](https://github.com/noctua84/nescio-ai/commit/870b46f0ecb1fbec3e6603bc84c3e15f3a12fa56))
+
+
+### Bug Fixes
+
+* **agents:** quote description scalars so five agents load; guard frontmatter with strict YAML ([9e3897c](https://github.com/noctua84/nescio-ai/commit/9e3897c9b4f66bd28d7c6711ff2b912080906751))
+
+
+### Documentation
+
+* **adr:** amend ADR 0005 with the trigger figures its instrumentation produced ([92f9963](https://github.com/noctua84/nescio-ai/commit/92f9963f28fea6a4812a6a0d129abe79921381a8))
+* **adr:** amend ADR 0005 with the trigger figures its instrumentation produced ([eb9b116](https://github.com/noctua84/nescio-ai/commit/eb9b11647ef79aa7e44b6a46bc198330fe95658c))
+* **adr:** record that lint suppressions are documentation ([8dd6164](https://github.com/noctua84/nescio-ai/commit/8dd6164ba15b0ac7dee3fd9a6f52b24e94a21798))
+* **adr:** record that lint suppressions are documentation (ADR 0006) ([c95941f](https://github.com/noctua84/nescio-ai/commit/c95941fae7072a64f0f9264dc090de7492d88d40))
+
 ## [1.7.1](https://github.com/noctua84/nescio-ai/compare/v1.7.0...v1.7.1) (2026-10-02)
 
 
