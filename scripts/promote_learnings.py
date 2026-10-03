@@ -59,6 +59,51 @@ is the real relative path under ``memory/``; ``type`` is the note's frontmatter
 type. ``scope``'s bucket is validated against the canonical set; ``type`` is
 open-ended and only checked for presence.
 
+**One nomination may instead declare that it could not be routed** (#168):
+
+    {
+      "unrouted": true,
+      "unrouted_reason": "<why no target could be determined>",
+      "name": "<slug>", "description": "<one-line>",
+      "body": "<markdown>", "source": "...", "date": "YYYY-MM-DD"
+    }
+
+ADR 0002 made "a harvest pass reports it cannot determine where to file a
+learning" a trigger for revisiting the memory architecture, and that trigger
+could never fire: ``target`` was unconditionally required, so the *only* way to
+express "I could not place this" was to submit a nomination that failed
+validation as **malformed**. The condition was unrepresentable, not merely
+unmeasured, which is why ADR 0005 superseded 0002 still blind to it.
+
+The declaration is per-nomination rather than a new top-level manifest key
+because the manifest is a bare JSON list; adding a key would mean changing its
+container type, which every existing manifest and every reader would have to be
+migrated for. A declaring nomination:
+
+  * writes **no note** — there is no path to write one to, which is the point;
+  * does **not** count as promoted, and is reported on its own summary line;
+  * never enters ``memory/learning-log.md`` — the ledger is a record of
+    *promotions*, and its entries are keyed by target and consumed by
+    ``compute_readiness.count_promotions`` as "notes this repo has". A ledger
+    line for a note that does not exist would inflate that count and give the
+    dedup hash a target it could never resolve;
+  * does **not** fail the run. A harvest that found one unroutable learning
+    among nine good ones must still promote the nine. Refusing the pass would
+    punish the honest report and teach the next one to invent a target instead,
+    which is how the signal went missing in the first place;
+  * is counted in the durable per-repo tally
+    (``scripts/_unrouted_record.py``), which is what
+    ``scripts/check_memory_triggers.py`` reads. ``receipt.json`` is per-run and
+    cannot answer a question about accumulated history.
+
+``scope`` and ``target`` are **rejected** on a declaring nomination rather than
+ignored: a nomination carrying both a target and a claim that it has none is
+ambiguous, and silently preferring one reading would make the record untrue in
+whichever direction the harvest did not mean. Partial routing ("I know the
+bucket but not the note") is deliberately not expressible — it is a different
+feature, and guessing at its semantics here is how the original required-field
+rule came to erase this signal.
+
 Usage:
     # writes <manifest dir>/receipt.json on success; pass it to mark_harvested.py
     python scripts/promote_learnings.py nominations.json
@@ -76,6 +121,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import wiki_index
+
+import _unrouted_record
 
 from _learning_common import (
     REPO_DIR,
@@ -103,6 +150,30 @@ REQUIRED_FIELDS = (
     "source",
     "date",
 )
+
+# The per-nomination declaration that routing failed (#168). Truthy `unrouted`
+# switches the nomination onto the unrouted path; see the module docstring.
+UNROUTED_FIELD = "unrouted"
+UNROUTED_REASON_FIELD = "unrouted_reason"
+
+# What an unrouted nomination must still carry. `target`, `scope` and `type`
+# are all absent by construction — the first two are rejected outright (see
+# `UNROUTED_FORBIDDEN_FIELDS`) and `type` is the *note's* frontmatter type, of
+# which there is no note. `body` stays required: a record that the harvest could
+# not place a learning, without the learning, is a count with nothing behind it,
+# and the operator reading the trigger has no way to recover what was lost.
+UNROUTED_REQUIRED_FIELDS = (
+    UNROUTED_REASON_FIELD,
+    "name",
+    "description",
+    "body",
+    "source",
+    "date",
+)
+
+# Fields whose presence contradicts the declaration. See the module docstring on
+# why these are rejected rather than ignored.
+UNROUTED_FORBIDDEN_FIELDS = ("target", "scope")
 
 # Canonical top-level ``memory/`` buckets a nomination's ``scope`` may name. The
 # bucket is the part before any ``/`` (``repo/myrepo`` -> ``repo``); ``type`` is
@@ -137,6 +208,48 @@ PROMOTED_END = "<!-- promoted:end -->"
 # recognise; it says so and stamps on the manifest's authority instead.
 RECEIPT_NAME = "receipt.json"
 RECEIPT_VERSION = 1
+
+
+def is_unrouted(nom: object) -> bool:
+    """True when ``nom`` declares it could not be routed.
+
+    Truthiness rather than ``is True`` so a manifest written by hand with
+    ``"unrouted": 1`` behaves as its author plainly meant. An explicitly false
+    or absent flag is an ordinary nomination, so adding the key with a falsey
+    value to every nomination is harmless — which is what keeps a generator that
+    emits the field unconditionally from breaking the normal path.
+    """
+    return isinstance(nom, dict) and bool(nom.get(UNROUTED_FIELD))
+
+
+def validate_unrouted(nom: dict, label: str) -> str | None:
+    """Error message for a malformed unrouted declaration, or None if it is sound.
+
+    Kept beside the ordinary required-field check rather than folded into it:
+    the two have disjoint field sets and opposite expectations about ``target``,
+    and a single function that branched on the flag would read as though the
+    rules were one rule with exceptions. They are two shapes.
+    """
+    missing = [f for f in UNROUTED_REQUIRED_FIELDS if not nom.get(f)]
+    if missing:
+        return (
+            f"error: {label}: unrouted nomination missing required field(s): "
+            f"{', '.join(missing)}"
+        )
+    present = [f for f in UNROUTED_FORBIDDEN_FIELDS if nom.get(f)]
+    if present:
+        return (
+            f"error: {label}: unrouted nomination must not carry "
+            f"{', '.join(present)} — it declares that no target could be "
+            f"determined, so naming one contradicts the declaration. Drop the "
+            f"field, or drop '{UNROUTED_FIELD}' and promote it normally."
+        )
+    if nom["source"] not in VALID_SOURCES:
+        return (
+            f"error: {label}: invalid source {nom['source']!r} "
+            f"(expected one of {sorted(VALID_SOURCES)})"
+        )
+    return None
 
 
 def render_frontmatter(nom: dict) -> str:
@@ -407,6 +520,17 @@ def promote(
         if not isinstance(nom, dict):
             return 1, [f"error: {label}: nomination must be a JSON object"]
 
+        # An unrouted declaration is validated against its own shape and skips
+        # every check below — all of which reason about a target it does not
+        # have. Still a hard rc 1 when malformed: "I could not route this" is a
+        # claim with a required payload (the reason), and a declaration missing
+        # it records that something was unroutable without recording what.
+        if is_unrouted(nom):
+            problem = validate_unrouted(nom, label)
+            if problem is not None:
+                return 1, [problem]
+            continue
+
         missing = [f for f in REQUIRED_FIELDS if not nom.get(f)]
         if missing:
             return 1, [
@@ -439,7 +563,7 @@ def promote(
             ]
 
     summary: list[str] = []
-    promoted = skipped = 0
+    promoted = skipped = unrouted = 0
     # Targets actually written or overwritten, in manifest order — the receipt's
     # audit trail of what this pass put on disk (skips are counted, not listed).
     promoted_targets: list[str] = []
@@ -450,6 +574,41 @@ def promote(
     touched_dirs: set[Path] = set()
 
     for nom in records:
+        # The unrouted path: tally it and move on. Deliberately *before* the
+        # dedup lookup — the dedup set is keyed by body hash against the ledger,
+        # and an unrouted learning never reaches the ledger, so consulting it
+        # here could only ever produce a false skip against some unrelated note
+        # that happened to share a body.
+        if is_unrouted(nom):
+            unrouted += 1
+            reason = str(nom[UNROUTED_REASON_FIELD])
+            if dry_run:
+                summary.append(f"would record unrouted  {nom['name']} — {reason}")
+                continue
+            try:
+                record = _unrouted_record.append_unrouted(
+                    _unrouted_record.record_path(repo_dir),
+                    reason=reason,
+                    name=str(nom["name"]),
+                    date=str(nom["date"]),
+                )
+                summary.append(
+                    f"unrouted  {nom['name']} — {reason} "
+                    f"(no note written; tally now {record['count']})"
+                )
+            except OSError as e:
+                # Same best-effort discipline as the receipt and the reindex
+                # below. Nothing was half-written — an unrouted nomination
+                # produces no note and no ledger line — so there is nothing to
+                # roll back, and failing the run would discard the promotions
+                # that did land for the sake of a counter.
+                summary.append(
+                    f"⚠  unrouted {nom['name']} not tallied: {e} — the learning "
+                    f"was still not routed; only the durable count is missing, "
+                    f"so check_memory_triggers.py will under-report trigger 3."
+                )
+            continue
+
         source = nom["source"]
         h = content_hash12(nom["body"])
         ledger = parse_ledger(ledger_path)
@@ -503,7 +662,8 @@ def promote(
         summary.append(f"{verb:<9} {nom['target']} — {h} ({source})")
 
     prefix = "[dry-run] " if dry_run else ""
-    summary.append(f"{prefix}promoted {promoted}, skipped {skipped}")
+    tail = f", unrouted {unrouted}" if unrouted else ""
+    summary.append(f"{prefix}promoted {promoted}, skipped {skipped}{tail}")
 
     # Regenerate the MEMORY.md index for each touched directory so it never drifts
     # from the notes on disk. A single reindex failure must not fail the promote.
