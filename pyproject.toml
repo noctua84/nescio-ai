@@ -12,5 +12,7 @@ dev = ["pyyaml==6.0.3"]
 # truth for *which* rules run, so CI and a local run can never disagree. The
 # ruff *version* is pinned in that workflow instead, not here, to avoid a
 # second place to keep in step. See issue #162 for the phased rollout plan.
+# `F` (pyflakes) subsumes the narrower F63/F7/F82 prefixes, so they collapse
+# into it here; `E9` stays separate. See issue #171 for this phase.
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+select = ["E9", "F"]

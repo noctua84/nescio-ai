@@ -109,16 +109,16 @@ if args.raw:
     print("WARNING: --raw output contains real project paths/usernames. Do NOT commit this file.")
 
 print(f"requests={len(seen)}  weighted={W(grand)/1e6:.0f}M")
-print(f"\n=== SUBAGENT SPEND (from Agent tool results) ===")
+print("\n=== SUBAGENT SPEND (from Agent tool results) ===")
 print(f"  Agent/Task calls: {sub_calls}   reported subagent_tokens total: {sub_tokens/1e6:.1f}M")
-print(f"  by subagent_type:"); [print(f"    {v:>5}  {k}") for k,v in sub_by_type.most_common(14)]
-print(f"\n=== CONTEXT GROWTH (median ctx by request # within session) ===")
+print("  by subagent_type:"); [print(f"    {v:>5}  {k}") for k,v in sub_by_type.most_common(14)]
+print("\n=== CONTEXT GROWTH (median ctx by request # within session) ===")
 for k,v in sorted(ctx_by_idx.items()):
     if len(ctx_by_idx[k])>20: print(f"  req {k*10:>3}-{k*10+9:<3}  median ctx {statistics.median(ctx_by_idx[k])/1000:>6.0f}k   (n={len(ctx_by_idx[k])})")
-print(f"\n=== 200k CAP SIMULATION ===")
+print("\n=== 200k CAP SIMULATION ===")
 print(f"  requests over 200k ctx: {over200}/{len(seen)} ({over200/max(1,len(seen))*100:.0f}%)")
 print(f"  tokens carried ABOVE 200k: {excess200/1e6:.0f}M  ({excess200/max(1,grand['ctx'])*100:.0f}% of all context)")
-print(f"\n=== TOP TOOLS ==="); [print(f"  {v:>6}  {k}") for k,v in tools.most_common(16)]
-print(f"\n=== SESSION LENGTH ===")
+print("\n=== TOP TOOLS ==="); [print(f"  {v:>6}  {k}") for k,v in tools.most_common(16)]
+print("\n=== SESSION LENGTH ===")
 s=sorted(sess_reqcount); n=len(s)
 print(f"  sessions={n}  median={s[n//2]} req  p90={s[int(n*.9)]}  max={s[-1]}")
