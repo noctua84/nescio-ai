@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.1](https://github.com/noctua84/nescio-ai/compare/v1.8.0...v1.8.1) (2026-10-04)
+
+
+### Documentation
+
+* [docs] ADR 0007 -- the ingest seam is the nomination, not the note ([428f73f](https://github.com/noctua84/nescio-ai/commit/428f73f52682b05aff72dd7fef34249147021572))
+* [docs] point ADR 0007 Decision 2 at its work order ([94b7664](https://github.com/noctua84/nescio-ai/commit/94b76641a1483896b79317be4587926f1654a4a8))
+* ADR 0007 -- the ingest seam is the nomination, not the note ([0349937](https://github.com/noctua84/nescio-ai/commit/034993753713726e7a115fdabc965e1e2b8dd0c2))
+* withdraw ADR 0005 Decision 3, retrieval returns passages not whole notes ([e41dedb](https://github.com/noctua84/nescio-ai/commit/e41dedbdf419cc0eef3877261451569d79fe91af))
+
 ## [1.8.0](https://github.com/noctua84/nescio-ai/compare/v1.7.1...v1.8.0) (2026-10-03)
 
 
