@@ -26,7 +26,9 @@ read-time one. See *Decision 4*.
 adds a runtime dependency to the framework; the service boundary established by
 ADR 0005 *Decision 2* is unchanged.
 
-Tracked under [#160](https://github.com/noctua84/nescio-ai/issues/160).
+Tracked under [#160](https://github.com/noctua84/nescio-ai/issues/160). *Decision 2*,
+the largest piece of work here, is ordered as
+[#180](https://github.com/noctua84/nescio-ai/issues/180).
 
 ## Context
 
@@ -127,6 +129,13 @@ note in place" is right for a file store and wrong for this one: the agent shoul
 that instruction changes, every nomination will keep arriving as a six-paragraph
 merged body with no recoverable seams, and no amount of work on the service will
 recover them.
+
+The work order is [#180](https://github.com/noctua84/nescio-ai/issues/180), which
+carries the open design questions this decision deliberately does not settle —
+whether the file keeps one managed block per unit or one rendered from all of them,
+how the existing 91 blocks migrate without a lossy guess at their internal
+boundaries, and what `content_hash12` hashes once a nomination holds more than one
+body.
 
 Per-unit identity must survive into storage. Today `content_hash12` is written only
 to `memory/learning-log.md` and never into the note, so a retrieved passage cannot be
