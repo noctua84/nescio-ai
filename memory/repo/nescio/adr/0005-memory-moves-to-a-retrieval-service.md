@@ -344,10 +344,75 @@ now work rather than guarantees:
 3. **Correction becomes impossible before it becomes easy.** There is no `UPDATE`
    statement anywhere in the service; rows are inserted or deleted, and a learning
    can only be changed by re-ingesting its whole file.
-4. **There is currently no way out.** No export, no dump, no bulk read. 424 curated
-   notes would go in and return five at a time through semantic search. This is the
-   most serious gap and the first to close — until it does, the service is a
-   one-way door.
+4. **~~There is currently no way out.~~** — **amended 2026-10-13, see below.** No
+   export, no dump, no bulk read. 424 curated notes would go in and return five at a
+   time through semantic search. This is the most serious gap and the first to close
+   — until it does, the service is a one-way door.
+
+> **Amendment, 2026-10-13.** Consequence 4 is substantially wrong, and the correction
+> comes from `nescio-memory` rejecting the very path this ADR demanded. It is kept
+> above rather than deleted because the way it was wrong is the useful part.
+>
+> **It conflated two different things.** *Recoverability* and *API egress* are not the
+> same problem, and only one of them was ever missing.
+>
+> - **Recoverability is an infrastructure concern.** `pg_dump` plus a restore recovers
+>   the corpus completely, faster than any HTTP path, and without being limited to what
+>   chunk reassembly can *prove*. An HTTP read-back endpoint also dies with the drive it
+>   was serving from, so it protected against nothing backups did not already cover.
+> - **An enumeration endpoint would change what the service is.** `GET /documents` is an
+>   enumeration primitive: list everything, fetch each one. That makes "mirror the corpus
+>   locally and search it yourself" the cheapest available strategy, at which point the
+>   embedding layer is optional decoration. The same argument retired *Decision 3* one
+>   layer up.
+>
+> `nescio-memory` [#37](https://github.com/noctua84/nescio-memory/pull/37) therefore
+> **rejected the egress design before merge** and rebuilt its branch without those
+> commits, deliberately, so that `feat: add document list and read-back endpoints` would
+> not appear in the history and produce a changelog entry for a feature that does not
+> exist. Its design spec records `GET /api/v1/documents` under *Discarded* so the
+> approach is not re-proposed. The rule it holds instead: **content is reachable only
+> through a query that semantically matched it.**
+>
+> **What that PR shipped instead changes the factual claim above.** Search gained context
+> expansion, and `context: "document"` returns a stored note **byte-for-byte**
+> (`tests/test_isolation.py:226` asserts exact equality; an exhaustive sweep of document
+> lengths 0—6000 found zero inexact reassemblies, audited 2026-10-05). So:
+>
+> | the claim above | status |
+> |---|---|
+> | "No export, no dump, no bulk read" | **still true** — there is no enumeration |
+> | "return five at a time through semantic search" | **false** — whole notes come back |
+> | "the most serious gap and the first to close" | **wrong** — it was neither |
+> | "the service is a one-way door" | **narrowed, not opened** |
+>
+> The accurate guarantee is **no enumeration**, not *no read-back*: you can read any
+> document you can semantically match, and you cannot discover one you have not matched.
+>
+> **Two residuals worth keeping on the record**, neither of which rescues the original
+> consequence.
+>
+> 1. **`pg_dump` is an operator capability, not a tenant one.** It needs database
+>    credentials and host access, not an API key. That is fine while one person operates
+>    the service and owns every brain on it, which is today's reality. Under the shared
+>    tenancy this ADR describes elsewhere, a tenant has **no** means of extracting its own
+>    data — a narrower and more specific problem than the one stated above, and the only
+>    part of the original worry that survives.
+> 2. **The argument's own premise is undocumented.** The egress rejection rests on "a VPS
+>    with daily backups". The repository contains no deployment manifest, no compose file
+>    and no backup or restore script; `pg_dump` appears only as prose in the README and
+>    the spec. The reasoning is sound and the infrastructure it depends on is unverifiable
+>    from the repository — which is worth closing before the corpus moves, since this
+>    consequence now defers recoverability entirely to it.
+>
+> Finally, the distance between "no enumeration" and "bulk export" is shorter than the
+> design language implies: `top_k` reaches 50, each hit can expand to its whole document,
+> and there is no rate limiting. The spec is explicit that this is an architectural
+> guarantee and *not* a security boundary, and that volume is a rate-limiting question
+> left out of that change — so this is a documented residual rather than an oversight.
+> `nescio-memory` [#49](https://github.com/noctua84/nescio-memory/pull/49) corrects the
+> README, which had described the guarantee as "no read-back" and so understated the
+> capability while overstating the promise.
 
 Further costs and risks:
 
