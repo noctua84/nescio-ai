@@ -255,11 +255,30 @@ def _is_path_like(token: str) -> bool:
     return "/" in token or "\\" in token or bool(re.search(r"\.[A-Za-z0-9]{1,10}$", token))
 
 
+# A bare redirect operator as its own token (`>`, `>>`, `<`, `2>`, `&>`,
+# `&>>`) -- the shell splits `cat a.py > out.txt` this way, so the token
+# right after it (`out.txt`) is a redirect *target*, not something the
+# command read. A glued-on form (`>out.txt`, `2>err.log`) is a single token
+# and is already rejected by `_SHELL_METACHARS` in `_is_path_like`.
+_REDIRECT_OP_RE = re.compile(r"^\d*(>>?|<|&>>?)$")
+
+
 def _shell_path_args(command: str) -> list[str]:
     stripped = _strip_prefixes(command)
     tokens = [tok.strip("'\"") for tok in stripped.split()]
     # Skip the command word itself.
-    return [tok for tok in tokens[1:] if _is_path_like(tok)]
+    args: list[str] = []
+    skip_next = False
+    for tok in tokens[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if _REDIRECT_OP_RE.match(tok):
+            skip_next = True
+            continue
+        if _is_path_like(tok):
+            args.append(tok)
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +325,13 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
     input_processed, output_tokens, tool_calls, tool_output_chars,
     shell_output_chars, shell_calls, file_reads, duplicate_reads,
     files_read, malformed_lines.
+
+    ``duplicate_reads`` counts only repeated *file-read* calls -- a Read
+    tool call or a shell call classified "read" by `classify_shell` -- whose
+    tool name and input JSON are identical to one already seen earlier in
+    this transcript (each repeat beyond the first counts once). Any other
+    repeated call (a second identical `Grep`, a re-run `git status`) is not
+    counted here.
     """
     prompt_chars = 0
     prompt_seen = False
@@ -361,16 +387,30 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
 
                 tool_calls[name] = tool_calls.get(name, 0) + 1
 
-                # Duplicate-call detection: identical tool name + identical
-                # input JSON seen before, within this transcript.
-                try:
-                    sig = name + "\0" + json.dumps(tool_input, sort_keys=True, default=str)
-                except TypeError:
-                    sig = name + "\0" + repr(tool_input)
-                if sig in seen_call_signatures:
-                    duplicate_reads += 1
-                else:
-                    seen_call_signatures.add(sig)
+                # A "file-read call" is a Read tool call or a shell call
+                # classified as the "read" family -- the same set that feeds
+                # `file_reads`. Duplicate-call detection is scoped to just
+                # these: a repeated `Grep` or `Bash git status` is not what
+                # `duplicate_reads` means to flag, only re-reading a file
+                # (identical tool name + identical input JSON) already seen
+                # in this transcript.
+                command = ""
+                family = None
+                is_file_read_call = name == "Read"
+                if name in ("Bash", "PowerShell"):
+                    command = str(tool_input.get("command", "") or "")
+                    family = classify_shell(command)
+                    is_file_read_call = family == "read"
+
+                if is_file_read_call:
+                    try:
+                        sig = name + "\0" + json.dumps(tool_input, sort_keys=True, default=str)
+                    except TypeError:
+                        sig = name + "\0" + repr(tool_input)
+                    if sig in seen_call_signatures:
+                        duplicate_reads += 1
+                    else:
+                        seen_call_signatures.add(sig)
 
                 if name == "Read":
                     file_reads += 1
@@ -378,8 +418,6 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
                     if file_path:
                         files_read.add(normalize_path(str(file_path), cwd))
                 elif name in ("Bash", "PowerShell"):
-                    command = str(tool_input.get("command", "") or "")
-                    family = classify_shell(command)
                     shell_calls[family] = shell_calls.get(family, 0) + 1
                     if family == "read":
                         file_reads += 1
@@ -627,7 +665,7 @@ def format_report(result: dict, top_files: int) -> str:
 
         header = (
             f"  {'agent type':<22} {'n':>3} {'reqs':>6} {'prompt%':>8} "
-            f"{'base%':>7} {'first':>7} {'last':>7} {'reads':>6} {'dups':>5}"
+            f"{'base%':>7} {'first':>7} {'last':>7} {'reads':>6} {'dup reads':>9}"
         )
         lines.append(header)
         lines.append("  " + "-" * (len(header) - 2))
@@ -638,7 +676,7 @@ def format_report(result: dict, top_files: int) -> str:
                 f"  {agent_type:<22} {entry['agents']:>3} {entry['requests']:>6} "
                 f"{_fmt_pct(entry['prompt_share']):>8} {_fmt_pct(entry['baseline_share']):>7} "
                 f"{_fmt_k(entry['mean_context_first']):>7} {_fmt_k(entry['mean_context_last']):>7} "
-                f"{entry['file_reads']:>6} {entry['duplicate_reads']:>5}"
+                f"{entry['file_reads']:>6} {entry['duplicate_reads']:>9}"
             )
 
         totals = session["subagent_totals"]
