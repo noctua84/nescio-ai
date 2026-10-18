@@ -303,6 +303,40 @@ class TestShellPathExtraction(TempDirTestCase):
     def test_the_command_word_itself_is_never_a_path(self):
         self.assertEqual(self._files_read("cat"), set())
 
+    def test_a_redirect_target_is_not_a_file_that_was_read(self):
+        """`cat a.py > out.txt` wrote `out.txt`; it never pulled it into
+        context. Counting it would put write-only scratch files at the top of
+        `hot_files`, which is a report about what agents *read*."""
+        for command in [
+            "cat /repo/src/a.py > /repo/out.txt",
+            "cat /repo/src/a.py >> /repo/out.txt",
+            "head -n 5 /repo/src/a.py 2> /repo/err.log",
+            "tail /repo/src/a.py 2>> /repo/err.log",
+            "cat /repo/src/a.py &> /repo/all.log",
+            "cat /repo/src/a.py &>> /repo/all.log",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(self._files_read(command), {"src/a.py"})
+
+    def test_an_input_redirect_contributes_nothing_from_its_target(self):
+        self.assertEqual(self._files_read("cat < /repo/in.txt"), set())
+
+    def test_a_glued_redirect_is_still_rejected_as_a_whole_token(self):
+        """`>out.txt` is one token carrying a metacharacter -- it must stay
+        rejected now that a bare `>` is handled separately."""
+        self.assertEqual(
+            self._files_read("cat /repo/src/a.py >/repo/out.txt"), {"src/a.py"}
+        )
+        self.assertEqual(
+            self._files_read("cat /repo/src/a.py 2>/repo/err.log"), {"src/a.py"}
+        )
+
+    def test_only_the_token_after_the_operator_is_swallowed(self):
+        self.assertEqual(
+            self._files_read("cat /repo/src/a.py > /repo/out.txt /repo/src/b.py"),
+            {"src/a.py", "src/b.py"},
+        )
+
 
 # ---------------------------------------------------------------------------
 # analyze_transcript
@@ -424,6 +458,106 @@ class TestAnalyzeTranscript(TempDirTestCase):
         self.assertEqual(result["shell_calls"], {"read": 1})
         self.assertEqual(result["shell_output_chars"], {"read": 7})
         self.assertEqual(result["files_read"], ["src/a.py"])
+
+
+# ---------------------------------------------------------------------------
+# duplicate_reads scoping
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateReads(TempDirTestCase):
+    """`duplicate_reads` is the "this file was pulled into context twice"
+    counter that sits beside `file_reads` in the report. A repeated search or
+    a re-run `git status` is ordinary agent work, not wasted context, and must
+    not inflate it."""
+
+    def _duplicates(self, calls) -> int:
+        entries = [_user("prompt")]
+        for i, (name, tool_input) in enumerate(calls):
+            entries.append(
+                _assistant(f"m{i}", _usage(), [_tool_use(f"t{i}", name, tool_input)])
+            )
+        path = _write_jsonl(self.root / "dup.jsonl", entries)
+        return session_anatomy.analyze_transcript(path, "a")["duplicate_reads"]
+
+    def test_a_repeated_read_tool_call_counts(self):
+        self.assertEqual(
+            self._duplicates(
+                [("Read", {"file_path": "/repo/a.py"})] * 2
+            ),
+            1,
+        )
+
+    def test_every_repeat_beyond_the_first_counts(self):
+        self.assertEqual(
+            self._duplicates([("Read", {"file_path": "/repo/a.py"})] * 3), 2
+        )
+
+    def test_a_repeated_read_family_shell_call_counts(self):
+        self.assertEqual(
+            self._duplicates(
+                [("Bash", {"command": "sed -n 1,10p /repo/a.py"})] * 2
+            ),
+            1,
+        )
+
+    def test_a_repeated_powershell_read_counts(self):
+        self.assertEqual(
+            self._duplicates(
+                [("PowerShell", {"command": "Get-Content /repo/a.py"})] * 2
+            ),
+            1,
+        )
+
+    def test_a_repeated_grep_does_not_count(self):
+        self.assertEqual(
+            self._duplicates([("Grep", {"pattern": "foo", "path": "src"})] * 2), 0
+        )
+
+    def test_a_repeated_edit_does_not_count(self):
+        self.assertEqual(
+            self._duplicates(
+                [("Edit", {"file_path": "/repo/a.py", "old_string": "x",
+                           "new_string": "y"})] * 2
+            ),
+            0,
+        )
+
+    def test_a_repeated_non_read_shell_call_does_not_count(self):
+        self.assertEqual(
+            self._duplicates([("Bash", {"command": "git status"})] * 2), 0
+        )
+        self.assertEqual(
+            self._duplicates([("Bash", {"command": "grep -rn foo /repo/src"})] * 2), 0
+        )
+        self.assertEqual(self._duplicates([("Bash", {"command": "pytest"})] * 2), 0)
+
+    def test_distinct_reads_are_not_duplicates(self):
+        self.assertEqual(
+            self._duplicates(
+                [
+                    ("Read", {"file_path": "/repo/a.py"}),
+                    ("Read", {"file_path": "/repo/b.py"}),
+                    ("Bash", {"command": "cat /repo/a.py"}),
+                ]
+            ),
+            0,
+        )
+
+    def test_a_non_read_repeat_does_not_mask_a_later_read_repeat(self):
+        """Regression guard: the non-read calls must be skipped outright, not
+        recorded into the signature set where they could shadow a real one."""
+        self.assertEqual(
+            self._duplicates(
+                [
+                    ("Grep", {"pattern": "foo"}),
+                    ("Grep", {"pattern": "foo"}),
+                    ("Read", {"file_path": "/repo/a.py"}),
+                    ("Read", {"file_path": "/repo/a.py"}),
+                ]
+            ),
+            1,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -625,6 +759,17 @@ class TestFormatReport(TempDirTestCase):
         self.assertIn("session sess-named", report)
         self.assertIn("explore", report)
         self.assertIn(session_anatomy.MAIN_AGENT_TYPE, report)
+
+    def test_the_duplicate_column_is_labelled_dup_reads(self):
+        """"dups" read as "duplicate anything"; the column counts re-read files
+        only, and the header has to say so next to "reads"."""
+        session_dir = _make_session(
+            self.root,
+            "sess-header",
+            main_entries=_simple_agent(40, [100]),
+        )
+        report = self._report(session_dir)
+        self.assertIn("dup reads", report)
 
     def test_top_files_truncates_the_hot_file_rows(self):
         session_dir = _make_session(
