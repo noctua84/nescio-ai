@@ -50,7 +50,17 @@ Deliberate design decisions, each of which has a failure mode behind it:
     worktrees, not absolute.** Two subagents that each run in their own git
     worktree read the "same" file at two different absolute paths; relativizing
     to each transcript's own ``cwd`` is what lets ``hot_files`` recognise
-    that both of them read it.
+    that both of them read it. When a path is *not* under the transcript's
+    own ``cwd`` -- a tool result naming a path in a sibling worktree of the
+    same repository -- a ``.claude/worktrees/<name>/`` segment anywhere in
+    the path is stripped up through and including that segment, falling
+    back to the repo-relative remainder. This is narrow by design: it
+    recognises exactly one directory convention, and two genuinely
+    *different* repositories that happen to share a relative path (both
+    having ``src/index.ts``, say) would incorrectly collapse into one
+    ``hot_files`` entry under this rule. Accepted because the common case
+    this script exists to serve is several agents sharing one repository
+    across worktrees, not cross-repository analysis.
 
   * **Classifying a shell command strips a leading ``cd ... &&`` and env
     assignments before matching the first word.** Agents routinely prefix a
@@ -170,6 +180,11 @@ def classify_shell(command: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# See the module docstring's `normalize_path` bullet for why this exists and
+# its accepted cross-repository limitation.
+_WORKTREE_SEGMENT_RE = re.compile(r"\.claude/worktrees/[^/]+/(.*)$")
+
+
 def normalize_path(path: str, cwd: str | None) -> str:
     """Normalize ``path`` to forward slashes, relative to ``cwd`` when under it.
 
@@ -177,13 +192,21 @@ def normalize_path(path: str, cwd: str | None) -> str:
     (``C:`` vs ``c:``), matching how Windows paths from different shells
     describe the same location without over-folding case for the rest of the
     path (which matters on case-sensitive filesystems too).
+
+    When the path is not under ``cwd``, a ``.claude/worktrees/<name>/``
+    segment anywhere in it is treated as a second normalization anchor (see
+    the module docstring for the tradeoff): the remainder after that segment
+    is returned, repo-relative, so the same file read from two different
+    worktrees of one repository still compares equal.
     """
     norm_path = path.replace("\\", "/")
     if not cwd:
-        return norm_path
+        match = _WORKTREE_SEGMENT_RE.search(norm_path)
+        return match.group(1) if match else norm_path
     norm_cwd = cwd.replace("\\", "/").rstrip("/")
     if not norm_cwd:
-        return norm_path
+        match = _WORKTREE_SEGMENT_RE.search(norm_path)
+        return match.group(1) if match else norm_path
 
     def _drive_fold(s: str) -> str:
         if len(s) >= 2 and s[1] == ":":
@@ -198,30 +221,43 @@ def normalize_path(path: str, cwd: str | None) -> str:
     prefix = folded_cwd + "/"
     if folded_path.startswith(prefix):
         return norm_path[len(prefix):]
+
+    match = _WORKTREE_SEGMENT_RE.search(norm_path)
+    if match:
+        return match.group(1)
     return norm_path
 
 
-_PATH_LIKE_RE = re.compile(r"^[\w.][\w./\\\-]*\.[A-Za-z0-9]{1,10}$|[/\\]")
+# Shell metacharacters that mean a token is not a path argument at all, but a
+# redirect, pipe, or command separator (`2>/dev/null`, `| head`, `; rm -rf`).
+# Checked before the path-like test below, since `2>/dev/null` would
+# otherwise pass it (it contains "/").
+_SHELL_METACHARS = frozenset(">|<&;")
 
 
 def _is_path_like(token: str) -> bool:
     """True when a shell-command token looks like a file path argument.
 
-    A flag (``-n``, ``--color``) is never a path. Anything containing a
-    path separator, or ending in a dot-extension, is treated as one --
-    deliberately permissive, since missing a real path costs more (a file
-    silently absent from ``files_read``) than an occasional false positive
-    (a non-path token with a dot in it, which is rare for the commands this
-    classifies).
+    A flag (``-n``, ``--color``) is never a path, nor is a redirect, pipe, or
+    separator token (``2>/dev/null``, ``2>&1``, ``|``) or the literal device
+    path ``/dev/null`` itself. Anything else containing a path separator, or
+    ending in a dot-extension, is treated as a path -- deliberately
+    permissive, since missing a real path costs more (a file silently absent
+    from ``files_read``) than an occasional false positive (a non-path token
+    with a dot in it, which is rare for the commands this classifies).
     """
     if not token or token.startswith("-"):
+        return False
+    if any(ch in _SHELL_METACHARS for ch in token):
+        return False
+    if token.strip("'\"") == "/dev/null":
         return False
     return "/" in token or "\\" in token or bool(re.search(r"\.[A-Za-z0-9]{1,10}$", token))
 
 
 def _shell_path_args(command: str) -> list[str]:
     stripped = _strip_prefixes(command)
-    tokens = stripped.split()
+    tokens = [tok.strip("'\"") for tok in stripped.split()]
     # Skip the command word itself.
     return [tok for tok in tokens[1:] if _is_path_like(tok)]
 
@@ -614,29 +650,41 @@ def format_report(result: dict, top_files: int) -> str:
             f"baseline share {_fmt_pct(totals['baseline_share'])}"
         )
 
+        # Rows below 0.1% share are omitted from the printed report -- a long
+        # tail of one-off tool names (an MCP tool called once) adds noise
+        # without adding signal here. The JSON output is unfiltered; this
+        # trims only the human-readable rendering.
         total_tool_chars = sum(session["tool_output_chars"].values())
         if total_tool_chars:
-            lines.append("")
-            lines.append("  tool output share (subagents):")
-            for name, chars in sorted(
-                session["tool_output_chars"].items(), key=lambda kv: -kv[1]
-            ):
-                lines.append(
-                    f"    {name:<14} {chars / 1e6:>7.2f}M chars  "
-                    f"{_fmt_pct(chars / total_tool_chars):>6}"
-                )
+            shown = [
+                (name, chars)
+                for name, chars in session["tool_output_chars"].items()
+                if chars / total_tool_chars >= 0.001
+            ]
+            if shown:
+                lines.append("")
+                lines.append("  tool output share (subagents):")
+                for name, chars in sorted(shown, key=lambda kv: -kv[1]):
+                    lines.append(
+                        f"    {name:<14} {chars / 1e6:>7.2f}M chars  "
+                        f"{_fmt_pct(chars / total_tool_chars):>6}"
+                    )
 
         total_shell_chars = sum(session["shell_output_chars"].values())
         if total_shell_chars:
-            lines.append("")
-            lines.append("  shell output share by family (subagents):")
-            for family, chars in sorted(
-                session["shell_output_chars"].items(), key=lambda kv: -kv[1]
-            ):
-                lines.append(
-                    f"    {family:<14} {chars / 1e6:>7.2f}M chars  "
-                    f"{_fmt_pct(chars / total_shell_chars):>6}"
-                )
+            shown_shell = [
+                (family, chars)
+                for family, chars in session["shell_output_chars"].items()
+                if chars / total_shell_chars >= 0.001
+            ]
+            if shown_shell:
+                lines.append("")
+                lines.append("  shell output share by family (subagents):")
+                for family, chars in sorted(shown_shell, key=lambda kv: -kv[1]):
+                    lines.append(
+                        f"    {family:<14} {chars / 1e6:>7.2f}M chars  "
+                        f"{_fmt_pct(chars / total_shell_chars):>6}"
+                    )
 
         hot_files = session["hot_files"][:top_files]
         if hot_files:
