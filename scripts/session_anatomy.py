@@ -8,12 +8,15 @@ was the dispatch prompt versus accumulated tool output, and which files got
 read the most. It answers one question: *when a change is made to an agent's
 definition (its tool allowlist, its dispatch prompt shape, whether it reads
 ``CLAUDE.md``), where would the context savings actually come from?* A
-one-off analysis of a single session found the dispatch prompt itself is a
+one-off analysis of two sessions found the dispatch prompt itself is a
 rounding error (~0.5% of subagent input) while the first request's baseline
-context (everything loaded before the agent does anything) is 38-54%, with
-the remainder dominated by tool output -- mostly ``Read`` and the shell
-read/search commands agents use instead of it. This script makes that
-analysis repeatable instead of one-off.
+context (everything loaded before the agent does anything) is 38-54%. The
+*weighted* decomposition (below) splits the rest: tool results are only
+~15-22% of subagent input, thinking plus assistant output ~13-15%, and
+~20-24% stays unexplained (see the chars-per-token bullet). Raw tool-output
+character shares (``Read`` dominating) describe what tool output is made of,
+not how much of the input bill it is. This script makes that analysis
+repeatable instead of one-off.
 
 Deliberate design decisions, each of which has a failure mode behind it:
 
@@ -62,6 +65,51 @@ Deliberate design decisions, each of which has a failure mode behind it:
     this script exists to serve is several agents sharing one repository
     across worktrees, not cross-repository analysis.
 
+  * **Weighted decomposition: a block costs its size times the requests that
+    re-sent it.** Every API request re-sends the whole conversation so far,
+    so a 10k-token tool result returned before request 3 of 40 is paid for
+    38 times; its raw character count says nothing about that.
+    ``input_processed`` is split into: baseline (``context_first *
+    requests``), then, for every content block that appears *after* the
+    first request boundary, its estimated tokens times the number of that
+    agent's requests issued after it -- tool results, assistant thinking,
+    assistant text plus ``tool_use`` inputs, and other user text -- and an
+    *unexplained* remainder (``input_processed`` minus all of those). A
+    request boundary is the first transcript entry of each distinct
+    assistant ``message.id`` carrying ``usage``; content in that entry and
+    its re-emissions is that request's *output*, so it is carried by the
+    requests after it, not by itself. Blocks before the first boundary are
+    not counted separately: they are the baseline.
+
+  * **A thinking block is sized as ``max(len(thinking), len(signature))``.**
+    Transcripts routinely record ``thinking`` as an empty string, with the
+    content carried only as the encrypted ``signature`` sent back to the API.
+    Measuring the text alone reported thinking as 0% of input on a real
+    session where the signature put it at ~7.6%. The signature is an
+    encrypted copy of the thinking, so it is the size proxy when the text is
+    absent, and taking the larger of the two (not the sum) avoids counting
+    the same content twice when both are present. ``redacted_thinking`` is
+    sized by its ``data`` field for the same reason.
+
+  * **``attachment`` entries are deliberately not attributed.** Claude Code
+    records hook results, token reminders, skill listings and similar as
+    ``type: "attachment"`` entries whose JSON shape is an internal record,
+    not the text that reaches the model -- some (a ``hook_success`` record)
+    may never reach it at all. Guessing a wire size for them would put a
+    made-up number into a named category; leaving them out puts their real
+    cost in *unexplained*, where it is honestly labelled as unknown.
+
+  * **Tokens are estimated as characters / ``CHARS_PER_TOKEN`` (4.0).** It is
+    a named constant, not a literal, because it is the single largest error
+    source in the weighted decomposition: chars/4 is about right for English
+    prose, but code and JSON tokenize denser (roughly 3-3.5 chars/token), so
+    every code-heavy tool result is *under*-estimated. That understatement is
+    the main reason *unexplained* is non-zero (typically ~20-24%); the
+    attachment entries above are the rest. *Unexplained* could go negative
+    for text that tokenizes looser than the constant assumes -- it is
+    reported as computed, never clamped, since clamping would hide exactly
+    that signal.
+
   * **Classifying a shell command strips a leading ``cd ... &&`` and env
     assignments before matching the first word.** Agents routinely prefix a
     ``Bash`` call with ``cd <dir> &&`` to run from a specific directory, or
@@ -71,7 +119,7 @@ Deliberate design decisions, each of which has a failure mode behind it:
 
 Usage:
     python scripts/session_anatomy.py <session-id-or-dir>
-    python scripts/session_anatomy.py <session-id> --json
+    python scripts/session_anatomy.py <session-id> --json   # schema_version 2
     python scripts/session_anatomy.py <id1> <id2> --top-files 15
     python scripts/session_anatomy.py --projects-root ~/.claude/projects <id>
 """
@@ -84,6 +132,17 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Iterator
+
+# Characters per token for the weighted decomposition's estimates. See the
+# module docstring: chars/4 understates code and JSON (~3-3.5 chars/token),
+# which is the main reason the *unexplained* remainder is non-zero.
+CHARS_PER_TOKEN = 4.0
+
+# Weighted-decomposition categories, in report order. "baseline" and
+# "unexplained" are derived from usage; the middle four come from transcript
+# content blocks.
+CONTENT_CATEGORIES = ("tool_results", "thinking", "assistant_output", "other_user")
+WEIGHTED_CATEGORIES = ("baseline",) + CONTENT_CATEGORIES + ("unexplained",)
 
 # ---------------------------------------------------------------------------
 # Transcript parsing
@@ -312,6 +371,51 @@ def _content_text(content: Any) -> str:
     return "\n".join(parts)
 
 
+def _block_chars(entry_type: str, content: Any) -> list[tuple[str, int]]:
+    """``(category, chars)`` for each content block of a user/assistant entry.
+
+    Assistant ``thinking`` / ``redacted_thinking`` blocks are "thinking";
+    assistant ``text`` and
+    ``tool_use`` inputs (as JSON) are "assistant_output"; user
+    ``tool_result`` blocks are "tool_results"; any other user text (a plain
+    string message, a ``text`` block, a system reminder) is "other_user".
+    Anything else (an image block, an unknown type) is not attributed and
+    lands in *unexplained*.
+    """
+    if entry_type == "user" and isinstance(content, str):
+        return [("other_user", len(content))]
+    pairs: list[tuple[str, int]] = []
+    for block in content or []:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if entry_type == "assistant":
+            if kind == "thinking":
+                # See the module docstring's thinking-size bullet.
+                pairs.append(
+                    (
+                        "thinking",
+                        max(
+                            len(block.get("thinking", "") or ""),
+                            len(block.get("signature", "") or ""),
+                        ),
+                    )
+                )
+            elif kind == "redacted_thinking":
+                pairs.append(("thinking", len(block.get("data", "") or "")))
+            elif kind == "text":
+                pairs.append(("assistant_output", len(block.get("text", "") or "")))
+            elif kind == "tool_use":
+                encoded = json.dumps(block.get("input", {}) or {}, default=str)
+                pairs.append(("assistant_output", len(encoded)))
+        elif entry_type == "user":
+            if kind == "tool_result":
+                pairs.append(("tool_results", _content_len(block.get("content"))))
+            elif kind == "text":
+                pairs.append(("other_user", len(block.get("text", "") or "")))
+    return pairs
+
+
 # ---------------------------------------------------------------------------
 # Per-transcript analysis
 # ---------------------------------------------------------------------------
@@ -324,7 +428,12 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
     prompt_tokens_est, requests, context_first, context_last, context_peak,
     input_processed, output_tokens, tool_calls, tool_output_chars,
     shell_output_chars, shell_calls, file_reads, duplicate_reads,
-    files_read, malformed_lines.
+    files_read, malformed_lines, weighted_tokens.
+
+    ``weighted_tokens`` maps every name in ``WEIGHTED_CATEGORIES`` to its
+    estimated part of ``input_processed`` in tokens (see the module
+    docstring's weighted-decomposition bullet); the values sum to
+    ``input_processed`` by construction.
 
     ``duplicate_reads`` counts only repeated *file-read* calls -- a Read
     tool call or a shell call classified "read" by `classify_shell` -- whose
@@ -352,6 +461,15 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
     duplicate_reads = 0
     files_read: set[str] = set()
 
+    # Weighted decomposition, streamed: the total request count is unknown
+    # until the end, so keep per category the sum of chars and the sum of
+    # chars * (requests already issued when the block appeared). A block's
+    # weight is total - seen, so the category's weighted chars are
+    # chars_sum * total - seen_chars_sum.
+    requests_seen = 0
+    category_chars = {cat: 0 for cat in CONTENT_CATEGORIES}
+    category_seen_chars = {cat: 0 for cat in CONTENT_CATEGORIES}
+
     for entry, ok in iter_entries(path):
         if not ok:
             malformed_lines += 1
@@ -360,6 +478,20 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
         message = entry.get("message") or {}
         cwd = entry.get("cwd")
         entry_type = entry.get("type")
+
+        # Must run before `usage_by_id` learns this id below: the *first*
+        # entry of a new usage-carrying message.id is the request boundary.
+        if (
+            entry_type == "assistant"
+            and message.get("id")
+            and message.get("usage")
+            and message["id"] not in usage_by_id
+        ):
+            requests_seen += 1
+        if requests_seen and entry_type in ("user", "assistant"):
+            for category, chars in _block_chars(entry_type, message.get("content")):
+                category_chars[category] += chars
+                category_seen_chars[category] += chars * requests_seen
 
         if entry_type == "user" and not prompt_seen:
             content = message.get("content")
@@ -455,11 +587,17 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
     context_peak = max(context_values) if context_values else 0
     input_processed = sum(context_values)
 
+    weighted_tokens: dict[str, float] = {"baseline": context_first * requests}
+    for category in CONTENT_CATEGORIES:
+        weighted_chars = category_chars[category] * requests - category_seen_chars[category]
+        weighted_tokens[category] = weighted_chars / CHARS_PER_TOKEN
+    weighted_tokens["unexplained"] = input_processed - sum(weighted_tokens.values())
+
     return {
         "agent_type": agent_type,
         "transcript": path.name,
         "prompt_chars": prompt_chars,
-        "prompt_tokens_est": prompt_chars // 4,
+        "prompt_tokens_est": int(prompt_chars // CHARS_PER_TOKEN),
         "requests": requests,
         "context_first": context_first,
         "context_last": context_last,
@@ -474,6 +612,7 @@ def analyze_transcript(path: Path, agent_type: str) -> dict:
         "duplicate_reads": duplicate_reads,
         "files_read": sorted(files_read),
         "malformed_lines": malformed_lines,
+        "weighted_tokens": weighted_tokens,
     }
 
 
@@ -486,6 +625,20 @@ MAIN_AGENT_TYPE = "(main)"
 
 def _share(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
+
+
+def _weighted(results: list[dict], input_processed: int) -> dict:
+    """Summed ``weighted_tokens`` over ``results``, and each one's share."""
+    tokens = {
+        category: sum(r["weighted_tokens"][category] for r in results)
+        for category in WEIGHTED_CATEGORIES
+    }
+    return {
+        "weighted_tokens": tokens,
+        "weighted_shares": {
+            category: _share(value, input_processed) for category, value in tokens.items()
+        },
+    }
 
 
 def analyze_session(session_dir: Path) -> dict:
@@ -544,6 +697,7 @@ def analyze_session(session_dir: Path) -> dict:
             "mean_context_last": mean_context_last,
             "file_reads": file_reads,
             "duplicate_reads": duplicate_reads,
+            **_weighted(results, input_processed),
         }
 
     subagent_results = [r for r in transcripts if r["agent_type"] != MAIN_AGENT_TYPE]
@@ -572,6 +726,7 @@ def analyze_session(session_dir: Path) -> dict:
         ),
         "file_reads": sum(r["file_reads"] for r in subagent_results),
         "duplicate_reads": sum(r["duplicate_reads"] for r in subagent_results),
+        **_weighted(subagent_results, sub_input_processed),
     }
 
     tool_output_chars: dict[str, int] = {}
@@ -688,6 +843,30 @@ def format_report(result: dict, top_files: int) -> str:
             f"baseline share {_fmt_pct(totals['baseline_share'])}"
         )
 
+        lines.append("")
+        lines.append(
+            "  weighted input decomposition (est. tokens x requests that "
+            f"re-sent them; {CHARS_PER_TOKEN:g} chars/token):"
+        )
+        weighted_header = (
+            f"  {'agent type':<22} {'base%':>7} {'tools%':>7} {'think%':>7} "
+            f"{'asst%':>7} {'user%':>7} {'unexpl%':>8}"
+        )
+        lines.append(weighted_header)
+        lines.append("  " + "-" * (len(weighted_header) - 2))
+        weighted_rows = sorted(
+            session["by_type"].items(), key=lambda kv: -kv[1]["input_processed"]
+        )
+        weighted_rows.append(("subagents (excl. main)", totals))
+        widths = (7, 7, 7, 7, 7, 8)
+        for label, entry in weighted_rows:
+            shares = entry["weighted_shares"]
+            cells = " ".join(
+                f"{_fmt_pct(shares[category]):>{width}}"
+                for category, width in zip(WEIGHTED_CATEGORIES, widths)
+            )
+            lines.append(f"  {label:<22} {cells}")
+
         # Rows below 0.1% share are omitted from the printed report -- a long
         # tail of one-off tool names (an MCP tool called once) adds noise
         # without adding signal here. The JSON output is unfiltered; this
@@ -701,7 +880,10 @@ def format_report(result: dict, top_files: int) -> str:
             ]
             if shown:
                 lines.append("")
-                lines.append("  tool output share (subagents):")
+                lines.append(
+                    "  tool output share (subagents; raw chars, unweighted -- "
+                    "not its share of input, see above):"
+                )
                 for name, chars in sorted(shown, key=lambda kv: -kv[1]):
                     lines.append(
                         f"    {name:<14} {chars / 1e6:>7.2f}M chars  "
@@ -717,7 +899,9 @@ def format_report(result: dict, top_files: int) -> str:
             ]
             if shown_shell:
                 lines.append("")
-                lines.append("  shell output share by family (subagents):")
+                lines.append(
+                    "  shell output share by family (subagents; raw chars, unweighted):"
+                )
                 for family, chars in sorted(shown_shell, key=lambda kv: -kv[1]):
                     lines.append(
                         f"    {family:<14} {chars / 1e6:>7.2f}M chars  "
@@ -785,7 +969,12 @@ def main(argv: list[str] | None = None) -> int:
         sessions.append(result)
 
     if args.json:
-        print(json.dumps({"schema_version": 1, "sessions": sessions}, indent=2))
+        payload = {
+            "schema_version": 2,
+            "chars_per_token": CHARS_PER_TOKEN,
+            "sessions": sessions,
+        }
+        print(json.dumps(payload, indent=2))
     else:
         print(format_report({"sessions": sessions}, args.top_files))
     return 0

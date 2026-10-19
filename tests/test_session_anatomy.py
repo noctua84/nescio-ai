@@ -852,7 +852,7 @@ class TestMain(TempDirTestCase):
         rc, out = self._run([str(self.session_dir), "--json"])
         self.assertEqual(rc, 0)
         payload = json.loads(out)
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual([s["session_id"] for s in payload["sessions"]], ["sess-cli"])
 
     def test_several_sessions_are_reported_in_argument_order(self):
@@ -903,6 +903,241 @@ class TestMain(TempDirTestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(stream.encoding.lower().replace("-", ""), "utf8")
         stream.write("\u2014\n")
+
+
+# ---------------------------------------------------------------------------
+# Weighted decomposition (issue #185)
+# ---------------------------------------------------------------------------
+
+
+def _thinking(text="", signature=""):
+    return {"type": "thinking", "thinking": text, "signature": signature}
+
+
+def _text(text):
+    return {"type": "text", "text": text}
+
+
+# The two tool_use inputs below, as `json.dumps` encodes them. Pinned by
+# `test_fixture_tool_use_input_lengths` so a miscount fails loudly there
+# rather than as an unexplained arithmetic mismatch further down.
+_READ_INPUT = {"file_path": "/repo/x.py"}  # 27 chars as JSON
+_BASH_INPUT = {"command": "ls"}  # 17 chars as JSON
+
+
+def _weighted_transcript(path: Path) -> Path:
+    """Three requests with every content category, at known positions.
+
+    Request boundaries: m1 (seen=1), m2 (seen=2), m3 (seen=3); total 3, so a
+    block appearing while ``seen`` is 1 / 2 / 3 is re-sent by 2 / 1 / 0 later
+    requests.
+
+    Hand-computed expectation (chars, then tokens at 4 chars/token):
+      baseline          context_first 1000 * 3 requests      = 3000 tokens
+      thinking          max(0, 80) * 2                       = 160 -> 40.0
+      assistant_output  40*2 + 27*2 (Read input) + 80*1
+                        + 17*1 (Bash input) + 12*0           = 231 -> 57.75
+      tool_results      400*2 + 200*1                        = 1000 -> 250.0
+      other_user        20*2                                 = 40 -> 10.0
+      input_processed   1000 + 1500 + 2000                   = 4500
+      unexplained       4500 - 3000 - 40 - 57.75 - 250 - 10  = 1142.25
+    """
+    return _write_jsonl(
+        path,
+        [
+            # Before the first boundary: part of the baseline, never weighted.
+            _user("p" * 40),
+            _user("e" * 999),
+            # m1 is the boundary; its three entries are request 1's output.
+            _assistant("m1", _usage(cache_read=1000), [_thinking("", "s" * 80)]),
+            _assistant("m1", _usage(cache_read=1000), [_text("a" * 40)]),
+            _assistant(
+                "m1", _usage(cache_read=1000), [_tool_use("t1", "Read", _READ_INPUT)]
+            ),
+            _tool_result("t1", "o" * 400),
+            _user("r" * 20),
+            # An attachment record is deliberately not attributed.
+            {"type": "attachment", "attachment": {"type": "hook_success", "content": "z" * 5000}},
+            _assistant("m2", _usage(cache_read=1500), [_text("b" * 80)]),
+            _assistant(
+                "m2", _usage(cache_read=1500), [_tool_use("t2", "Bash", _BASH_INPUT)]
+            ),
+            _tool_result("t2", [{"type": "text", "text": "q" * 200}]),
+            # Output of the last request: no later request carries it.
+            _assistant("m3", _usage(cache_read=2000), [_text("c" * 12)]),
+        ],
+    )
+
+
+class TestWeightedDecomposition(TempDirTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.result = session_anatomy.analyze_transcript(
+            _weighted_transcript(self.root / "agent-w.jsonl"), "archimedes"
+        )
+        self.weighted = self.result["weighted_tokens"]
+
+    def test_fixture_tool_use_input_lengths(self):
+        self.assertEqual(len(json.dumps(_READ_INPUT)), 27)
+        self.assertEqual(len(json.dumps(_BASH_INPUT)), 17)
+
+    def test_request_boundaries_are_distinct_usage_carrying_message_ids(self):
+        self.assertEqual(self.result["requests"], 3)
+        self.assertEqual(self.result["input_processed"], 4500)
+
+    def test_baseline_is_first_context_times_requests(self):
+        self.assertEqual(self.weighted["baseline"], 3000)
+
+    def test_tool_results_are_weighted_by_later_requests(self):
+        self.assertEqual(self.weighted["tool_results"], (400 * 2 + 200 * 1) / 4)
+
+    def test_thinking_is_sized_by_its_signature_when_the_text_is_empty(self):
+        self.assertEqual(self.weighted["thinking"], 80 * 2 / 4)
+
+    def test_assistant_text_and_tool_use_inputs_are_one_category(self):
+        expected = (40 * 2 + 27 * 2 + 80 * 1 + 17 * 1 + 12 * 0) / 4
+        self.assertEqual(self.weighted["assistant_output"], expected)
+
+    def test_other_user_text_after_the_first_request_is_weighted(self):
+        """The 40-char prompt and 999-char pre-request message are baseline;
+        only the 20-char reminder after m1 counts here."""
+        self.assertEqual(self.weighted["other_user"], 20 * 2 / 4)
+
+    def test_unexplained_is_the_remainder(self):
+        self.assertEqual(self.weighted["unexplained"], 4500 - 3000 - 40 - 57.75 - 250 - 10)
+
+    def test_categories_sum_to_input_processed(self):
+        self.assertEqual(
+            list(self.weighted), list(session_anatomy.WEIGHTED_CATEGORIES)
+        )
+        self.assertAlmostEqual(sum(self.weighted.values()), 4500)
+
+    def test_chars_per_token_is_the_named_constant(self):
+        with mock.patch.object(session_anatomy, "CHARS_PER_TOKEN", 2.0):
+            result = session_anatomy.analyze_transcript(
+                _weighted_transcript(self.root / "agent-w2.jsonl"), "a"
+            )
+        self.assertEqual(result["weighted_tokens"]["tool_results"], 1000 / 2)
+        self.assertEqual(result["weighted_tokens"]["baseline"], 3000)
+
+    def test_raw_char_counters_are_unchanged_by_the_weighting(self):
+        self.assertEqual(self.result["tool_output_chars"], {"Read": 400, "Bash": 200})
+
+    def test_thinking_text_longer_than_its_signature_wins(self):
+        path = _write_jsonl(
+            self.root / "think.jsonl",
+            [
+                _user("p"),
+                _assistant("m1", _usage(cache_read=10), [_thinking("t" * 100, "s" * 8)]),
+                _assistant("m2", _usage(cache_read=10)),
+            ],
+        )
+        weighted = session_anatomy.analyze_transcript(path, "a")["weighted_tokens"]
+        self.assertEqual(weighted["thinking"], 100 / 4)
+
+    def test_redacted_thinking_is_sized_by_its_data(self):
+        path = _write_jsonl(
+            self.root / "redacted.jsonl",
+            [
+                _user("p"),
+                _assistant(
+                    "m1", _usage(cache_read=10), [{"type": "redacted_thinking", "data": "d" * 40}]
+                ),
+                _assistant("m2", _usage(cache_read=10)),
+            ],
+        )
+        weighted = session_anatomy.analyze_transcript(path, "a")["weighted_tokens"]
+        self.assertEqual(weighted["thinking"], 40 / 4)
+
+    def test_an_assistant_entry_without_usage_is_not_a_boundary(self):
+        path = _write_jsonl(
+            self.root / "nousage.jsonl",
+            [
+                _user("p"),
+                _assistant("m1", _usage(cache_read=10)),
+                {"type": "assistant", "message": {"id": "x", "content": [_text("n" * 8)]}},
+                _tool_result("t", "o" * 40),
+                _assistant("m2", _usage(cache_read=10)),
+            ],
+        )
+        result = session_anatomy.analyze_transcript(path, "a")
+        self.assertEqual(result["requests"], 2)
+        self.assertEqual(result["weighted_tokens"]["tool_results"], 40 / 4)
+        self.assertEqual(result["weighted_tokens"]["assistant_output"], 8 / 4)
+
+    def test_an_empty_transcript_has_all_zero_weighted_tokens(self):
+        path = _write_jsonl(self.root / "empty-w.jsonl", [])
+        weighted = session_anatomy.analyze_transcript(path, "a")["weighted_tokens"]
+        self.assertEqual(set(weighted.values()), {0})
+
+
+class TestWeightedAggregation(TempDirTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        session_dir = self.root / "sess-w"
+        _weighted_transcript(session_dir / "subagents" / "agent-aaa.jsonl")
+        (session_dir / "subagents" / "agent-aaa.meta.json").write_text(
+            json.dumps({"agentType": "archimedes"}), encoding="utf-8"
+        )
+        # A second agent with no content after its first request: pure baseline.
+        _make_session(
+            self.root,
+            "sess-w",
+            main_entries=_simple_agent(40, [100, 200]),
+            subagents=[("bbb", "explore", _simple_agent(40, [500, 500]))],
+        )
+        self.result = session_anatomy.analyze_session(session_dir)
+        self.result["session_id"] = "sess-w"
+
+    def test_per_type_shares_are_weighted_tokens_over_input_processed(self):
+        entry = self.result["by_type"]["archimedes"]
+        self.assertEqual(entry["weighted_tokens"]["tool_results"], 250.0)
+        self.assertAlmostEqual(entry["weighted_shares"]["tool_results"], 250 / 4500)
+        self.assertAlmostEqual(entry["weighted_shares"]["baseline"], 3000 / 4500)
+
+    def test_subagent_totals_sum_agents_and_exclude_main(self):
+        totals = self.result["subagent_totals"]
+        # archimedes 4500 + explore 1000; main's 300 is excluded.
+        self.assertEqual(totals["input_processed"], 5500)
+        self.assertEqual(totals["weighted_tokens"]["baseline"], 3000 + 1000)
+        self.assertAlmostEqual(totals["weighted_shares"]["tool_results"], 250 / 5500)
+        self.assertAlmostEqual(sum(totals["weighted_shares"].values()), 1.0)
+
+    def test_weighted_baseline_share_matches_the_v1_baseline_share(self):
+        totals = self.result["subagent_totals"]
+        self.assertAlmostEqual(totals["weighted_shares"]["baseline"], totals["baseline_share"])
+
+    def test_report_prints_the_weighted_table_and_labels_raw_shares(self):
+        report = session_anatomy.format_report({"sessions": [self.result]}, 8)
+        self.assertIn("weighted input decomposition", report)
+        self.assertIn("4 chars/token", report)
+        weighted_part = report.split("weighted input decomposition", 1)[1]
+        self.assertIn("subagents (excl. main)", weighted_part)
+        # archimedes: tool results 250 / 4500 = 5.6%.
+        self.assertIn("5.6%", weighted_part.split("archimedes", 1)[1].splitlines()[0])
+        self.assertIn("raw chars, unweighted", report)
+
+    def test_json_v2_keeps_v1_keys_and_adds_the_weighted_ones(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = session_anatomy.main([str(self.root / "sess-w"), "--json"])
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["schema_version"], 2)
+        self.assertEqual(payload["chars_per_token"], 4.0)
+        session = payload["sessions"][0]
+        for key in ("by_type", "subagent_totals", "tool_output_chars",
+                    "shell_output_chars", "hot_files", "malformed_lines"):
+            self.assertIn(key, session)
+        totals = session["subagent_totals"]
+        for key in ("agents", "requests", "input_processed", "prompt_share",
+                    "baseline_share", "mean_context_first", "mean_context_last",
+                    "file_reads", "duplicate_reads"):
+            self.assertIn(key, totals)
+        self.assertEqual(
+            list(totals["weighted_shares"]), list(session_anatomy.WEIGHTED_CATEGORIES)
+        )
+        self.assertIn("weighted_tokens", session["by_type"]["archimedes"])
 
 
 if __name__ == "__main__":
