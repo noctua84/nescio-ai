@@ -196,8 +196,81 @@ def _tool_tokens(value):
     Substring matching is not safe here: ``"Edit" in "NotebookEdit"`` is True,
     so a substring check would read `disallowedTools: NotebookEdit` as a ban on
     Edit — the exact drift these tests exist to catch.
+
+    The split is parenthesis-aware, on top-level commas only. A plain
+    ``value.split(",")`` tears `Agent(explore, librarian)` into ``Agent(explore``
+    and ``librarian)``, because the comma inside the parentheses separates two
+    *arguments to one tool*, not two tools. Two failures follow from the naive
+    split and neither is loud:
+
+    * ``Agent(explore`` is a prefix of nothing the allowlist tests look for by
+      equality, so a grant widened from `Agent(explore, librarian)` to a bare
+      `Agent` — every subagent in the roster reachable, not just the two
+      read-only researchers — has to be caught by comparing the *token* against
+      `AGENT_TOOL`, which a fragment can never equal either way round.
+    * ``librarian)`` reads as a tool whose name happens to be an agent's,
+      which is exactly the shape `test_no_other_agent_may_dispatch_subagents`
+      exists to reject. The fragment would make that test fire on the one
+      charter that is allowed to delegate.
+
+    Mirrors `docs_site/gen_catalog._split_tool_list`, which does the same job on
+    the rendering side. The duplication is deliberate: `docs_site/` must build
+    and test with nothing from `scripts/` or `tests/` on PYTHONPATH (see the
+    header of `docs_site/test_gen_catalog.py`), so there is no module both sides
+    could import this from.
     """
-    return {t.strip() for t in value.split(",") if t.strip()}
+    tokens = []
+    current = []
+    depth = 0
+    for char in value:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            tokens.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    tokens.append("".join(current))
+    return {t.strip() for t in tokens if t.strip()}
+
+
+# The one tool whose grant is a dispatch capability rather than a file or shell
+# capability: holding it means this agent can spawn others.
+AGENT_TOOL = "Agent"
+
+# The skill-invocation tool. Named rather than inlined because three separate
+# assertions reference it: no allowlist grants it, and the builder charters
+# must therefore reach the modular-design doctrine by path instead.
+SKILL_TOOL = "Skill"
+
+
+def _grant(fields, tool, key="tools"):
+    """This agent's allowlist entry for `tool`, in either form, or None.
+
+    Returns the raw token so a caller can tell a bare grant (`Agent`, every
+    target reachable) from a restricted one (`Agent(explore, librarian)`) —
+    a boolean "holds it" would collapse the distinction the planner's whole
+    delegation boundary rests on.
+    """
+    for token in _tool_tokens(fields.get(key, "")):
+        if token == tool or token.startswith(f"{tool}("):
+            return token
+    return None
+
+
+def _grant_arguments(token, tool):
+    """The parenthesised arguments of a restricted grant, as a set of names.
+
+    An unparenthesised token (a bare `Agent`) yields the empty set, which is
+    *not* the same answer as "restricted to nothing" — callers distinguish the
+    two by checking the token shape first, never by the emptiness of this.
+    """
+    if not (token.startswith(f"{tool}(") and token.endswith(")")):
+        return set()
+    inner = token[len(tool) + 1 : -1]
+    return {part.strip() for part in inner.split(",") if part.strip()}
 
 
 def _dispatch_targets(text):
@@ -1077,6 +1150,434 @@ class TestEditPermissions(TestFrontmatterMixin, unittest.TestCase):
         self.assertFalse(_may_not_edit({"tools": "Read, Edit"}))
         self.assertTrue(_may_not_edit({"tools": "Read, Write"}))
         self.assertFalse(_may_not_edit({"tools": "Read, Write, Edit"}))
+
+
+# The one agent that runs on the main thread rather than as a subagent, and so
+# the one that keeps a *denylist* (`disallowedTools: Edit`) instead of an
+# allowlist. Every other charter closes the door and names what it needs.
+COORDINATOR = "orchestrator"
+
+# Agents that read with no project charter injected. Research readers only:
+# they report what a tree or a doc *says*, so the project's own conventions are
+# context they do not need and would be billed for on every dispatch.
+OMIT_CLAUDE_MD_AGENTS = {"explore", "doc-researcher", "librarian"}
+
+# The frontmatter key, and the one value that switches it on. A key present
+# with any other value is drift, not a second way of saying "off" — the
+# assertions below read the value rather than the key's presence.
+OMIT_CLAUDE_MD_KEY = "omitClaudeMd"
+OMIT_CLAUDE_MD_ON = "true"
+
+# Agents whose job is to judge work against the project's own rules — design
+# direction, devil's advocacy, pre-plan risk, plan executability. They are not
+# writers, so the writer sets below do not cover them, and they are exactly the
+# readers for which dropping the project charter would be silent: they would
+# still produce a confident verdict, measured against generic practice instead
+# of this repo's conventions.
+JUDGING_AGENTS = {"advisor", "critic", "scout", "validator"}
+
+# How a builder charter is required to reach the modular-design doctrine, now
+# that no allowlist grants `Skill`: by path, read on demand.
+MODULAR_DESIGN_SKILL = "modular-design"
+MODULAR_DESIGN_SKILL_PATH = f"~/.claude/skills/{MODULAR_DESIGN_SKILL}/SKILL.md"
+
+# The builder cost tiers, as functional names. `CODE_WRITERS` is the same set,
+# but unordered and defined by write *policy*; the doctrine-parity test below
+# needs a deterministic base to diff the others against.
+BUILDER_TIERS = ("builder",) + TIERED_AGENTS
+
+
+class TestToolAllowlists(TestFrontmatterMixin, unittest.TestCase):
+    """Every subagent closes the door and names what it needs.
+
+    A denylist inherits whatever the host injects. An agent declaring
+    `disallowedTools: Edit` receives every MCP server's tools, every browser
+    tool and every future addition, none of which it was reviewed for — and
+    pays for them in its system prompt on every single dispatch. Measured on
+    this crew: ~78-82K tokens of baseline per request under a denylist against
+    ~7K for a Read-only allowlist, an order of magnitude, multiplied by every
+    subagent a session fires.
+
+    The cost is the visible half. The capability drift is the half that bites:
+    a host that gains a write-capable MCP server silently hands it to every
+    denylist agent, including the four whose entire contract is being read-only.
+    """
+
+    def _fields(self, functional_name):
+        return self._frontmatter(AGENTS_DIR / f"{_themed(functional_name)}.md")
+
+    def test_every_agent_but_the_coordinator_declares_an_allowlist(self):
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        coordinator = _themed(COORDINATOR)
+        for path in paths:
+            if path.stem == coordinator:
+                continue
+            with self.subTest(agent=path.stem):
+                fields = self._frontmatter(path)
+                self.assertTrue(
+                    _tool_tokens(fields.get("tools", "")),
+                    f"{path.name}: no `tools` allowlist — a subagent without one "
+                    f"inherits every tool the host injects, reviewed or not",
+                )
+                self.assertNotIn(
+                    "disallowedTools",
+                    fields,
+                    f"{path.name}: carries a denylist. The two keys together are "
+                    f"worse than either alone — the allowlist reads as the whole "
+                    f"capability set while the denylist is what the CLI applies.",
+                )
+
+    def test_the_coordinator_is_the_only_denylist(self):
+        """The main-thread coordinator keeps its denylist, deliberately.
+
+        It dispatches the whole roster and is the one agent whose tool needs are
+        not knowable in advance, so a closed list there would have to be widened
+        on every host change. Pinned as a *singleton* rather than left
+        unasserted: "all but one" is only a meaningful rule while the one is
+        named, and an allowlist quietly appearing here would make
+        `test_every_agent_but_the_coordinator_declares_an_allowlist` skip
+        nothing and assert nothing new.
+        """
+        fields = self._fields(COORDINATOR)
+        self.assertIn(
+            "Edit",
+            _tool_tokens(fields.get("disallowedTools", "")),
+            f"{COORDINATOR} must stay barred from Edit — it coordinates, it does "
+            f"not write code",
+        )
+        self.assertNotIn(
+            "tools",
+            fields,
+            f"{COORDINATOR} declares an allowlist. If that is intended, this test "
+            f"and the denylist rationale above both need rewriting, not deleting.",
+        )
+
+    def test_only_the_coordinator_and_planner_may_dispatch_subagents(self):
+        """`Agent` is a privilege escalation: it buys every tool the target holds.
+
+        An agent that can dispatch `builder` can write code through it, whatever
+        its own allowlist says. So the grant is confined to the two charters
+        whose job is delegation, and every other allowlist is asserted free of
+        it — in either form, bare or parenthesised.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        delegators = {_themed(COORDINATOR), _themed("planner")}
+        for path in paths:
+            if path.stem in delegators:
+                continue
+            with self.subTest(agent=path.stem):
+                token = _grant(self._frontmatter(path), AGENT_TOOL)
+                self.assertIsNone(
+                    token,
+                    f"{path.name}: grants `{token}`. Dispatch is a privilege "
+                    f"escalation — it lends the target's tools to the caller, so "
+                    f"it belongs only to the two charters that coordinate.",
+                )
+
+    def test_planner_delegation_is_restricted_to_the_two_research_readers(self):
+        """The planner may spawn research, and only research.
+
+        `explore` and `librarian` are read-only and cannot write anywhere. A
+        bare `Agent` grant would instead reach `builder` — which turns the agent
+        that is read-only except for `.sisyphus/` plans into one that writes
+        production code by proxy, with nothing in its own frontmatter to show it.
+
+        Asserted as set equality against the parsed arguments, so both
+        directions bite: a widened grant fails, and a target silently dropped
+        (leaving the planner unable to do the research its plans are built on)
+        fails too.
+        """
+        token = _grant(self._fields("planner"), AGENT_TOOL)
+        self.assertIsNotNone(
+            token,
+            "planner holds no `Agent` grant — it cannot dispatch the research "
+            "its plans depend on",
+        )
+        self.assertTrue(
+            token.startswith(f"{AGENT_TOOL}("),
+            f"planner's grant is a bare `{token}` — unrestricted dispatch reaches "
+            f"every writer in the roster",
+        )
+        self.assertEqual(
+            _grant_arguments(token, AGENT_TOOL),
+            {_themed("explore"), _themed("librarian")},
+            "planner may dispatch exactly the two read-only research agents",
+        )
+
+    def test_no_allowlist_grants_the_skill_tool(self):
+        """Skills are read as files here, not invoked as a tool.
+
+        `Skill` loads a skill's whole body into the agent's context at
+        invocation and is itself a dispatch surface. The crew's one standing
+        doctrine (`modular-design`) is instead referenced by path and read on
+        demand, which `TestModularDesignDoctrine` pins from the other side —
+        this assertion is what makes that path reference load-bearing rather
+        than belt-and-braces.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
+            with self.subTest(agent=path.stem):
+                for key in ("tools", "disallowedTools"):
+                    token = _grant(self._frontmatter(path), SKILL_TOOL, key=key)
+                    self.assertIsNone(
+                        token,
+                        f"{path.name}: `{key}` names `{token}`. Charters reach "
+                        f"doctrine by path ({MODULAR_DESIGN_SKILL_PATH}), so a "
+                        f"`{SKILL_TOOL}` entry here is either dead config or an "
+                        f"undeclared second way in.",
+                    )
+
+
+class TestOmitClaudeMd(TestFrontmatterMixin, unittest.TestCase):
+    """Who runs without the project charter, and who must never.
+
+    `omitClaudeMd: true` drops CLAUDE.md from the agent's context. That is a
+    real saving on a high-fanout reader, and a silent correctness failure on
+    anything that applies project rules: the agent does not announce the
+    missing context, it just judges or writes against generic practice.
+    """
+
+    def _fields(self, functional_name):
+        return self._frontmatter(AGENTS_DIR / f"{_themed(functional_name)}.md")
+
+    def _omits(self, fields):
+        return fields.get(OMIT_CLAUDE_MD_KEY, "").strip().lower() == OMIT_CLAUDE_MD_ON
+
+    def test_the_charterless_set_is_pinned_exactly(self):
+        """Set equality, both directions, over the whole roster.
+
+        A one-sided "these three carry it" check passes on a tree where a
+        fourth agent picked it up, and that fourth agent is the whole risk.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        expected = {_themed(name) for name in OMIT_CLAUDE_MD_AGENTS}
+        found = {path.stem for path in paths if self._omits(self._frontmatter(path))}
+        self.assertEqual(
+            found,
+            expected,
+            f"{OMIT_CLAUDE_MD_KEY} must be set on exactly the read-only research "
+            f"agents — they report what a tree or a doc says, so project "
+            f"conventions are context they do not use",
+        )
+
+    def test_the_key_is_absent_rather_than_set_false(self):
+        """Off is expressed by omission, so the roster has one shape to read.
+
+        `omitClaudeMd: false` behaves identically to no key at all, which makes
+        it the kind of config that survives a rename of the *value* and silently
+        stops meaning anything. Pinning the absence keeps the set-equality test
+        above honest: it reads the value, and a stray key with a typo'd value
+        would otherwise sit in the tree looking deliberate.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        allowed = {_themed(name) for name in OMIT_CLAUDE_MD_AGENTS}
+        for path in paths:
+            if path.stem in allowed:
+                continue
+            with self.subTest(agent=path.stem):
+                self.assertNotIn(
+                    OMIT_CLAUDE_MD_KEY,
+                    self._frontmatter(path),
+                    f"{path.name}: carries `{OMIT_CLAUDE_MD_KEY}` without being in "
+                    f"the charterless set — drop the key rather than setting it off",
+                )
+
+    def test_no_writer_runs_without_the_project_charter(self):
+        """Every agent that can write holds the project's conventions.
+
+        Covers all three write tiers from `_crew_common`, including the two
+        `WRITE_BOUNDED` agents that hold `Write` but not `Edit`: a plan or an
+        audit report written without the repo's conventions is wrong in the same
+        way a code edit is, and `planner` in particular writes the document
+        every later agent executes from.
+
+        Derived from the constants rather than listed, so an agent added to any
+        writer set inherits the assertion instead of needing to be remembered
+        here.
+        """
+        for name in sorted(CODE_WRITERS | BOUNDED_WRITERS | WRITE_BOUNDED):
+            with self.subTest(agent=name):
+                self.assertFalse(
+                    self._omits(self._fields(name)),
+                    f"{name}: writes to the tree with no CLAUDE.md in context — it "
+                    f"cannot follow conventions it was never shown",
+                )
+
+    def test_no_judging_agent_runs_without_the_project_charter(self):
+        """The readers that produce verdicts, not findings, keep the charter.
+
+        These four are read-only, so the writer rule above does not reach them,
+        and the saving would be real. It is refused anyway: each one judges work
+        *against project rules*, and a verdict reached without them reads
+        exactly like a verdict reached with them. The failure mode is an
+        approval, not an error.
+        """
+        for name in sorted(JUDGING_AGENTS):
+            with self.subTest(agent=name):
+                self.assertFalse(
+                    self._omits(self._fields(name)),
+                    f"{name}: judges work against project rules with no CLAUDE.md "
+                    f"in context — its verdict would look identical and mean less",
+                )
+
+
+class TestModularDesignDoctrine(unittest.TestCase):
+    """The builders reach the modular-design doctrine by path, identically.
+
+    With `Skill` off every allowlist (`test_no_allowlist_grants_the_skill_tool`),
+    the path *is* the access route. If it rots, the tier does not fail — it
+    quietly stops applying the doctrine, and the symptom shows up later as an
+    oversized module nobody refused to write.
+    """
+
+    def _body(self, functional_name):
+        return (AGENTS_DIR / f"{_themed(functional_name)}.md").read_text(encoding="utf-8")
+
+    def _doctrine_lines(self, functional_name):
+        return [
+            line.strip()
+            for line in self._body(functional_name).splitlines()
+            if MODULAR_DESIGN_SKILL in line
+        ]
+
+    def test_every_tier_names_the_skill_path(self):
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                self.assertIn(
+                    MODULAR_DESIGN_SKILL_PATH,
+                    self._body(name),
+                    f"{name}: does not name {MODULAR_DESIGN_SKILL_PATH}. No "
+                    f"allowlist grants `{SKILL_TOOL}`, so the path is the only "
+                    f"way this charter can reach the doctrine at all.",
+                )
+
+    def test_the_tiers_carry_identical_doctrine_wording(self):
+        """Tier parity, diffed line by line against the complex tier.
+
+        The three tiers differ only in model and in how much judgement the task
+        is assumed to need; the doctrine they apply is the same doctrine. Drift
+        here is the quietest kind of drift — a correction applied to `builder`
+        and not to the two cheaper tiers leaves the tiers that take the *bulk*
+        of the dispatches on the old wording, and nothing in the suite notices
+        unless the comparison is made.
+
+        Compares the stripped lines mentioning the skill rather than whole
+        bodies: the bodies legitimately differ (the tier's own name and model
+        rationale appear throughout), and whole-body equality would be a test
+        that can only be made to pass by making the tiers identical.
+        """
+        base = BUILDER_TIERS[0]
+        expected = self._doctrine_lines(base)
+        self.assertTrue(
+            expected,
+            f"{base}: no line mentions `{MODULAR_DESIGN_SKILL}` — the parity "
+            f"comparison below would assert nothing",
+        )
+        for name in BUILDER_TIERS[1:]:
+            with self.subTest(agent=name):
+                self.assertEqual(
+                    self._doctrine_lines(name),
+                    expected,
+                    f"{name}: its `{MODULAR_DESIGN_SKILL}` wording has drifted from "
+                    f"`{base}`",
+                )
+
+
+class TestToolTokenParsing(unittest.TestCase):
+    """Unit cover for `_tool_tokens`, which the allowlist assertions all route through.
+
+    Every test above reads the frontmatter through this helper, so a regression
+    in it does not fail those tests — it changes what they mean. The naive
+    `value.split(",")` it replaced produced `Agent(explore` and `librarian)`,
+    two tokens equal to nothing the assertions compare against, which turned the
+    planner's delegation boundary into a check that could not fire.
+    """
+
+    def test_a_plain_list_splits_and_strips(self):
+        self.assertEqual(
+            _tool_tokens("Read, Edit, Write, Bash, Grep, Glob"),
+            {"Read", "Edit", "Write", "Bash", "Grep", "Glob"},
+        )
+        self.assertEqual(_tool_tokens("Read ,  Edit "), {"Read", "Edit"})
+
+    def test_empty_tokens_are_dropped(self):
+        self.assertEqual(_tool_tokens("Read, , Edit,"), {"Read", "Edit"})
+        self.assertEqual(_tool_tokens(""), set())
+        self.assertEqual(_tool_tokens(" , "), set())
+
+    def test_a_parenthesised_entry_stays_one_token(self):
+        self.assertEqual(
+            _tool_tokens("Read, Write, Agent(explore, librarian)"),
+            {"Read", "Write", "Agent(explore, librarian)"},
+        )
+
+    def test_nested_parentheses_do_not_split_early(self):
+        """Depth is tracked, not a single open/closed flag.
+
+        A flag would reopen on the inner `(` and treat the comma after the inner
+        `)` as top-level, splitting a grant that is still one entry. No charter
+        nests today; the helper is what the assertions trust, so it is pinned
+        against the shape rather than against current content.
+        """
+        self.assertEqual(
+            _tool_tokens("Read, Agent(explore(deep, wide), librarian)"),
+            {"Read", "Agent(explore(deep, wide), librarian)"},
+        )
+
+    def test_an_unbalanced_closing_paren_does_not_go_negative(self):
+        """Depth floors at zero, so malformed input still splits on real commas.
+
+        Without the floor, a stray `)` would drive depth to -1 and every
+        subsequent comma would be read as nested — collapsing the whole
+        remaining allowlist into one unrecognisable token, which reads to the
+        assertions above as "this agent grants nothing" and passes.
+        """
+        self.assertEqual(_tool_tokens("Read), Edit, Write"), {"Read)", "Edit", "Write"})
+
+    def test_edit_is_not_matched_inside_notebook_edit(self):
+        """The original reason this helper exists, kept under the rewrite."""
+        self.assertNotIn("Edit", _tool_tokens("Read, NotebookEdit"))
+        self.assertIn("NotebookEdit", _tool_tokens("Read, NotebookEdit"))
+
+
+class TestGrantParsing(unittest.TestCase):
+    """Unit cover for `_grant` / `_grant_arguments`."""
+
+    def test_a_bare_grant_is_found(self):
+        self.assertEqual(_grant({"tools": "Read, Agent"}, AGENT_TOOL), AGENT_TOOL)
+
+    def test_a_restricted_grant_is_returned_whole(self):
+        self.assertEqual(
+            _grant({"tools": "Read, Agent(explore, librarian)"}, AGENT_TOOL),
+            "Agent(explore, librarian)",
+        )
+
+    def test_an_absent_grant_is_none(self):
+        self.assertIsNone(_grant({"tools": "Read, Edit"}, AGENT_TOOL))
+        self.assertIsNone(_grant({}, AGENT_TOOL))
+
+    def test_a_grant_is_not_found_by_prefix_of_another_tool(self):
+        """`AgentOutput` is not `Agent`, and a prefix test would say it was."""
+        self.assertIsNone(_grant({"tools": "Read, AgentOutput"}, AGENT_TOOL))
+
+    def test_the_key_is_honoured(self):
+        fields = {"tools": "Read", "disallowedTools": "Agent"}
+        self.assertIsNone(_grant(fields, AGENT_TOOL))
+        self.assertEqual(_grant(fields, AGENT_TOOL, key="disallowedTools"), AGENT_TOOL)
+
+    def test_arguments_are_parsed_and_stripped(self):
+        self.assertEqual(
+            _grant_arguments("Agent( explore ,librarian )", AGENT_TOOL),
+            {"explore", "librarian"},
+        )
+
+    def test_a_bare_grant_has_no_arguments(self):
+        self.assertEqual(_grant_arguments(AGENT_TOOL, AGENT_TOOL), set())
 
 
 class TestOrchestratorWiring(unittest.TestCase):
