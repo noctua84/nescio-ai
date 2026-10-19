@@ -21,8 +21,13 @@ required `tests` job fails if you skip either. The third is the docs catalog,
 and it is **a courtesy, not a gate**.
 
 1. **Create `agents/<name>.md`** with frontmatter (`name`, `description`,
-   `model`, and `disallowedTools` or `tools`) and a prose charter. Keep the name
-   functional and the mission single-purpose.
+   `model`, and `tools`) and a prose charter. Declare an explicit `tools:`
+   allowlist — it is closed by default, whereas a `disallowedTools` denylist
+   inherits every tool the host injects, including MCP servers, so a new one
+   showing up later is granted silently instead of reviewed. Add
+   `omitClaudeMd: true` when the agent's work does not depend on the project's
+   own rules (e.g. it only reads external docs or searches the codebase). Keep
+   the name functional and the mission single-purpose.
 2. **Register it in `scripts/_crew_common.py`.** Add it to `PAIRS` if the
    philosopher theme should rename it, or to `THEME_INVARIANT_ROSTER` if the
    name stays put. Then add it to whichever write-policy set applies:

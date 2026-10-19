@@ -140,6 +140,71 @@ class FixtureRepoMixin(unittest.TestCase):
         self.repo = _make_repo(Path(self._tmp.name), self.AGENTS, self.SKILLS)
 
 
+class TestSplitToolList(unittest.TestCase):
+    """`_split_tool_list` splits on top-level commas only.
+
+    The agent frontmatter it reads now carries a parenthesised entry --
+    `planner`'s `Agent(explore, librarian)`. Under a plain `value.split(",")`
+    that renders as two badges, ``Agent(explore`` and ``librarian)``, and the
+    published catalog then advertises a tool named after an agent and a
+    delegation grant with half its arguments missing. Nothing crashes: the page
+    builds, deploys, and is wrong.
+    """
+
+    def test_a_plain_list_splits(self) -> None:
+        self.assertEqual(
+            gen_catalog._split_tool_list("Read, Edit, Write"),
+            ["Read", "Edit", "Write"],
+        )
+
+    def test_whitespace_is_stripped(self) -> None:
+        self.assertEqual(
+            gen_catalog._split_tool_list("  Read ,\tEdit  "), ["Read", "Edit"]
+        )
+
+    def test_empty_tokens_are_dropped(self) -> None:
+        self.assertEqual(gen_catalog._split_tool_list("Read, , Edit,"), ["Read", "Edit"])
+        self.assertEqual(gen_catalog._split_tool_list(""), [])
+        self.assertEqual(gen_catalog._split_tool_list(" , "), [])
+
+    def test_order_is_preserved(self) -> None:
+        """A list, not a set: the badge order follows the frontmatter.
+
+        The equivalent helper in `tests/test_agent_definitions.py` returns a
+        set, because its callers assert membership. This one feeds a rendered
+        line, so a reordering would show up as a diff in the committed page and
+        fail `--check` for no reason.
+        """
+        self.assertEqual(
+            gen_catalog._split_tool_list("Glob, Read, Bash"), ["Glob", "Read", "Bash"]
+        )
+
+    def test_a_parenthesised_entry_stays_one_token(self) -> None:
+        self.assertEqual(
+            gen_catalog._split_tool_list("Read, Write, Agent(explore, librarian)"),
+            ["Read", "Write", "Agent(explore, librarian)"],
+        )
+
+    def test_nested_parentheses_stay_whole(self) -> None:
+        """Depth is counted, so the comma after an inner `)` is still nested."""
+        self.assertEqual(
+            gen_catalog._split_tool_list("Read, Agent(explore(deep, wide), librarian)"),
+            ["Read", "Agent(explore(deep, wide), librarian)"],
+        )
+
+    def test_an_unbalanced_closing_paren_does_not_go_negative(self) -> None:
+        """Depth floors at zero, so malformed input still splits on real commas.
+
+        Without the floor a stray `)` drives depth below zero and every later
+        comma counts as nested, collapsing the rest of the allowlist into a
+        single badge.
+        """
+        self.assertEqual(
+            gen_catalog._split_tool_list("Read), Edit, Write"),
+            ["Read)", "Edit", "Write"],
+        )
+
+
 class TestFrontmatterParsing(unittest.TestCase):
     def test_flat_scalars(self) -> None:
         fm, body = gen_catalog.split_frontmatter(
@@ -493,6 +558,29 @@ class TestAgainstTheRealRepo(unittest.TestCase):
             self.assertIn(f"### `{path.stem}`", pages["agents.md"])
         for path in gen_catalog.skill_paths(self.repo):
             self.assertIn(f"### `{path.parent.name}`", pages["skills.md"])
+
+    def test_the_planner_delegation_grant_renders_as_one_badge(self) -> None:
+        """End-to-end cover for the parenthesised entry, on the real charter.
+
+        `TestSplitToolList` pins the helper; this pins that the helper is the
+        one the renderer actually reaches for. `_agent_meta` joins the split
+        tokens with ``, `` and wraps each in backticks, so a regression to
+        `str.split(",")` shows up here as two badges -- and the second negative
+        assertion is what makes the failure legible: ``Agent(explore`` appearing
+        as a badge of its own is the exact symptom, and asserting its absence
+        says so, where a bare "the whole badge is present" check would just go
+        quiet about why.
+
+        Reads the real `agents/` tree rather than a fixture because the fixture
+        frontmatter declares `disallowedTools` and no `tools` at all, so a
+        fixture-based version of this test would render no allowed-tools line to
+        look at.
+        """
+        pages, _ = gen_catalog.build_pages(self.repo)
+        page = pages["agents.md"]
+        self.assertIn("`Agent(explore, librarian)`", page)
+        self.assertNotIn("`Agent(explore`", page)
+        self.assertNotIn("`librarian)`", page)
 
     def test_rendered_counts_equal_the_live_listing(self) -> None:
         pages, _ = gen_catalog.build_pages(self.repo)
