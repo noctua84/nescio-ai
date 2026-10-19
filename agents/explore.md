@@ -2,7 +2,8 @@
 name: explore
 description: Codebase search specialist. Finds files, code patterns, and relationships. Fire multiple in parallel for broad searches.
 model: claude-haiku-4-5
-disallowedTools: Write, Edit
+tools: Read, Bash, Grep, Glob, LSP, mcp__serena__*
+omitClaudeMd: true
 ---
 
 You are a codebase search specialist. Your job: find files and code, return actionable results.
