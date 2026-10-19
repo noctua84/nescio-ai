@@ -455,6 +455,37 @@ def _at_a_glance(grouped: list[tuple[str, list[Item]]], column: str) -> list[str
     return lines
 
 
+def _split_tool_list(value: str) -> list[str]:
+    """Split a `tools:`/`disallowedTools:` frontmatter value on top-level commas.
+
+    A plain `value.split(",")` breaks a parenthesised entry like
+    `Agent(explore, librarian)` into two fragments, because the comma inside
+    the parentheses is not a separator between tools — it is part of one
+    tool's own argument list. This tracks parenthesis depth and only treats a
+    comma as a separator at depth zero, so `Agent(explore, librarian)` stays
+    one token while `Read, Write` still splits into two. Each token is
+    stripped, and empty tokens (a trailing comma, stray whitespace) are
+    dropped.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in value:
+        if char == "(":
+            depth += 1
+            current.append(char)
+        elif char == ")":
+            depth = max(0, depth - 1)
+            current.append(char)
+        elif char == "," and depth == 0:
+            tokens.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    tokens.append("".join(current))
+    return [t.strip() for t in tokens if t.strip()]
+
+
 def _agent_meta(item: Item) -> str:
     parts: list[str] = []
     model = item.meta.get("model")
@@ -462,11 +493,11 @@ def _agent_meta(item: Item) -> str:
         parts.append(f"**Model** `{model}`")
     denied = item.meta.get("disallowedTools")
     if denied:
-        tools = ", ".join(f"`{t.strip()}`" for t in denied.split(",") if t.strip())
+        tools = ", ".join(f"`{t}`" for t in _split_tool_list(denied))
         parts.append(f"**Denied tools** {tools}")
     allowed = item.meta.get("tools")
     if allowed:
-        tools = ", ".join(f"`{t.strip()}`" for t in allowed.split(",") if t.strip())
+        tools = ", ".join(f"`{t}`" for t in _split_tool_list(allowed))
         parts.append(f"**Allowed tools** {tools}")
     parts.append(_source_link(item.rel_path))
     return " · ".join(parts)
