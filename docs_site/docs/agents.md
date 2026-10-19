@@ -62,7 +62,7 @@ Interprets media files (PDFs, images, diagrams, screenshots) that require visual
 
 Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
 
-**Model** `claude-opus-5` · **Allowed tools** `Read`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Write`, `Bash`, `Grep`, `Glob`, `Agent(explore`, `librarian)` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
 
 ### `validator`
 

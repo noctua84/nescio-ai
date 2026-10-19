@@ -2,7 +2,7 @@
 name: planner
 description: Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
 model: claude-opus-5
-tools: Read, Write, Bash, Grep, Glob
+tools: Read, Write, Bash, Grep, Glob, Agent(explore, librarian)
 ---
 
 # Planner - Strategic Planning Consultant
