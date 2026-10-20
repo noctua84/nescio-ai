@@ -36,19 +36,19 @@ Full-lifecycle development coordinator. Manages discovery, analysis, planning, e
 
 Pre-planning consultant. Analyzes requests to identify hidden intentions, ambiguities, and AI failure points before planning begins.
 
-**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/scout.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/scout.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/scout.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/scout.md)
 
 ### `explore`
 
 Codebase search specialist. Finds files, code patterns, and relationships. Fire multiple in parallel for broad searches.
 
-**Model** `claude-haiku-4-5` · **Denied tools** `Write`, `Edit` · [`agents/explore.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/explore.md)
+**Model** `claude-haiku-4-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob`, `LSP`, `mcp__serena__*` · [`agents/explore.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/explore.md)
 
 ### `librarian`
 
 External documentation and OSS code search specialist. Finds official docs, implementation examples, and best practices using web search and GitHub.
 
-**Model** `claude-sonnet-5` · **Denied tools** `Write`, `Edit` · [`agents/librarian.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/librarian.md)
+**Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Bash` · [`agents/librarian.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/librarian.md)
 
 ### `vision`
 
@@ -62,25 +62,25 @@ Interprets media files (PDFs, images, diagrams, screenshots) that require visual
 
 Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
 
-**Model** `claude-opus-5` · **Denied tools** `Edit` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Write`, `Bash`, `Grep`, `Glob`, `Agent(explore, librarian)` · [`agents/planner.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/planner.md)
 
 ### `validator`
 
 Work plan reviewer. Verifies plans are executable with valid references. Blocker-finder, not perfectionist.
 
-**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/validator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/validator.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/validator.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/validator.md)
 
 ### `critic`
 
 Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a single bounded pass — blind spots, shaky premises, overlooked alternatives, and PII/legal exposure — then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan risk triage), validator (executability), advisor (design direction), and reviewer (built-code audit).
 
-**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
 
 ### `advisor`
 
 Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
 
-**Model** `claude-opus-5` · **Denied tools** `Write`, `Edit` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
 
 ## Build
 
@@ -88,25 +88,25 @@ Read-only architecture advisor. Deep reasoning for debugging, design decisions, 
 
 Implementation specialist. Executes one scoped task from a plan — writes the code, proves it works, reports honestly. Complex tier — design judgment: architectural decisions, cross-system impact, or genuine ambiguity. Same contract as the cheaper tiers, running on Opus. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
-**Model** `claude-opus-5` · [`agents/builder.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/builder.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder.md)
 
 ### `builder-standard`
 
 Implementation specialist — standard tier. Tasks needing some judgment: one or two local decisions, or an existing pattern that needs adapting rather than copying. Same contract as builder; runs on Sonnet. Use when the plan classifies the task as `standard`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
-**Model** `claude-sonnet-5` · [`agents/builder-standard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-standard.md)
+**Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/builder-standard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-standard.md)
 
 ### `builder-simple`
 
 Implementation specialist — simple tier. Mechanical, unambiguous tasks where the pattern to copy is already named and there is no decision to make. Same contract as builder; runs on Haiku for cost efficiency. Use when the plan classifies the task as `simple`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
 
-**Model** `claude-haiku-4-5` · [`agents/builder-simple.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-simple.md)
+**Model** `claude-haiku-4-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/builder-simple.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/builder-simple.md)
 
 ### `test-writer`
 
 Test authorship specialist. Writes and extends tests for implemented code — verifies the intended interface, not the current output. Hard file boundary: may not touch implementation files under any circumstances. Distinct from builder (writes production code), reviewer (audits already-built code), and qa-guard (makes CI checks pass mechanically).
 
-**Model** `claude-opus-5` · [`agents/test-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/test-writer.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/test-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/test-writer.md)
 
 ## Verify
 
@@ -114,13 +114,13 @@ Test authorship specialist. Writes and extends tests for implemented code — ve
 
 CI gate specialist. Discovers the project's CI checks from config files, runs them, fixes mechanical failures (formatting, linting, type annotations, test setup), and iterates until all checks pass or a real blocker is found. Hard file boundary: may never edit the files that define the checks. Distinct from builder (writes production code), test-writer (writes tests), and reviewer (audits already-built code for quality issues).
 
-**Model** `claude-sonnet-5` · [`agents/qa-guard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/qa-guard.md)
+**Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/qa-guard.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/qa-guard.md)
 
 ### `reviewer`
 
 QA engineer. Audits implemented code or features for bugs, regressions, security flaws, and quality issues, then files a dated, severity-ranked report. Works on code whether pre-delivery (in a worktree or PR) or already landed. Read-only against the code under audit — writes only its report file. Distinct from validator (reviews plans for executability before work begins) and advisor (advises on architecture/design).
 
-**Model** `claude-opus-5` · **Denied tools** `Edit`, `NotebookEdit` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
+**Model** `claude-opus-5` · **Allowed tools** `Read`, `Write`, `Bash`, `Grep`, `Glob`, `LSP`, `mcp__serena__*` · [`agents/reviewer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/reviewer.md)
 
 ## Document
 
@@ -128,10 +128,10 @@ QA engineer. Audits implemented code or features for bugs, regressions, security
 
 Documentation landscape specialist. Reads existing project docs and returns a structured map of coverage, gaps, and update targets — given a description of what just changed. Produces findings for doc-writer; does not write or modify any file. Distinct from explore (reads source code), librarian (reads external docs), and doc-writer (writes documentation).
 
-**Model** `claude-sonnet-5` · **Denied tools** `Write`, `Edit` · [`agents/doc-researcher.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-researcher.md)
+**Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/doc-researcher.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-researcher.md)
 
 ### `doc-writer`
 
 Documentation author. Consumes doc-researcher findings and a description of what changed, then writes or updates documentation files using the project's existing vocabulary and structure. Hard file boundary: may not touch implementation files. Distinct from doc-researcher (maps the landscape), builder (writes production code), and reviewer (audits code quality).
 
-**Model** `claude-sonnet-5` · [`agents/doc-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-writer.md)
+**Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/doc-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-writer.md)
