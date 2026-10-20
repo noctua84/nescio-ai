@@ -45,12 +45,21 @@ jobs:
       # resolves that to origin/$GITHUB_BASE_REF on its own when --base isn't
       # passed. Excludes below are long-form prose records, not modules --
       # growing them is not the thing this gate is watching for.
+      #
+      # `memory/**/*.md` is the brain's notes and ADRs. ADR 0005 crossed the
+      # tripwire at 448 lines on #181 and the gate demanded a module verdict for
+      # it, but the three tests the banner points at are meaningless for prose:
+      # an ADR has no reasons-to-change in that sense, no shared mutable state
+      # and nothing to name. The only verdict available was a true-sounding
+      # sentence written to clear a gate, which is the exact failure ADR 0006
+      # exists to prevent. Scoped to `*.md` on purpose, so a `.py` that ever
+      # lands under memory/ is still gated.
       - run: |
           python scripts/module_gate.py \
             --head HEAD \
             --ack-file /tmp/pr-body.txt \
             --exclude 'docs/plans/**' \
             --exclude 'docs/specs/**' \
-            --exclude '.sisyphus/**' \
+            --exclude '.sisyphus/**'             --exclude 'memory/**/*.md' \
             --exclude 'CHANGELOG.md' \
             --exclude 'docs/usage/data.json'
