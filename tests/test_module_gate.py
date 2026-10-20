@@ -307,5 +307,63 @@ class TestGateErrors(ModuleGateTestCase):
         self.assertEqual(rc, 2)
 
 
+class WorkflowTriggerTest(unittest.TestCase):
+    """The workflow must re-run when the PR body is edited.
+
+    This gate's prescribed remedy is "add a `Module-check:` line to the PR
+    body". GitHub's default `pull_request` type set is
+    opened/synchronize/reopened and does NOT include `edited`, so without this
+    the gate asks for a body edit and then ignores the edit it asked for: the
+    check stays red while the acknowledgement is already there. `gh run rerun`
+    is not an escape either, because `github.event.pull_request.body` is an
+    event-payload snapshot and a re-run replays the stale body -- the only ways
+    out are a push or a close/reopen, neither of which a reader would guess.
+
+    Asserted against the YAML rather than trusted to a comment because the
+    failure is silent: drop `types` and everything still parses, still runs, and
+    only misbehaves on the one path the gate's own instructions send people
+    down.
+    """
+
+    #: `yaml.safe_load` resolves the bare key `on` to the BOOLEAN True under
+    #: YAML 1.1, so a GitHub workflow's trigger block is `doc[True]`, never
+    #: `doc["on"]`. Looking it up by the string silently finds nothing and the
+    #: assertions below would pass on an empty dict.
+    ON_KEY = True
+
+    def test_pull_request_types_include_edited(self):
+        import yaml
+
+        workflow = Path(__file__).resolve().parent.parent / ".github/workflows/module-gate.yml"
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+
+        self.assertIn(self.ON_KEY, doc, "no `on:` block -- did the key spelling change?")
+        pull_request = doc[self.ON_KEY]["pull_request"]
+
+        # The realistic regression is someone deleting the `types` line, which
+        # leaves a bare `pull_request:` parsing to None -- so that case is
+        # handled explicitly. Subscripting None here would raise a TypeError
+        # that says nothing about what broke or why it matters.
+        self.assertIsNotNone(
+            pull_request,
+            "`pull_request:` has no `types`, so GitHub applies the default set "
+            "and the gate no longer re-runs when the PR body is edited -- which "
+            "is the one action its own failure banner tells you to take.",
+        )
+        types = pull_request.get("types")
+        self.assertIsNotNone(types, "`pull_request:` is present but names no `types`")
+
+        self.assertIn(
+            "edited",
+            types,
+            "without `edited` the gate ignores the body edit it asked for",
+        )
+        # Naming `types` REPLACES the defaults, so the three that were implicit
+        # have to stay named or the gate silently stops running on new pushes --
+        # a far worse failure than the one this test exists to prevent.
+        for required in ("opened", "synchronize", "reopened"):
+            self.assertIn(required, types, f"`types` replaces the defaults; {required} must stay listed")
+
+
 if __name__ == "__main__":
     unittest.main()

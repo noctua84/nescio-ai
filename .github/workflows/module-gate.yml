@@ -3,8 +3,19 @@ name: module-gate
 # PR-only: on `push` there is no PR body to pass as --ack-file, and the
 # symmetric-difference base (`origin/main...HEAD`) is meaningless outside a
 # PR's own diff.
+#
+# `types` is spelled out because the remedy this gate prescribes is "add a
+# Module-check: line to the PR body", and the default set --
+# opened/synchronize/reopened -- does not include `edited`. Without it the gate
+# tells you to edit the body, the edit does not re-run the gate, and the check
+# stays red while the fix is already in place. Re-running is not a way out
+# either: the body is read from `github.event.pull_request.body`, which is an
+# event-payload snapshot, so `gh run rerun` replays the stale body and fails
+# again. Naming `types` REPLACES the default set, so all four are listed rather
+# than only the one being added.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   module-gate:
