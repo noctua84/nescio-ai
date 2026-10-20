@@ -116,6 +116,7 @@ TAG_TO_MILESTONE = {
     "readiness": "Readiness signal",
     "cross-repo": "Cross-repo knowledge",
     "parked": "Parked",
+    "static-analysis": "Static analysis",
 }
 
 # Sections excluded from every issue-reference check. `## Shipped` is a *history*

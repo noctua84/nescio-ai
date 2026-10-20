@@ -119,6 +119,23 @@ readiness signal the learning loop produces, and rolled out per-repo.
 - [#21](https://github.com/noctua84/nescio-ai/issues/21) — optional machine-local statusline (model / context / repo / PR / work-item)
 - [#22](https://github.com/noctua84/nescio-ai/issues/22) — optional headless GitHub Action to auto-run `dependency-pr-ci-fix` on a red bump PR
 
+## Static analysis
+
+Thirty thousand lines of Python were gated by review alone. A ruff lint gate now
+runs in CI, added one rule family per PR so the gate is green from the day it
+lands rather than after a cleanup sprint; `pyproject.toml` holds the ruleset and
+the job reads it, so a local run and CI cannot diverge. Phases 1 and 2 (`E9`, `F`)
+have shipped.
+
+- `static-analysis` [#139](https://github.com/noctua84/nescio-ai/issues/139) — no linter, formatter or type checker ran anywhere; the remaining question is which of the three the gate should eventually cover
+- `static-analysis` [#140](https://github.com/noctua84/nescio-ai/issues/140) — 7 of 12 PR checks are defined outside the repo, so `.github/workflows/` no longer describes what gates a PR
+
+The rollout's remaining phases are tracked under the milestone rather than here,
+because they are execution rather than direction: UP017, and clearing `RUF100` by
+hand per [ADR 0006](memory/repo/nescio/adr/0006-lint-suppressions-are-documentation.md),
+which found that an "unused" `# noqa` is this repo's record of a deliberate
+deviation and must not be deleted wholesale by `--fix`.
+
 ## Under consideration
 
 - **Crew benchmarking** — turn the shipped evaluation skills (`agent-evaluation`,
