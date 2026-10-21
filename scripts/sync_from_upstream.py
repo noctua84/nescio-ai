@@ -248,6 +248,7 @@ FRAMEWORK_PATHS = [
     "CLAUDE.local.md.example",
     "scrub-terms.local.example",
     "adr-publish.toml.example",
+    "repo-registry.toml.example",
 ]
 
 

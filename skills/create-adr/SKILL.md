@@ -10,7 +10,7 @@ user-invocable: true
 
 ADRs capture significant architectural decisions with enough context for a future session to understand the *why*, the alternatives, and the consequences. The value this skill adds over free-hand note-taking is the **conflict gate**: every new ADR is reviewed against all existing ADRs for the same repo, and **no decision may silently contradict an accepted one** — it must either supersede it or justify coexistence.
 
-This brain already has an ADR convention (see `memory/repo/ui/adr/`, `memory/repo/streaming/adr/`). Match it — do **not** invent a heavier template.
+This brain already has an ADR convention — see the `adr/` subdirectory of any `memory/repo/<dir>/` that has one. Match it — do **not** invent a heavier template.
 
 ## Context
 

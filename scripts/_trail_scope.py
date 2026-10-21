@@ -37,6 +37,14 @@ worktree created outside the repo tree (`git worktree add ../feature`) is not
 *under* the repo root, yet the record resolves to the repo, so equality attributes
 it correctly where an at-or-under test would silently drop it.
 
+Equality cannot see through a repository being *renamed* on disk, because step 1
+returns `repo_root` verbatim. A third route therefore consults
+`repo-registry.toml`: two roots belong together when the registry declares both
+their basenames as trail keys of one `memory/repo/<dir>/`. It is strictly
+additive — an unregistered basename resolves to `None`, so clones that merely
+share a basename are never merged — and it is what lets a harvest actually stamp
+the trails written before a rename instead of reporting them un-harvested forever.
+
 A second, secondary route matches the repo's own canonical trail by filename.
 It exists for exactly one case the record rule cannot cover: a trail with *zero*
 records, which has no `git_root` to resolve. Matching is emphatically *not* done
@@ -56,8 +64,17 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 import record_stop as rs  # noqa: E402
+
+# The registry is consulted only through its *lenient* accessor, which cannot
+# raise and yields no aliases at all when the file is absent or malformed. That
+# matches this module's contract (see the docstring's last paragraph): a sweep of
+# the machine-global trail dir must never be derailed by one bad input, and a
+# config typo must not stop a harvest. `scripts/check_repo_registry.py` and
+# `tests/test_repo_registry.py` are where a bad registry is made loud.
+import _repo_registry as repo_registry  # noqa: E402
 
 # The path segment that identifies a Claude Code worktree checkout. Matched on
 # the posix-normalised path; the repository is everything before it.
@@ -255,6 +272,19 @@ def _repo_trail_names(repo_root: Path) -> set[str]:
     }
 
 
+def registered_dir(repo_root: str | Path) -> str | None:
+    """The `memory/repo/<dir>/` that `repo-registry.toml` declares for this root.
+
+    `None` whenever the root's basename is not a registered trail key — including
+    when there is no registry at all. That distinction is the whole safety
+    property of the aliasing below: two roots may be treated as one repository
+    only because the registry *declares* both their basenames for one memory dir,
+    never because two unrelated clones happen to share a basename.
+    """
+    name = posix_path(repo_root).rsplit("/", 1)[-1]
+    return repo_registry.dir_for_trail_key(name) if name else None
+
+
 def belongs_to_repo(
     trail_path: Path, repo_root: Path, *, cache: dict[str, str] | None = None
 ) -> bool:
@@ -263,6 +293,30 @@ def belongs_to_repo(
     Equality on the normalised posix roots — see the module docstring for why
     that, and not an at-or-under test, is the correct comparison. The filename
     rule runs first and is the only one that can match a zero-record trail.
+
+    ## The registry alias
+
+    Equality alone cannot see through a *rename*. `resolve_repo_root` returns a
+    record's `repo_root` verbatim, so trails written from the clone when it was
+    called `old-widget-service` keep that path forever; a harvest run from the
+    renamed `widget-service` checkout matched none of them. The consequence was
+    not merely cosmetic: those trails were never selected, so never stamped, so
+    their turns reported as un-harvested *permanently*, and no amount of
+    harvesting could clear them. Teaching only `compute_readiness.repo_name()`
+    about the alias fixes the label on that number and nothing else.
+
+    So a third route: both roots resolve, **through the registry**, to the same
+    memory dir. `registered_dir` returns `None` for an unregistered basename, so
+    this route is strictly additive — it can only turn a `False` into a `True`,
+    and only for a pairing the registry spells out. Two unrelated clones that
+    merely share a basename stay separate, because neither is registered.
+
+    `_repo_trail_names` is deliberately *not* extended with aliases. It hashes an
+    exact filesystem path to reproduce the trail filename `record_stop` wrote, and
+    the registry stores basenames, not the historical absolute paths — there is no
+    path to hash. The record-based route above covers every non-empty trail; the
+    filename route's one unique job remains a zero-record trail of this very
+    checkout, which by definition has no history to re-attach.
 
     `cache` is passed through to attribution and only ever saves repeated `git`
     subprocesses; it never changes the answer. Optional, so existing callers are
@@ -273,7 +327,10 @@ def belongs_to_repo(
     recorded = trail_repo_root(trail_path, cache=cache)
     if not recorded:
         return False
-    return recorded == posix_path(repo_root)
+    if recorded == posix_path(repo_root):
+        return True
+    subject_dir = registered_dir(repo_root)
+    return subject_dir is not None and subject_dir == registered_dir(recorded)
 
 
 def trails_for_repo(
