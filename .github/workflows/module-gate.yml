@@ -60,6 +60,7 @@ jobs:
             --ack-file /tmp/pr-body.txt \
             --exclude 'docs/plans/**' \
             --exclude 'docs/specs/**' \
-            --exclude '.sisyphus/**'             --exclude 'memory/**/*.md' \
+            --exclude '.sisyphus/**' \
+            --exclude 'memory/**/*.md' \
             --exclude 'CHANGELOG.md' \
             --exclude 'docs/usage/data.json'
