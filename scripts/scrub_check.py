@@ -12,10 +12,15 @@ Two layers:
 
 Usage (from the repo root):
 
-    python scripts/scrub_check.py [PATH]
+    python scripts/scrub_check.py [PATH] [--terms PATH]
+
+``PATH`` may be a file or a directory and defaults to ``.``. ``scrub-terms.local``
+is always resolved from the repo root regardless of ``PATH``, so scanning a
+sub-path (or a single file) still picks up your custom terms. ``--terms``
+overrides where it is read from.
 
 Exit status: 0 if clean (WARN-only is still 0), 1 on any FAIL match, 2 on a bad
-custom regex.
+custom regex or a PATH that does not exist.
 
 Note: ``scrub-terms.local`` is gitignored, so it does not exist in CI — there,
 only the baseline runs. Run this **locally before publishing** to catch your own
@@ -23,11 +28,12 @@ terms; CI enforces the secret/path baseline for everyone.
 """
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+REPO_DIR = Path(__file__).resolve().parent.parent
 
 # Directories never scanned.
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".idea",
@@ -52,15 +58,15 @@ SECRET_PATTERNS = [
 # Baseline WARN — machine-specific absolute home paths (portable config shouldn't
 # hardcode these; usually a stray example path).
 # The `<>` exclusion lets template placeholders like `<you>` / `<user>` pass
-# while real usernames (e.g. /Users/marku/) still warn.
+# while real usernames (e.g. /Users/jdoe/) still warn.
 PATH_PATTERNS = [
     ("home path", re.compile(r"(?:/Users/|/home/)[^/\s'\"<>]+/")),
     ("windows home path", re.compile(r"[Cc]:[\\/]+Users[\\/]+[^\\/\s'\"<>]+")),
 ]
 
 
-def load_custom_terms() -> list[tuple[str, re.Pattern]]:
-    path = ROOT / "scrub-terms.local"
+def load_custom_terms(root: Path) -> list[tuple[str, re.Pattern]]:
+    path = root / "scrub-terms.local"
     out: list[tuple[str, re.Pattern]] = []
     if not path.exists():
         return out
@@ -76,8 +82,13 @@ def load_custom_terms() -> list[tuple[str, re.Pattern]]:
     return out
 
 
-def iter_files(root: Path):
-    for p in root.rglob("*"):
+def iter_files(target: Path):
+    if target.is_file():
+        if target.name in SKIP_FILES:
+            return
+        yield target
+        return
+    for p in target.rglob("*"):
         if p.is_dir():
             continue
         if any(part in SKIP_DIRS for part in p.parts):
@@ -87,7 +98,7 @@ def iter_files(root: Path):
         yield p
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     # Ensure both streams can emit the glyphs this report contains, under a
     # Windows cp1252 console or pipe. Without it a single unencodable character
     # in a WARN snippet raises UnicodeEncodeError mid-report — and because the
@@ -110,16 +121,34 @@ def main() -> int:
         except Exception:
             pass
 
-    custom = load_custom_terms()
+    parser = argparse.ArgumentParser(
+        description="Fail if private or identifying content would be published.")
+    parser.add_argument("path", nargs="?", default=".",
+                         help="File or directory to scan (default: .)")
+    parser.add_argument("--terms", default=None,
+                         help="Directory to read scrub-terms.local from "
+                              "(default: the repo root)")
+    args = parser.parse_args(argv)
+
+    target = Path(args.path).resolve()
+    if not target.exists():
+        print(f"error: path not found: {target}", file=sys.stderr)
+        return 2
+
+    terms_root = Path(args.terms).resolve() if args.terms is not None else REPO_DIR
+    custom = load_custom_terms(terms_root)
+
+    display_root = target.parent if target.is_file() else target
+
     fails: list[tuple[str, Path, int, str]] = []
     warns: list[tuple[str, Path, int, str]] = []
 
-    for p in iter_files(ROOT):
+    for p in iter_files(target):
         try:
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue  # binary or unreadable — skip
-        rel = p.relative_to(ROOT)
+        rel = p.relative_to(display_root)
         for lineno, line in enumerate(text.splitlines(), 1):
             for label, rx in SECRET_PATTERNS:
                 if rx.search(line):

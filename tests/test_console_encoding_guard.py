@@ -278,10 +278,8 @@ class ScrubCheckGuardTest(unittest.TestCase):
     def _run(self, root: Path):
         """Run main() over `root` with a genuinely cp1252-backed stdout."""
         stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
-        with mock.patch.object(scrub_check, "ROOT", root), \
-                mock.patch.object(sys, "stdout", stream), \
-                mock.patch.object(sys, "argv", ["scrub_check.py", str(root)]):
-            rc = scrub_check.main()
+        with mock.patch.object(sys, "stdout", stream):
+            rc = scrub_check.main([str(root), "--terms", str(root)])
         stream.flush()
         return rc, stream.buffer.getvalue().decode("utf-8"), stream
 
