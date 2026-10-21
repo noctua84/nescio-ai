@@ -34,6 +34,10 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import _repo_registry as repo_registry  # noqa: E402
+
 REPO_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MEMORY_ROOT = REPO_DIR / "memory"
 
@@ -318,11 +322,24 @@ def missing_items(memory: dict, ai: dict) -> list[str]:
 def assess(repo_path, *, memory_root: Path = DEFAULT_MEMORY_ROOT) -> dict:
     """Compose both axes for ``repo_path`` into a single result dict.
 
-    ``repo_name`` is the resolved basename of the target path. Returns
-    ``{"repo", "repo_path", "memory_depth", "ai_friendliness", "missing"}``.
+    ``repo_name`` is the resolved basename of the target path, **unless**
+    ``repo-registry.toml`` declares that basename as a trail key owned by a
+    differently-named memory dir — then the registered dir is used. The bare
+    basename mis-reports a repository whose clone directory does not match its
+    memory dir: a clone at ``~/src/old-widget-service`` whose notes live in
+    ``memory/repo/widget-service/`` reports memory depth ``none`` without the
+    alias, and ``missing_items`` claims the brain has no durable knowledge of it — the
+    strongest possible argument for a *lower* autonomy cap, derived from a naming
+    accident. The alias is the same one ``compute_readiness.repo_name()`` consumes,
+    which is what keeps the two scripts naming one repository identically.
+
+    An absent or malformed registry degrades to the bare basename, i.e. to this
+    function's pre-registry behaviour.
+
+    Returns ``{"repo", "repo_path", "memory_depth", "ai_friendliness", "missing"}``.
     """
     resolved = Path(repo_path).resolve()
-    repo_name = resolved.name
+    repo_name = repo_registry.dir_for_trail_key(resolved.name) or resolved.name
 
     memory = assess_memory_depth(repo_name, memory_root)
     ai = assess_ai_friendliness(repo_path)
