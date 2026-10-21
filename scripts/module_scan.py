@@ -139,6 +139,25 @@ def is_excluded(rel: str, excludes: tuple[str, ...]) -> bool:
     )
 
 
+def count_lines_from_bytes(data: bytes) -> int | None:
+    """Physical line count of `data`, or None when it looks binary.
+
+    Split out of `count_lines` so a second caller (`module_gate.find_hits`,
+    which reads a blob from a ref via `git show` rather than the filesystem)
+    can reuse the binary-sniff and trailing-newline logic without a second
+    implementation of it. A copy would drift from this one the moment either
+    changed, and the binary-detection branch is exactly the part that would.
+    """
+    if b"\0" in data[:_SNIFF_BYTES]:
+        return None
+    if not data:
+        return 0
+    count = data.count(b"\n")
+    if not data.endswith(b"\n"):
+        count += 1
+    return count
+
+
 def count_lines(path: Path) -> int | None:
     """Physical line count, or None when the file is binary or unreadable.
 
@@ -149,14 +168,7 @@ def count_lines(path: Path) -> int | None:
         data = path.read_bytes()
     except OSError:
         return None
-    if b"\0" in data[:_SNIFF_BYTES]:
-        return None
-    if not data:
-        return 0
-    count = data.count(b"\n")
-    if not data.endswith(b"\n"):
-        count += 1
-    return count
+    return count_lines_from_bytes(data)
 
 
 def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:

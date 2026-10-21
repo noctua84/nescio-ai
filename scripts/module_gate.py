@@ -29,10 +29,16 @@ Design decisions, each with a failure mode behind it:
     brand-new file created over the tripwire is a hit: it is over, and every
     one of its lines was added.
 
-  * **Reuses `module_scan.is_excluded` and `module_scan.count_lines`.** The
-    denylist and the byte-counting behaviour live in exactly one place; a
+  * **Reuses `module_scan.is_excluded` and `module_scan.count_lines_from_bytes`.**
+    The denylist and the byte-counting behaviour live in exactly one place; a
     second implementation here would drift from the first the moment either
     one changed.
+
+  * **Size comes from the `head` ref's blob (`git show <head>:<path>`), never
+    the working tree.** `--head` must be reproducible for a ref that is not
+    checked out locally. Reading `repo / path` off disk instead answers for
+    whatever happens to be on disk, which fails open the moment the checkout
+    disagrees with `head` -- see issue #194, which this file used to get wrong.
 
   * **Exit 2 on a gate failure, distinct from exit 1 on an unacknowledged
     hit.** A bad `--base`/`--head` ref or a missing git repo is not "no
@@ -205,23 +211,58 @@ def collect_acknowledgements(texts: list[str]) -> dict[str, list[str]]:
     return acks
 
 
+def read_blob_at_ref(repo: Path, ref: str, path: str) -> bytes | None:
+    """Bytes of `path` as it exists at `ref`, or None when it doesn't.
+
+    `text=False` (the default for `subprocess.run`) is deliberate: a text-mode
+    `git show` would have `subprocess` translate `\\r\\n` to `\\n` on Windows,
+    which would corrupt both the line count this feeds into and the null-byte
+    binary sniff it feeds into first. Both the gate itself and its test suite
+    run on a Windows dev box, so this would not even show up in CI, which runs
+    on Linux and would silently mask it.
+
+    A nonzero exit (missing path at this ref -- most commonly a file the diff
+    shows as deleted, which cannot be read back from `head`) returns None
+    rather than raising: the caller's job is to skip it, the same as the
+    pre-ref-based code did via `full_path.exists()`.
+    """
+    proc = subprocess.run(
+        ["git", "show", f"{ref}:{path}"],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
 def find_hits(
     repo: Path,
+    head: str,
     changes: dict[str, tuple[int, int]],
     tripwire: int,
     excludes: tuple[str, ...],
 ) -> list[dict]:
-    """A hit: over the tripwire at head, excluded-and-existing, and grew."""
+    """A hit: over the tripwire at head, excluded-and-existing, and grew.
+
+    Size is read from the `head` ref's blob, not the working tree -- `--head`
+    must be reproducible for *any* ref, including one that is not checked out
+    locally, and a working-tree read silently answers for whatever happens to
+    be on disk instead. See issue #194: this previously read `repo / path`
+    directly, which made the gate fail open whenever the working tree
+    disagreed with `head` (right diff, wrong tripwire comparison).
+    """
     hits: list[dict] = []
     for path, (added, _deleted) in changes.items():
         if added < 1:
             continue
         if module_scan.is_excluded(path, excludes):
             continue
-        full_path = repo / path
-        if not full_path.exists():
+        data = read_blob_at_ref(repo, head, path)
+        if data is None:
             continue
-        lines = module_scan.count_lines(full_path)
+        lines = module_scan.count_lines_from_bytes(data)
         if lines is None:
             continue
         if lines > tripwire:
@@ -306,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         base, head = resolve_refs(repo, args.base, args.head)
         changes = numstat(repo, base, head)
-        hits = find_hits(repo, changes, tripwire, tuple(args.exclude))
+        hits = find_hits(repo, head, changes, tripwire, tuple(args.exclude))
 
         texts = commit_messages(repo, base, head)
         if args.ack_file is not None:
