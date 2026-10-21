@@ -52,6 +52,49 @@ property measured across all 427 notes and attributed to the pipeline is a state
 about hand-authored files — which is the error ADR 0005 made when it rejected
 chunking on *"the median note has no headings"*.
 
+> **Correction, 2026-10-21.** **The table above is backwards, and the sentence after it
+> is wrong.** It counts notes carrying a `<!-- promoted:begin -->` block — that is
+> *current marker ownership*, not authorship. `PROMOTED_BEGIN` was only introduced on
+> 2026-08-10 (`git log -S PROMOTED_BEGIN -- scripts/promote_learnings.py`), so every
+> promotion before that date is marker-less while still carrying the
+> `[Source: ... — date]` line that **only** `promote_learnings.render_block` writes.
+>
+> Re-measured against the live brain on 2026-10-21:
+>
+> | | notes | share |
+> |---|---|---|
+> | carry a marker block | 175 | 34.9% |
+> | marker-less but provenance-bearing (pipeline-authored, pre-marker) | 236 | 47.0% |
+> | **pipeline-authored, total** | **411** | **81.9%** |
+> | **no pipeline trace** | **91** | **18.1%** |
+>
+> over 502 content notes (515 `.md` less 13 generated `MEMORY.md`). The ledger settles
+> it independently: of 405 distinct targets, **404 still exist on disk — 174 carrying
+> a marker, 229 marker-less but provenance-bearing.**
+>
+> So the corpus is four-fifths material the learning loop **did** write, not the
+> reverse. A pre-marker promoted note later hand-rewritten is indistinguishable from
+> outside, so treat ~91 as a **floor** on hand-written and ~411 as a **ceiling** on
+> pipeline-authored; separating them needs git archaeology inside the private brain.
+>
+> **What this does to the decisions, in three directions:**
+>
+> 1. ***Decision 2 gets stronger.*** The authoring-time boundary loss affects ~82% of
+>    the corpus rather than 21%. That is the decision this ADR most wanted supported,
+>    and the corrected figure supports it far better than the one it cited.
+> 2. ***Decision 3 gets much cheaper.*** The one-time chunker backfill population is
+>    ~91 notes, not 336.
+> 3. ***Decision 1's stated reason partly collapses.*** "79% of it never came through
+>    the pipeline" is not true of authorship. The committed note is still the worse
+>    seam — metadata is flattened into frontmatter by then, and 229 notes carry a
+>    single provenance line for an entire merged body — but that is the reason, and
+>    not the one given below.
+>
+> The *method* error this ADR accused ADR 0005 of — measuring a population and
+> attributing its shape to the pipeline — is one this ADR then made itself, in the
+> opposite direction. Recorded rather than quietly fixed, because the shape of the
+> mistake repeated, and that is worth more than the number.
+
 Where the pipeline *did* write, its output is tight:
 
 | promoted block | median | p90 | max |
@@ -112,8 +155,10 @@ Three seams were available and the note is the worst of them. The **learning-tra
 and auto-memory records** upstream of harvest are the most atomic, but ingesting
 there bypasses the human review gate, which is the defining property of the learning
 loop and the thing ADR 0005 already identified as hardest to rebuild. The **committed
-note** is the most convenient and carries the least: 79% of it never came through the
-pipeline, and its metadata has been flattened into frontmatter by the time it lands.
+note** is the most convenient and carries the least: its metadata has been flattened
+into frontmatter by the time it lands, and 229 notes carry a single provenance line
+covering an entire merged body. (This originally read "79% of it never came through
+the pipeline" — backwards, as the Context correction above records.)
 The **nomination** is the only seam that is both reviewed and structured.
 
 ### 2. A nomination carries learnings as addressable units, not a merged note body
@@ -150,7 +195,9 @@ fixed, chunking follows:
 
 - **New content needs no chunker.** A learning unit submitted under *Decision 2* is
   already a retrieval unit. The harvest boundary is the semantic boundary.
-- **The 336 legacy notes need one, and paragraphs are it.** Across 423 notes there
+- **The legacy notes need one, and paragraphs are it.** (~91 of them, not the 336
+  stated when this was written — see the correction above.) Across 423 notes
+  there
   are 4,438 paragraphs, median 268 characters, p90 787, and only **6.1%** exceed
   1,000 characters — so a paragraph-first chunker needs a hard-split fallback for one
   paragraph in sixteen. A 1000/200 sliding window over the same corpus produces 2,198
@@ -189,7 +236,7 @@ storage format.
 | Option | Verdict |
 |---|---|
 | **Ingest nominations** (chosen) | The only seam that is both human-reviewed and structured. Requires changing the harvest contract, not just the service. |
-| Ingest committed notes | Rejected. ADR 0005's implicit assumption. 79% of the corpus never came through the pipeline, metadata is flattened by then, and the merged body has no recoverable seams. |
+| Ingest committed notes | Rejected. ADR 0005's implicit assumption. Metadata is flattened by then, a single provenance line covers an entire merged body, and that body has no recoverable seams. (The "79% never came through the pipeline" first given here was wrong — see the Context correction.) |
 | Ingest learning-trail / auto-memory records | Rejected on the review gate, not on shape — they are the most atomic units available. Worth revisiting *only* if a replacement review gate is built at that layer first. |
 | Keep nominations note-shaped and chunk them on arrival | Rejected. Works, and is strictly worse: it spends a chunker recovering boundaries the harvesting agent had and was instructed to discard. |
 | Store a per-note summary vector as the retrieval key | Rejected — ADR 0005 Decision 3, withdrawn. Retained for note-level identity work (near-duplicate detection, cross-repo recurrence) and never ranked against passages. |
@@ -207,7 +254,7 @@ now and is invisible, because the displaced learning leaves no trace outside git
 history.
 
 **Positive:** chunking is decided by construction for all new content, and the
-chunker is needed only for a bounded one-time backfill of 336 notes.
+chunker is needed only for a bounded one-time backfill of ~91 notes.
 
 **Negative:** this changes `commands/harvest-memory.md` and the nomination schema,
 which means `promote_learnings.py`, `mark_harvested.py` and the receipt contract move
@@ -231,7 +278,12 @@ late or wrong, the readable corpus degrades while the retrievable one improves.
 **To re-verify:** every count here is a measurement of a corpus that moved twice
 during the session that produced it — the largest directory went from 65 to 80 notes
 inside a day, and the transcript corpus from 1,645 MB to 4,116 MB. Re-measure before
-relying on any figure. Specifically: the promoted share (91/427) rises with every
+relying on any figure — and this ADR's own Context figures were wrong on first
+measurement, so re-measure rather than cite. Note also that **ADR 0002's trigger T2
+has since fired**: `check_memory_triggers.py` reports `FIRED t2-corpus-size — 502
+notes`, with T1 at 90 of ~100, so ADR 0005's claim to be "deliberately ahead of its
+own trigger" no longer holds. Specifically: the pipeline-authored share (411/502)
+rises with every
 harvest and changes the balance between *Decision 3*'s two populations; and the claim
 that paragraph-aligned chunks **retrieve** better than offset-aligned ones is
 **not measured anywhere** — *Decision 3* rests on boundary quality and chunk count
