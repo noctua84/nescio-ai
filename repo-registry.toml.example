@@ -1,0 +1,45 @@
+# Repository registry — copy to `repo-registry.toml` (committed; it IS your
+# declaration) and fill in. `python scripts/check_repo_registry.py` validates it.
+#
+# It states, for each `memory/repo/<dir>/`, which GitHub repository the dir holds
+# memory for and which learning-trail keys feed it. Without that, the brain can
+# only infer the mapping from a clone directory's basename — so renaming or
+# re-cloning a repo silently grows a *second* memory dir for it and strands the
+# first one's recorded history.
+#
+# One `[dirs.<name>]` per folder under `memory/repo/`. The check fails on a dir
+# that is not registered and on a registration with no dir, in both directions.
+
+# `trail_keys` lists the clone-directory basenames the learning trail has recorded
+# for this repository — current *and* historical. A dir always owns the key equal
+# to its own name, so you never restate that; list a key here when the clone was
+# renamed, or when the same repo was once cloned under a different folder name.
+# `compute_readiness.py`, `_trail_scope.py` and `assess_repo_readiness.py` all
+# resolve aliases through it, so old history merges into the current dir instead
+# of reporting as a separate repository that is forever un-harvested.
+[dirs.widget-service]
+github = "your-org/widget-service"
+trail_keys = ["widget-service", "old-widget-service"]
+
+# `clone_expected` defaults to true. Set it false for a repo you keep memory
+# about but never check out locally, and say why in `note` — the check requires
+# the note, so the deviation reads as a decision rather than an oversight.
+[dirs.vendor-portal]
+github = "your-org/vendor-portal"
+clone_expected = false
+note = "Read-only vendor repository; reviewed through the web UI, never cloned."
+
+# Omit `github` when the slug must not go into tracked config at all — a client
+# or employer repository, say. A `note` is required here too. Entries without a
+# slug are exempt from the shared-slug rule below, since they cannot collide.
+[dirs.internal-tool]
+clone_expected = false
+note = "Employer repository: slug withheld from tracked config; memory-only."
+
+# One repository must normally own exactly one memory dir. When the brain grew two
+# names for one repo and the merge has not happened yet, declare it here instead
+# of letting the duplicate pass unnoticed — and delete the entry once converged.
+# A stale exception (fewer than two dirs still claiming the slug) is reported as a
+# problem, so this cannot rot into permanent permission.
+[shared_slugs]
+# "your-org/web" = ["web", "web-old-name"]

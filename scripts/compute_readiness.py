@@ -82,6 +82,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
+import _repo_registry as repo_registry  # noqa: E402
 import record_stop as rs  # noqa: E402
 from _learning_common import parse_ledger  # noqa: E402
 from _marker_block import MarkerBlock  # noqa: E402
@@ -160,13 +161,29 @@ INSUFFICIENT_OUTCOME = (
 # ── path + attribution ─────────────────────────────────────────────────────
 
 def repo_name(repo_root_posix: str) -> str:
-    """Basename of a repository root — the `memory/repo/<name>/` key.
+    """The `memory/repo/<name>/` key for a repository root.
 
-    Matches how `assess_repo_readiness.py` names a repo. A root with no usable
-    basename degrades to the full path rather than to an empty key.
+    The basename, *unless* `repo-registry.toml` declares that basename as a trail
+    key owned by a differently-named memory dir — then the registered dir wins.
+    That alias is what re-attaches history recorded before a clone was renamed:
+    without it, renaming `old-widget-service` to `widget-service` left its
+    turns in a bucket with no memory dir, reported as `- skip` forever.
+
+    Aliasing therefore **merges** buckets, which is intended: an aliased repo's
+    turns, sessions, span and un-harvested count are the union across every key
+    it owns, and `Repository roots` lists more than one path. `collect_activity`
+    already merged distinct roots that shared a basename for the same reason —
+    two roots writing one output file must agree on its contents.
+
+    Matches how `assess_repo_readiness.py` names a repo, which consumes the same
+    alias. A root with no usable basename degrades to the full path rather than to
+    an empty key; an absent or malformed registry degrades to the bare basename,
+    i.e. to this function's pre-registry behaviour.
     """
     tail = repo_root_posix.rsplit("/", 1)[-1]
-    return tail or repo_root_posix
+    if tail:
+        return repo_registry.dir_for_trail_key(tail) or tail
+    return repo_root_posix
 
 
 # ── trail reading ──────────────────────────────────────────────────────────
