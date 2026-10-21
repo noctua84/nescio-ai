@@ -139,6 +139,26 @@ class TestLineCounting(ModuleScanTestCase):
         path.write_text("", encoding="utf-8")
         self.assertEqual(module_scan.count_lines(path), 0)
 
+    def test_count_lines_from_bytes_matches_count_lines_on_the_same_content(self):
+        """`count_lines` is a thin delegation to `count_lines_from_bytes` --
+        pin the two together so a future edit to one cannot silently drift
+        from the other (see module_gate.find_hits, the second caller this
+        split exists for)."""
+        data = ("x\n" * 400 + "last").encode("utf-8")
+        path = self.repo / "delegated.py"
+        path.write_bytes(data)
+        self.assertEqual(
+            module_scan.count_lines(path), module_scan.count_lines_from_bytes(data)
+        )
+        self.assertEqual(module_scan.count_lines_from_bytes(data), 401)
+
+    def test_count_lines_from_bytes_detects_binary_without_touching_disk(self):
+        data = b"\x00\x01" * 5000
+        self.assertIsNone(module_scan.count_lines_from_bytes(data))
+
+    def test_count_lines_from_bytes_on_empty_bytes_is_zero(self):
+        self.assertEqual(module_scan.count_lines_from_bytes(b""), 0)
+
 
 class TestReportAndExit(ModuleScanTestCase):
     def test_an_empty_repo_reports_cleanly_and_exits_zero(self):
