@@ -365,5 +365,25 @@ class WorkflowTriggerTest(unittest.TestCase):
             self.assertIn(required, types, f"`types` replaces the defaults; {required} must stay listed")
 
 
+    def test_prose_records_are_excluded(self):
+        """The gate must not demand a module verdict for a prose document.
+
+        ADR 0005 crossed the tripwire at 448 lines on #181 and the gate asked
+        for one. The three tests its banner points at do not apply to prose, so
+        the only available answer was a true-sounding sentence written to clear
+        a gate -- the failure ADR 0006 exists to prevent. Asserted here because
+        the exclude lives in YAML, where nothing else would notice its removal.
+        """
+        import yaml
+
+        workflow = Path(__file__).resolve().parent.parent / ".github/workflows/module-gate.yml"
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        run = doc["jobs"]["module-gate"]["steps"][-1]["run"]
+
+        self.assertIn("memory/**/*.md", run)
+        # Scoped to markdown on purpose: a `.py` under memory/ is still a module.
+        self.assertNotIn("--exclude 'memory/**'", run)
+
+
 if __name__ == "__main__":
     unittest.main()
