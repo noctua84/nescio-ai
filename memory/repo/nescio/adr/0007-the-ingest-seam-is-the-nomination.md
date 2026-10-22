@@ -178,9 +178,77 @@ recover them.
 The work order is [#180](https://github.com/noctua84/nescio-ai/issues/180), which
 carries the open design questions this decision deliberately does not settle —
 whether the file keeps one managed block per unit or one rendered from all of them,
-how the existing 91 blocks migrate without a lossy guess at their internal
+how the existing blocks migrate without a lossy guess at their internal
 boundaries, and what `content_hash12` hashes once a nomination holds more than one
 body.
+
+> **Amendment, 2026-10-22.** **Decision 2's reasoning above is largely wrong, its
+> mechanism is unsafe, and the decision itself survives in a narrower form.** Third
+> correction to this ADR in three days; the record being right matters more than the
+> record being tidy.
+>
+> **The boundary-loss argument does not hold at the scale claimed.** It rests on
+> nominations arriving as merged bodies. Measured over the 175 marker-carrying notes
+> by counting commits that touched each one (`git log --follow`, counts only):
+>
+> | commits per promoted note | notes | share |
+> |---|---|---|
+> | 1 | 139 | **79.4%** |
+> | 2 | 29 | 16.6% |
+> | 3 | 4 | 2.3% |
+> | 4 | 3 | 1.7% |
+>
+> median 1, mean 1.3, **max 4**. So **79.4% of promoted notes were written by a single
+> promotion and never touched again** — there was no merge to recover boundaries from.
+> The figure is a ceiling, not a floor: `--follow` counts the `repo/ui` to
+> `repo/soulsgate-ui` directory convergence as a touch, so true re-promotion is rarer
+> still.
+>
+> The *"six-paragraph merged body"* above measures **prose style, not accumulation**.
+> A single harvest natively writes several paragraphs. Boundary destruction is real for
+> at most 20.6% of promoted notes and seriously only for the seven touched three or
+> more times. The ledger could not have told us this, because `_prune_target_lines`
+> drops a target's superseded lines on overwrite — it destroyed the evidence, which is
+> a second reason to delete it.
+>
+> **The mechanism was unsafe, and this is the more serious half.** The work order's
+> design answers proposed union-merge by unit hash. But retraction already exists:
+> `commands/harvest-memory.md:106` instructs the agent to *"drop anything already
+> captured or since proven wrong"*, implemented by re-authoring the body without the
+> disproven learning, which `_compose_note:339-345` then commits — and the human sees
+> the removal in the git diff, which **is** the review gate.
+>
+> Under union-merge, omitting a unit removes nothing, so **retraction becomes
+> inexpressible**. `memory/CONVENTIONS.md:48` makes `promote_learnings.py` the only
+> sanctioned writer and contains no deletion or correction procedure, so there is no
+> second route. Unbounded accumulation was the symptom; **a learning proven wrong
+> becoming permanent** is the disease. `VALID_SCOPE_BUCKETS` includes `people` and
+> `feedback`, so this also removes the only erasure path for notes about identifiable
+> individuals.
+>
+> **What Decision 2 now decides.** A nomination carries learning units, for two reasons
+> that survive measurement and one that does not:
+>
+> 1. **Per-unit identity** so a retrieved passage joins back to its learning event
+>    — unchanged, and independent of whether any merging happened.
+> 2. **Per-unit `source`/`date`** so precedence can be read rather than destroyed
+>    — also unchanged.
+> 3. ~~Recovering boundaries from a merged body~~ — withdrawn as a *justification*.
+>    It describes a fifth of the corpus at most.
+>
+> And the mechanism is **supersession, not union-merge**: a unit may carry
+> `supersedes: [<hash12>, ...]`. The superseded unit stays in the ledger and in the
+> store, so *Decision 4*'s "nothing is lost" holds, while the renderer omits its text.
+> Append-only in the data, curatable in the view, one reviewable diff. For the `people`
+> and `feedback` buckets, supersession must actually remove text from the rendered
+> block rather than demote it.
+>
+> **Retraction is hereby on the must-not-break list**, alongside the review gate,
+> dedup, watermarks and the ledger. It was absent, which is how a design that deletes
+> it got as far as being written down.
+>
+> *Step 3 of `commands/harvest-memory.md` still has to change* — but to "add a
+> learning, or supersede one", not merely "add".
 
 Per-unit identity must survive into storage. Today `content_hash12` is written only
 to `memory/learning-log.md` and never into the note, so a retrieved passage cannot be
