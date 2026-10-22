@@ -90,7 +90,6 @@ transfer. See #160.
 - `readiness` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
 - `readiness` [#70](https://github.com/noctua84/nescio-ai/issues/70) — derive a clean-vs-flagged session verdict from the transcript, replacing `readiness.md`'s insufficient-data state
 - `loop` [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
-- `parked` [#41](https://github.com/noctua84/nescio-ai/issues/41) — evaluate Obsidian as a read-only view over `memory/`
 
 ## Earned autonomy — [Epic #33](https://github.com/noctua84/nescio-ai/issues/33)
 
@@ -98,7 +97,7 @@ Unattended action is deliberately **not** on by default. It's gated behind a
 readiness signal the learning loop produces, and rolled out per-repo.
 
 - `parked` [#32](https://github.com/noctua84/nescio-ai/issues/32) — earned per-repo autonomy dial + charter evolution (phase 3)
-- `parked` [#39](https://github.com/noctua84/nescio-ai/issues/39) — mid-task checkpoint / resume (+ fork) for the orchestrator lifecycle
+- [#39](https://github.com/noctua84/nescio-ai/issues/39) — mid-task checkpoint / resume (+ fork) for the orchestrator lifecycle
 - `parked` [#37](https://github.com/noctua84/nescio-ai/issues/37) — a gradual "Confidence & gaps" signal on specialist agents
 
 ## Interoperability
