@@ -181,6 +181,26 @@ class MarkerBlock:
         stop = next(m for m in markers if m[0] == "end")[2]
         return start, stop
 
+    def inner(self, text: str) -> str:
+        """The block's content *between* the marker lines, both excluded.
+
+        The complement of `outside` within the block: `span` is the whole
+        owned region including both marker lines, and this is what a block
+        *contains*. Only valid once `classify` has returned `ok`.
+
+        Separate from `span` because an owner that wants to read a block back
+        — rather than replace it — needs the content without the markers, and
+        deriving it at the call site means re-doing the whole-line offset
+        arithmetic this module exists to own. `marker_lines` already bounds
+        each marker line including its terminator, so the begin marker's
+        `stop` and the end marker's `start` are exactly the content's edges
+        under every line ending.
+        """
+        markers = self.marker_lines(text)
+        begin_stop = next(m for m in markers if m[0] == "start")[2]
+        end_start = next(m for m in markers if m[0] == "end")[1]
+        return text[begin_stop:end_start]
+
     def outside(self, text: str) -> str:
         """Everything in `text` that is not the owned block — the preserved content.
 

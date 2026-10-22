@@ -89,9 +89,15 @@ class MarkHarvestedTest(unittest.TestCase):
         return p
 
     def _receipt(self, d, **overrides):
-        """Write a promotion receipt into ``d``; return its path."""
+        """Write a promotion receipt into ``d``; return its path.
+
+        ``version`` tracks `mark_harvested.RECEIPT_VERSION` rather than a
+        literal, because this fixture stands for "a receipt this build
+        recognises" and that is what every test but one wants from it. The
+        mismatch case overrides it explicitly, relative to the same constant.
+        """
         payload = {
-            "version": 1,
+            "version": mark_harvested.RECEIPT_VERSION,
             "manifest": "eval/learnings/20260712T080000Z/manifest.json",
             "promoted": 3,
             "skipped": 0,
@@ -663,10 +669,17 @@ class MarkHarvestedTest(unittest.TestCase):
             self.assertIn("no integer 'promoted'", warning)
 
     def test_check_receipt_flags_unknown_version(self):
+        # Relative to the constant, not a literal: `RECEIPT_VERSION` moved from
+        # 1 to 2 in #180 stage 1, and a hard-coded "the other version" silently
+        # becomes "the current version" the next time it moves -- turning this
+        # test into an assertion that a recognised receipt warns.
+        unknown = mark_harvested.RECEIPT_VERSION + 99
         with tempfile.TemporaryDirectory() as d:
-            warning = mark_harvested.check_receipt(str(self._receipt(d, version=2)))
+            warning = mark_harvested.check_receipt(
+                str(self._receipt(d, version=unknown))
+            )
             self.assertIsNotNone(warning)
-            self.assertIn("is not 1", warning)
+            self.assertIn(f"is not {mark_harvested.RECEIPT_VERSION}", warning)
 
     def test_check_receipt_ignores_the_manifest_field_entirely(self):
         # Recorded verbatim as the operator typed it: relative, backslashed, or

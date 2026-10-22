@@ -652,7 +652,7 @@ class ReceiptTest(unittest.TestCase):
             self.assertEqual(rc, 0, summary)
 
             data = self._receipt(run_dir)
-            self.assertEqual(data["version"], 1)
+            self.assertEqual(data["version"], 2)
             self.assertEqual(data["manifest"], str(manifest))
             self.assertEqual(data["promoted"], 1)
             self.assertEqual(data["skipped"], 0)
@@ -817,7 +817,7 @@ class ReceiptTest(unittest.TestCase):
                 sorted(data),
                 ["manifest", "promoted", "skipped", "targets", "version", "written_at"],
             )
-            self.assertEqual(data["version"], 1)
+            self.assertEqual(data["version"], 2)
             self.assertEqual(data["manifest"], "eval/learnings/x/manifest.json")
             self.assertEqual(data["promoted"], 3)
             self.assertEqual(data["skipped"], 0)
@@ -826,7 +826,7 @@ class ReceiptTest(unittest.TestCase):
             )
             # Indented JSON with a trailing newline, so it diffs readably.
             self.assertTrue(path.read_text(encoding="utf-8").endswith("\n"))
-            self.assertIn('\n  "version": 1', path.read_text(encoding="utf-8"))
+            self.assertIn('\n  "version": 2', path.read_text(encoding="utf-8"))
 
     def test_manifest_falls_back_to_empty_string(self):
         with tempfile.TemporaryDirectory() as d:

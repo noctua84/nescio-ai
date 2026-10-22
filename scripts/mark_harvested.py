@@ -60,7 +60,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import record_stop as rs  # noqa: E402
 
 READ_VERSION = 1
-RECEIPT_VERSION = 1
+# 2 since #180 stage 1, matching `promote_learnings.RECEIPT_VERSION`: a
+# nomination may now carry `units` instead of `body`. Kept in step with the
+# writer purely as bookkeeping -- `check_receipt` is advisory and every
+# branch of it ends by stamping anyway, so a version it does not recognise
+# produces a warning line and never a refusal.
+RECEIPT_VERSION = 2
 
 # The unfinished-harvest marker is per repo: `<prefix><repo_key>`. See
 # ``pending_name`` for why it may not be machine-global. `hooks/harvest_nudge.py`
