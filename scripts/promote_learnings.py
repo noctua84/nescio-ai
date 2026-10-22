@@ -124,6 +124,8 @@ import wiki_index
 
 import _unrouted_record
 
+from _marker_block import MarkerBlock
+
 from _learning_common import (
     REPO_DIR,
     VALID_SOURCES,
@@ -200,6 +202,17 @@ _SOURCE_RE = re.compile(
 # each promotion; everything outside (human edits, extra sections) is left alone.
 PROMOTED_BEGIN = "<!-- promoted:begin -->"
 PROMOTED_END = "<!-- promoted:end -->"
+
+# The whole-line, fence-aware marker machinery, bound to this script's pair —
+# the same shared module `compute_readiness.py` and `wiki_index.py` use for
+# their own generated blocks (issue #121). Recognition is line-anchored and
+# skips fenced code, so a note that merely *documents* the block shape — e.g.
+# quoting both markers inside a ```-fenced example, the shape
+# `memory/CONVENTIONS.md` itself teaches — is not mistaken for owning a real
+# block and spliced accordingly. `_marker_block` owns the recognition and
+# `none`/`ok`/`malformed` classification; everything below owns what goes
+# *inside* the block and what a malformed one does to this script's run.
+_BLOCK = MarkerBlock(PROMOTED_BEGIN, PROMOTED_END)
 
 # The promotion receipt. Filename is fixed and lives beside the manifest so the
 # next step in the harvest flow can find it from the manifest path alone, with no
@@ -321,51 +334,85 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     return "\n".join(out) + "\n"
 
 
-def _compose_note(existing_text: str | None, nom: dict) -> str:
-    """Return the note's new full text, touching only the managed block.
+def _compose_note(existing_text: str | None, nom: dict) -> tuple[str | None, str]:
+    """Return (new_text_or_None, disposition) for ``existing_text`` + ``nom``.
 
-    - Absent file  → fresh frontmatter + block.
-    - Has a block  → replace the block's inner content, refresh managed
-                     frontmatter keys, leave everything else untouched.
-    - Legacy (no block) → preserve all content and insert a managed block
-                     immediately after the frontmatter (or at the top).
+    Mirrors `compute_readiness.compose` / `wiki_index.compose`: disposition is
+    one of `created` / `spliced` / `migrated` / `malformed:<reason>`, and
+    `None` means "write nothing" — the caller must treat the nomination as
+    skipped, not written, exactly as it already treats a dedup or a lost
+    contradiction.
+
+    - Absent file  → fresh frontmatter + block ("created").
+    - Markers `ok` → replace the block's inner content, refresh managed
+                     frontmatter keys, leave everything else untouched
+                     ("spliced").
+    - Markers `malformed` → **refuse**. An orphan begin, an orphan end, or a
+                     duplicate make the block's extent unknowable, so splicing
+                     would have to guess — appending duplicates it forever,
+                     truncating at EOF can eat trailing prose. That guess is
+                     exactly #102 / #121's destructive failure class, so the
+                     caller skips this nomination instead ("malformed:<reason>").
+    - Markers `none` → legacy note with no real block (including one whose
+                     body only *mentions* the markers inside a fenced code
+                     example — `_marker_block`'s fence-aware scan does not
+                     count that as a block). Preserve all content and insert a
+                     managed block immediately after the frontmatter, or at
+                     the top ("migrated").
+
+    Classification happens on ``rest`` — the text after any frontmatter is
+    split off — matching the scope the original bare-substring check used;
+    the frontmatter block itself is never searched for these markers.
     """
     new_block = render_block(nom)
     if existing_text is None:
-        return render_note(nom)
+        return render_note(nom), "created"
 
     fm_raw, rest = _split_raw_frontmatter(existing_text)
 
-    if PROMOTED_BEGIN in rest and PROMOTED_END in rest:
-        b = rest.index(PROMOTED_BEGIN)
-        e = rest.index(PROMOTED_END) + len(PROMOTED_END)
-        if e < len(rest) and rest[e] == "\n":
-            e += 1  # consume the marker's own trailing newline
-        new_fm = _refresh_frontmatter(fm_raw, nom) if fm_raw else fm_raw
-        return new_fm + rest[:b] + new_block + rest[e:]
+    kind, reason = _BLOCK.classify(rest)
+    if kind == "malformed":
+        return None, f"malformed:{reason}"
 
-    # Legacy note without a managed block — migrate without losing anything.
+    if kind == "ok":
+        start, stop = _BLOCK.span(rest)
+        new_fm = _refresh_frontmatter(fm_raw, nom) if fm_raw else fm_raw
+        return new_fm + rest[:start] + new_block + rest[stop:], "spliced"
+
+    # kind == "none" — legacy note without a managed block. Migrate without
+    # losing anything.
     if fm_raw:
-        return _refresh_frontmatter(fm_raw, nom) + new_block + rest
-    return new_block + existing_text
+        return _refresh_frontmatter(fm_raw, nom) + new_block + rest, "migrated"
+    return new_block + existing_text, "migrated"
 
 
 def existing_provenance(note_path: Path) -> tuple[str, str] | None:
     """Read the authoritative `[Source: <source> — <date>]` line from a note.
 
-    When the note carries a managed block, only the provenance INSIDE the block
-    is authoritative — a migrated legacy note keeps its old body (and any stale
-    `[Source]` line it contains) below the block, so a file-wide last-match would
-    read the stale one. Falls back to the file-wide last match only for a pure
-    legacy note with no block. Returns (source, date) or None.
+    When the note carries a well-formed managed block, only the provenance
+    INSIDE the block is authoritative — a migrated legacy note keeps its old
+    body (and any stale `[Source]` line it contains) below the block, so a
+    file-wide last-match would read the stale one. Falls back to the file-wide
+    last match for a legacy note with no real block — including one whose body
+    only *mentions* the markers inside a fenced code example, which
+    `_marker_block`'s fence-aware scan does not count as a block either.
+
+    Returns None outright for a note whose markers are malformed: the block's
+    extent is unknowable, and reading across it would make the same guess this
+    script's splice sites exist to avoid. `promote()` is the one place that
+    turns that condition into a skip-and-report decision for the whole
+    nomination; this function's job is only to read, safely, when there is
+    something unambiguous to read.
     """
     if not note_path.is_file():
         return None
     text = note_path.read_text(encoding="utf-8")
-    if PROMOTED_BEGIN in text and PROMOTED_END in text:
-        b = text.index(PROMOTED_BEGIN)
-        e = text.index(PROMOTED_END) + len(PROMOTED_END)
-        text = text[b:e]  # restrict the scan to the managed block
+    kind, _ = _BLOCK.classify(text)
+    if kind == "malformed":
+        return None
+    if kind == "ok":
+        start, stop = _BLOCK.span(text)
+        text = text[start:stop]  # restrict the scan to the managed block
     matches = _SOURCE_RE.findall(text)
     if not matches:
         return None
@@ -618,6 +665,27 @@ def promote(
             continue
 
         note_path = memory_dir / nom["target"]
+        existing = note_path.read_text(encoding="utf-8") if note_path.is_file() else None
+
+        # Compute what writing would produce before deciding anything else
+        # about this nomination. `_compose_note` never touches disk — it only
+        # reports what IT would write — so this is safe to run under
+        # ``--dry-run`` too, which means a preview can never promise a write a
+        # real run would go on to refuse.
+        new_text, disposition = _compose_note(existing, nom)
+        if new_text is None:
+            # `_compose_note`'s one and only refusal path (mirrors
+            # `compute_readiness.compose` / `wiki_index.compose`): the managed
+            # block's markers are malformed, so the block's extent is
+            # unknowable and writing would have to guess — splicing from the
+            # wrong marker or duplicating on append, the destructive failure
+            # class #102 / #121 exist to prevent. Skip this nomination and
+            # report it; one bad file must not discard the promotions that
+            # did land, the same posture as the dedup and contradiction skips.
+            skipped += 1
+            reason = disposition.partition(":")[2]
+            summary.append(f"skip (malformed markers) {nom['target']} — {reason}")
+            continue
 
         prov = existing_provenance(note_path)
         if prov is not None:
@@ -651,8 +719,7 @@ def promote(
             continue
 
         note_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = note_path.read_text(encoding="utf-8") if note_path.is_file() else None
-        note_path.write_text(_compose_note(existing, nom), encoding="utf-8")
+        note_path.write_text(new_text, encoding="utf-8")
         touched_dirs.add(note_path.parent)
         _record_ledger(
             ledger_path, nom["target"], h, ledger_line, overwrite=(verb == "overwrite")
