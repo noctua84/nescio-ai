@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.9.0](https://github.com/noctua84/nescio-ai/compare/v1.8.1...v1.9.0) (2026-10-23)
+
+
+### Features
+
+* [impl] add session_anatomy.py context-anatomy report ([#182](https://github.com/noctua84/nescio-ai/issues/182)) ([8fd6423](https://github.com/noctua84/nescio-ai/commit/8fd642335c27167b867f580a84fe0904f3f46000))
+* [impl] explicit tool allowlists and omitClaudeMd per agent ([#187](https://github.com/noctua84/nescio-ai/issues/187)) ([cb28ddd](https://github.com/noctua84/nescio-ai/commit/cb28ddd7338a8eee3eaf100e4b158f1a3fb4b781))
+* [impl] let planner delegate research to explore and librarian ([#187](https://github.com/noctua84/nescio-ai/issues/187)) ([e99b441](https://github.com/noctua84/nescio-ai/commit/e99b441c01bede52db4cb9b0d42c119d69a7e54f))
+* [impl] the units ingest path with supersession (stage 1b of [#180](https://github.com/noctua84/nescio-ai/issues/180)) ([bc3f7c3](https://github.com/noctua84/nescio-ai/commit/bc3f7c3ca9965e0caa64df5889fcb91768e3d47b))
+* [impl] the units ingest path with supersession (stage 1b of [#180](https://github.com/noctua84/nescio-ai/issues/180)) ([6f24eef](https://github.com/noctua84/nescio-ai/commit/6f24eef72684f10c167090e69720b1d4a43b529d))
+* [impl] weighted decomposition of subagent input in session_anatomy ([ec8efb1](https://github.com/noctua84/nescio-ai/commit/ec8efb178ca1bebd24274c206b1cd39582625501)), closes [#185](https://github.com/noctua84/nescio-ai/issues/185)
+* add --by-agent-type memory-usage breakdown to check_memory_triggers ([#212](https://github.com/noctua84/nescio-ai/issues/212)) ([085308d](https://github.com/noctua84/nescio-ai/commit/085308d602ca76aa3f53af860e397b712e510412))
+* add session_anatomy.py context-anatomy report ([1da01c6](https://github.com/noctua84/nescio-ai/commit/1da01c639127c2f4f9e7d6b7668527abcd6ae5e7))
+* explicit per-agent tool allowlists and omitClaudeMd ([a4a4496](https://github.com/noctua84/nescio-ai/commit/a4a44967ffe30770e76392ea9b261319dd9b087a))
+* repo registry + trail-key alias — one repo, one memory dir ([06f13f1](https://github.com/noctua84/nescio-ai/commit/06f13f152807eef4b82f78667fdf3944415eb93c))
+* repo registry + trail-key alias — one repo, one memory dir ([f6646d6](https://github.com/noctua84/nescio-ai/commit/f6646d6d9a80180d52fa5af58ca982c8944d2c66)), closes [#195](https://github.com/noctua84/nescio-ai/issues/195)
+* weighted decomposition of subagent input in session_anatomy ([f907bda](https://github.com/noctua84/nescio-ai/commit/f907bdaeaea15beb22d3f62f310773941ed7cc32))
+
+
+### Bug Fixes
+
+* [fix] adopt MarkerBlock in promote_learnings.py (stage 1a of [#180](https://github.com/noctua84/nescio-ai/issues/180)) ([a84e1c3](https://github.com/noctua84/nescio-ai/commit/a84e1c3a3c317de66f1aa38f94738cb4b52fd067))
+* [fix] keep parenthesised tool entries whole in the agent catalog ([#187](https://github.com/noctua84/nescio-ai/issues/187)) ([6e8fa82](https://github.com/noctua84/nescio-ai/commit/6e8fa8200073c2313557aede7b00f37949526c04))
+* [fix] measure module_gate hits from --head, not the working tree ([2bd1e1a](https://github.com/noctua84/nescio-ai/commit/2bd1e1a205ae4fc60753abf545c14335c3fa6e9c))
+* [fix] refuse a body-shaped nomination against an anchored units block ([0e03fc6](https://github.com/noctua84/nescio-ai/commit/0e03fc6a4113d97646bfe2a1030d22e0e9be5fdf))
+* [fix] restore the lost line continuation in the exclude list ([39d9d76](https://github.com/noctua84/nescio-ai/commit/39d9d764a4b2af33b625e348eb9570309d652bb2))
+* [fix] skip redirect targets and count only repeated reads in session_anatomy ([#182](https://github.com/noctua84/nescio-ai/issues/182)) ([2c3a256](https://github.com/noctua84/nescio-ai/commit/2c3a256ee4952027d5269ccb98362b1ddf97c40c))
+* [fix] tighten hot-file path extraction in session_anatomy ([#182](https://github.com/noctua84/nescio-ai/issues/182)) ([468d72f](https://github.com/noctua84/nescio-ai/commit/468d72fae89d6ecba1f7f58fe9b4d2edd3acec39))
+* adopt MarkerBlock in promote_learnings.py (stage 1a of [#180](https://github.com/noctua84/nescio-ai/issues/180)) ([d72376a](https://github.com/noctua84/nescio-ai/commit/d72376a5d344b2f6f2036bfede4942a7830d4b7f))
+* **agents:** cite brain memory by a path that resolves outside the brain repo ([#211](https://github.com/noctua84/nescio-ai/issues/211)) ([4a83396](https://github.com/noctua84/nescio-ai/commit/4a83396575fff991f0b13609789d33fcf54856ad))
+* measure module_gate hits from --head, not the working tree ([2a4c132](https://github.com/noctua84/nescio-ai/commit/2a4c132115f51856a1ad5a815254d876fd5b01cf))
+* refuse a body-shaped nomination against an anchored units block ([#208](https://github.com/noctua84/nescio-ai/issues/208)) ([e610cdd](https://github.com/noctua84/nescio-ai/commit/e610cddfb701b42a5b1592c4667eed8999451149))
+* scrub_check resolves custom terms from the repo root and scans file arguments ([f478c0e](https://github.com/noctua84/nescio-ai/commit/f478c0e149af6bf86fc6e7cce0b5288dbb19ea2c))
+* scrub_check resolves custom terms from the repo root and scans file arguments ([95bf080](https://github.com/noctua84/nescio-ai/commit/95bf080fc4faf1de0be1ec87e7b6a4a0a249776d)), closes [#196](https://github.com/noctua84/nescio-ai/issues/196)
+
+
+### Documentation
+
+* [docs] amend ADR 0005 Consequence 4 -- the guarantee is no enumeration ([ac134d3](https://github.com/noctua84/nescio-ai/commit/ac134d337127d971953d9fed65185645a0580d7b))
+* [docs] amend ADR 0007 Decision 2 -- supersession, not union-merge ([f585837](https://github.com/noctua84/nescio-ai/commit/f585837065035491c5a929ca22366581508d3cf1))
+* [docs] correct ADR 0007's authorship split -- it had the ratio backwards ([a0cd759](https://github.com/noctua84/nescio-ai/commit/a0cd75966f6165d4d8435894a89311ba03d84f40))
+* [docs] put static analysis on the roadmap, via the rule that already exists ([500e9f0](https://github.com/noctua84/nescio-ai/commit/500e9f09e93af41e7aeac7608e08556ecc2d98bd))
+* [docs] reconcile the roadmap with the Parked triage ([d3a6282](https://github.com/noctua84/nescio-ai/commit/d3a6282e79e57cc82f8811fc47af4ee9b7633c9c))
+* amend ADR 0005 Consequence 4 -- the guarantee is no enumeration, not no read-back ([000f9df](https://github.com/noctua84/nescio-ai/commit/000f9df59b0b46ee3b7fa8301982a446bc271329))
+* amend ADR 0007 Decision 2 -- supersession, not union-merge ([cf78737](https://github.com/noctua84/nescio-ai/commit/cf78737abc96e988d74668c3e40953bfb01a9690))
+* correct ADR 0007's authorship split -- it had the ratio backwards ([331e496](https://github.com/noctua84/nescio-ai/commit/331e496555633443b5e550f8b4a34080bd407eba))
+* create-adr points at memory/repo/&lt;dir&gt;/adr/ generically ([6f288cc](https://github.com/noctua84/nescio-ai/commit/6f288cc26aed498222d3ca9cfc62349a42e5f4f9))
+* create-adr points at memory/repo/&lt;dir&gt;/adr/ generically ([21d16c6](https://github.com/noctua84/nescio-ai/commit/21d16c68c4a1f6d5576f13a860f917167f15add7)), closes [#197](https://github.com/noctua84/nescio-ai/issues/197)
+* put static analysis on the roadmap, via the rule that already exists ([708d6c8](https://github.com/noctua84/nescio-ai/commit/708d6c892a830c7d4414b1eeb79e8190f6c0639f))
+* reconcile the roadmap with the Parked triage ([c205c03](https://github.com/noctua84/nescio-ai/commit/c205c03f9f142988c27ad5104327c0f0d62b6d50))
+
 ## [1.8.1](https://github.com/noctua84/nescio-ai/compare/v1.8.0...v1.8.1) (2026-10-04)
 
 
