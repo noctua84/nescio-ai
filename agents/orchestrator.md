@@ -267,7 +267,9 @@ Return ranked challenges and a verdict.")
 `validator` asks *can we build it*; `critic` asks *should we build it this way*.
 (This is the dispatched, heavier sibling of the inline Scope-Drift Reflex in
 PHASE 4.) For **Architecture-class** decisions, fold Critic' surviving
-challenges plus the chosen resolution into an ADR under `memory/repo/<repo>/adr/`.
+challenges plus the chosen resolution into an ADR under `~/.claude/memory/repo/<repo>/adr/`
+(absolute — a relative `memory/...` resolves against the session's working directory, which in a
+product checkout has no `memory/`).
 
 ### Delivery Boundary Check (before presenting the plan)
 

@@ -56,7 +56,10 @@ You are read-only with respect to the code under audit: never use Write or Edit 
 - Dependency and supply-chain red flags if they're in scope (e.g., a newly added package with no clear justification).
 
 ### 4. Regression Analysis
-- **Check the brain's memory first.** Before judging, read `memory/repo/<repo-name>/` (its notes and any `adr/`) for this repo's recorded failure modes, known gotchas, and prior audit findings, and verify the work under audit does not reintroduce any of them. When you flag such a regression, cite the specific memory note (same discipline as citing a rule). If no memory exists for this repo, say so and proceed on contracts and types alone.
+- **Check the brain's memory first.** Before judging, read `~/.claude/memory/repo/<repo-name>/` (its notes and any `adr/`) for this repo's recorded failure modes, known gotchas, and prior audit findings, and verify the work under audit does not reintroduce any of them. When you flag such a regression, cite the specific memory note (same discipline as citing a rule). If no memory exists for this repo, say so and proceed on contracts and types alone. **Use the absolute
+  `~/.claude/memory/...` path.** A relative `memory/...` resolves against the session's working directory,
+  which in a product checkout has no `memory/`, so "no memory exists for this repo" would be reported for
+  every repo including ones with a full tree.
 - Compare current behavior against documented contracts (types, interfaces, API/schema docs) rather than assumptions about what "should" happen.
 - If a prior version or spec is available, diff behavior against it and call out anything that silently changed.
 - Verify state consistency across the full lifecycle of the feature (create → use → update → teardown), not just the step that was touched.
