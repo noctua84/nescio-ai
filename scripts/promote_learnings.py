@@ -231,11 +231,13 @@ from _promoted_block import (  # noqa: F401  (re-exported)
     _SOURCE_RE,
     _UNIT_ANCHOR_RE,
     _compose_note,
+    _find_unit_anchors,
     _refresh_frontmatter,
     _splice_block,
     _split_raw_frontmatter,
     _split_unit_chunk,
     _supersession_allowed,
+    block_is_anchored,
     existing_provenance,
     incoming_wins,
     plan_units,
@@ -866,17 +868,32 @@ def promote(
         # real run would go on to refuse.
         new_text, disposition = _compose_note(existing, nom)
         if new_text is None:
-            # `_compose_note`'s one and only refusal path (mirrors
-            # `compute_readiness.compose` / `wiki_index.compose`): the managed
-            # block's markers are malformed, so the block's extent is
-            # unknowable and writing would have to guess — splicing from the
-            # wrong marker or duplicating on append, the destructive failure
-            # class #102 / #121 exist to prevent. Skip this nomination and
-            # report it; one bad file must not discard the promotions that
-            # did land, the same posture as the dedup and contradiction skips.
+            # `_compose_note` has two refusal paths now, both reported the
+            # same way the dedup and contradiction skips already are: the run
+            # continues, this one nomination does not land.
+            #
+            # `malformed:<reason>` (mirrors `compute_readiness.compose` /
+            # `wiki_index.compose`): the managed block's markers are
+            # malformed, so the block's extent is unknowable and writing
+            # would have to guess — splicing from the wrong marker or
+            # duplicating on append, the destructive failure class #102 /
+            # #121 exist to prevent.
+            #
+            # `shape-mismatch:<reason>` (#208): the block is well-formed but
+            # already `units`-shaped — it carries real unit anchors — and
+            # this nomination is `body`-shaped. Splicing would replace the
+            # whole block with the incoming body and silently destroy every
+            # stored unit. Note this check ran *inside* `_compose_note`,
+            # before `existing_provenance` below is ever consulted, so the
+            # provenance gate below never gets a chance to adjudicate a
+            # mismatched overwrite using "whichever unit renders last" — the
+            # exact arbitrariness ADR 0007 D7 flags.
             skipped += 1
             reason = disposition.partition(":")[2]
-            summary.append(f"skip (malformed markers) {nom['target']} — {reason}")
+            if disposition.startswith("shape-mismatch:"):
+                summary.append(f"skip (shape mismatch) {nom['target']} — {reason}")
+            else:
+                summary.append(f"skip (malformed markers) {nom['target']} — {reason}")
             continue
 
         prov = existing_provenance(note_path)

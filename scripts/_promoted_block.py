@@ -195,6 +195,45 @@ def _split_unit_chunk(chunk: str) -> tuple[str, str | None, str | None]:
     return "\n".join(lines), source, date
 
 
+def _find_unit_anchors(
+    lines: list[tuple[int, int, str]], fenced: set[int]
+) -> list[tuple[int, str, bool]]:
+    """`[(line_index, hash12, legacy)]` for every real unit anchor, in order.
+
+    Fence-aware and whole-line, same as every other scan in this module: a
+    block whose prose quotes the anchor shape inside a ```-fenced example must
+    not have that example read as a unit boundary. Extracted so
+    `parse_block_units` and the shape check `_compose_note` needs (#208) agree
+    on what counts as an anchor by construction, rather than by two scans that
+    could drift apart.
+    """
+    anchors: list[tuple[int, str, bool]] = []
+    for i, (_, _, raw) in enumerate(lines):
+        if i in fenced:
+            continue
+        m = _UNIT_ANCHOR_RE.match(raw.rstrip("\r\n"))
+        if m:
+            flags = (m.group("flags") or "").split()
+            anchors.append((i, m.group("hash"), UNIT_LEGACY_FLAG in flags))
+    return anchors
+
+
+def block_is_anchored(inner: str) -> bool:
+    """Whether a managed block's content carries at least one real unit anchor.
+
+    This is the line #208 draws between the two things a managed block can be:
+    zero anchors is the legacy, pre-#180 shape — a single merged body, and the
+    `body` nomination path's stage-1 no-op guarantee depends on being allowed
+    to keep replacing it exactly as before. One or more anchors means the block
+    is `units`-shaped, and from that point on `units` is its only contract: a
+    `body` nomination must be refused rather than splice over it, or every
+    stored unit's text is destroyed in one silent, exit-0 write (the defect
+    #208 reports). `_compose_note` is the caller that acts on this.
+    """
+    lines = split_lines(inner)
+    return bool(_find_unit_anchors(lines, fenced_line_indices(lines)))
+
+
 def parse_block_units(inner: str) -> list[Unit]:
     """Read a managed block's content back into units, in document order.
 
@@ -222,14 +261,7 @@ def parse_block_units(inner: str) -> list[Unit]:
     """
     lines = split_lines(inner)
     fenced = fenced_line_indices(lines)
-    anchors: list[tuple[int, str, bool]] = []
-    for i, (_, _, raw) in enumerate(lines):
-        if i in fenced:
-            continue
-        m = _UNIT_ANCHOR_RE.match(raw.rstrip("\r\n"))
-        if m:
-            flags = (m.group("flags") or "").split()
-            anchors.append((i, m.group("hash"), UNIT_LEGACY_FLAG in flags))
+    anchors = _find_unit_anchors(lines, fenced)
 
     units: list[Unit] = []
     head_stop = anchors[0][0] if anchors else len(lines)
@@ -344,15 +376,38 @@ def _compose_note(existing_text: str | None, nom: dict) -> tuple[str | None, str
     because a nomination carrying both fields is rejected in phase 1.
 
     Mirrors `compute_readiness.compose` / `wiki_index.compose`: disposition is
-    one of `created` / `spliced` / `migrated` / `malformed:<reason>`, and
-    `None` means "write nothing" — the caller must treat the nomination as
-    skipped, not written, exactly as it already treats a dedup or a lost
-    contradiction.
+    one of `created` / `spliced` / `migrated` / `malformed:<reason>` /
+    `shape-mismatch:<reason>`, and `None` means "write nothing" — the caller
+    must treat the nomination as skipped, not written, exactly as it already
+    treats a dedup or a lost contradiction.
 
     - Absent file  → fresh frontmatter + block ("created").
-    - Markers `ok` → replace the block's inner content, refresh managed
-                     frontmatter keys, leave everything else untouched
-                     ("spliced").
+    - Markers `ok`, block anchored → **refuse** (#208). A `body` nomination
+                     against a block that already carries one or more
+                     `<!-- unit:... -->` anchors is a `units`-shaped target
+                     reached by `body`-shaped tooling. REPLACE would splice
+                     the incoming body over the whole block, wiping every
+                     stored unit's text in one silent, exit-0 write — the
+                     wipe the issue reports, reproduced with `anchors=2` going
+                     to `anchors=0`. The decision (#208, recorded on the
+                     issue) is to refuse rather than convert the body into a
+                     one-unit supersession: refusal has one outcome always,
+                     conversion has three depending on provenance the caller
+                     never reasoned about, and once a note is `units`-shaped
+                     that is its contract permanently. This check runs before
+                     any provenance is read, so `existing_provenance`'s
+                     "whichever unit renders last" value — ADR 0007 D7's own
+                     "arbitrary" — never gets to adjudicate the overwrite; it
+                     is never reached for this nomination at all
+                     ("shape-mismatch:<reason>").
+
+                     A block with **no** anchors is the legacy, pre-#180
+                     shape — a single merged body — and is explicitly NOT a
+                     mismatch: it keeps replacing exactly as below, which is
+                     the stage-1 no-op guarantee this function also owns.
+    - Markers `ok`, block unanchored → replace the block's inner content,
+                     refresh managed frontmatter keys, leave everything else
+                     untouched ("spliced").
     - Markers `malformed` → **refuse**. An orphan begin, an orphan end, or a
                      duplicate make the block's extent unknowable, so splicing
                      would have to guess — appending duplicates it forever,
@@ -370,6 +425,15 @@ def _compose_note(existing_text: str | None, nom: dict) -> tuple[str | None, str
     split off — matching the scope the original bare-substring check used;
     the frontmatter block itself is never searched for these markers.
     """
+    if existing_text is not None:
+        _, rest = _split_raw_frontmatter(existing_text)
+        kind, _ = _BLOCK.classify(rest)
+        if kind == "ok" and block_is_anchored(_BLOCK.inner(rest)):
+            return None, (
+                "shape-mismatch:'body' nomination against a block that "
+                "already carries unit anchors — refused rather than "
+                "converted (#208); units is that block's contract now"
+            )
     return _splice_block(existing_text, nom, render_block(nom))
 
 
