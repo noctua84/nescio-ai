@@ -87,6 +87,58 @@ def _write_transcript(path: Path, records: list[dict]) -> None:
             handle.write(json.dumps(rec) + "\n")
 
 
+_UNSET = object()
+
+
+def _write_subagent(
+    transcripts: Path,
+    session: str,
+    agent_id: str,
+    records: list[dict],
+    agent_type: object = _UNSET,
+    meta: object = _UNSET,
+) -> Path:
+    """Write one subagent invocation: `<s>/subagents/agent-<id>.jsonl` + sidecar.
+
+    The file layout is `scan_by_agent_type`'s `AGENT_FILE_GLOB`
+    (`subagents/agent-*.jsonl`) and `_resolve_agent_type`'s sidecar rule
+    (`agent-<id>.jsonl` → `agent-<id>.meta.json`), so a test that gets either
+    wrong is invisible to the scan rather than failing loudly.
+
+    Three sidecar states, deliberately distinguishable:
+
+    * ``agent_type="x"`` — a normal sidecar, ``{"agentType": "x"}``.
+    * neither argument — NO sidecar file at all, which is the routine case the
+      `unknown` bucket exists for.
+    * ``meta=<any object>`` — a sidecar with arbitrary payload, for the
+      malformed-but-present cases.
+    """
+    path = transcripts / session / "subagents" / f"agent-{agent_id}.jsonl"
+    _write_transcript(path, records)
+    sidecar = path.with_name(f"agent-{agent_id}.meta.json")
+    if meta is not _UNSET:
+        sidecar.write_text(json.dumps(meta), encoding="utf-8", newline="")
+    elif agent_type is not _UNSET:
+        sidecar.write_text(
+            json.dumps({"agentType": agent_type}), encoding="utf-8", newline=""
+        )
+    return path
+
+
+def _no_cwd_record(blocks: list) -> dict:
+    """A record carrying no `cwd` at all — what makes a file `unscopable`.
+
+    `_record` always writes a `cwd`, and a file whose head never yields one is a
+    distinct bucket from one whose `cwd` names another repo, so the two cases
+    cannot share a builder.
+    """
+    return {
+        "sessionId": "s-nocwd",
+        "type": "assistant",
+        "message": {"role": "assistant", "content": blocks},
+    }
+
+
 class _Harness(unittest.TestCase):
     """A temp repo with a `memory/` tree, a temp config dir, and a transcript dir."""
 
@@ -708,6 +760,691 @@ class ReadOnlyTest(_Harness):
         }
         self.assertEqual(before, after)
         self.assertFalse(ur.record_path(self.repo).exists())
+
+
+# ── --by-agent-type (#243) ─────────────────────────────────────────────────
+
+
+class DiscoveryBriefPathMatcherTest(unittest.TestCase):
+    """`is_discovery_brief_path` — segment-exact AND adjacency-exact.
+
+    The substring test `".sisyphus/discovery" in value` would accept
+    `.sisyphus-backup/discovery-notes/`, and a non-adjacent test would accept
+    `.sisyphus/plans/discovery/`. Both inflate the brief-read count into a
+    healthier-looking number rather than into a visible error.
+    """
+
+    def test_a_brief_matches_on_either_separator(self):
+        self.assertTrue(cmt.is_discovery_brief_path(".sisyphus/discovery/foo.md"))
+        self.assertTrue(cmt.is_discovery_brief_path(r".sisyphus\discovery\foo.md"))
+        self.assertTrue(
+            cmt.is_discovery_brief_path("C:/p/brain/.sisyphus/discovery/task.md")
+        )
+        self.assertTrue(
+            cmt.is_discovery_brief_path(r"C:\p\brain\.sisyphus\discovery\task.md")
+        )
+
+    def test_the_directory_itself_matches(self):
+        self.assertTrue(cmt.is_discovery_brief_path(".sisyphus/discovery"))
+
+    def test_a_lookalike_sibling_directory_is_not_a_brief(self):
+        self.assertFalse(
+            cmt.is_discovery_brief_path(".sisyphus-backup/discovery-notes/foo.md")
+        )
+        self.assertFalse(cmt.is_discovery_brief_path(".sisyphus/discovery-old/foo.md"))
+        self.assertFalse(cmt.is_discovery_brief_path("sisyphus/discovery/foo.md"))
+
+    def test_discovery_must_follow_sisyphus_immediately(self):
+        """`.sisyphus/plans/discovery/` holds plans, not briefs."""
+        self.assertFalse(cmt.is_discovery_brief_path(".sisyphus/plans/discovery/x.md"))
+        self.assertFalse(cmt.is_discovery_brief_path("discovery/.sisyphus/x.md"))
+
+    def test_non_string_and_empty_inputs_are_rejected(self):
+        self.assertFalse(cmt.is_discovery_brief_path(""))
+        self.assertFalse(cmt.is_discovery_brief_path(None))
+        self.assertFalse(cmt.is_discovery_brief_path(42))
+        self.assertFalse(cmt.is_discovery_brief_path([".sisyphus", "discovery"]))
+
+    def test_a_memory_note_is_not_a_brief_and_a_brief_is_not_a_note(self):
+        """The two columns must not be able to collapse into one."""
+        self.assertFalse(cmt.is_discovery_brief_path("memory/repo/x/note.md"))
+        self.assertFalse(cmt.is_memory_path(".sisyphus/discovery/foo.md"))
+
+
+class AgentTypeLabelTest(unittest.TestCase):
+    """The privacy gate on a sidecar-derived string, and the missing/malformed
+    split `agent_type_label`'s docstring insists on."""
+
+    def test_a_plausible_slug_passes_through(self):
+        for name in ("test-author", "Explorer", "code.reviewer", "a", "a_b"):
+            self.assertEqual(cmt.agent_type_label(name), name)
+
+    def test_a_missing_value_is_unknown_not_unprintable(self):
+        self.assertEqual(cmt.agent_type_label(None), cmt.AGENT_TYPE_UNKNOWN)
+        self.assertEqual(cmt.agent_type_label(""), cmt.AGENT_TYPE_UNKNOWN)
+        self.assertEqual(cmt.agent_type_label(42), cmt.AGENT_TYPE_UNKNOWN)
+        self.assertEqual(cmt.agent_type_label({"a": 1}), cmt.AGENT_TYPE_UNKNOWN)
+
+    def test_a_value_failing_the_shape_gate_is_unprintable(self):
+        for bad in (
+            "two words",
+            "../../etc/passwd",
+            "has/slash",
+            "-leading-dash",
+            "tab\there",
+            "new\nline",
+            "x" * 65,
+        ):
+            self.assertEqual(
+                cmt.agent_type_label(bad), cmt.AGENT_TYPE_UNPRINTABLE, repr(bad)
+            )
+
+    def test_the_length_bound_is_sixty_four(self):
+        self.assertEqual(cmt.agent_type_label("x" * 64), "x" * 64)
+        self.assertEqual(cmt.agent_type_label("x" * 65), cmt.AGENT_TYPE_UNPRINTABLE)
+
+    def test_an_mcp_prefixed_name_is_bucketed_though_it_passes_the_shape_gate(self):
+        """#70's leak class: the shape gate alone would print this."""
+        self.assertEqual(
+            cmt.agent_type_label("mcp__acme_internal__agent"),
+            cmt.AGENT_TYPE_UNPRINTABLE,
+        )
+
+
+class AgentTypeRowRateTest(unittest.TestCase):
+    def test_the_two_rates_are_computed_independently(self):
+        row = cmt.AgentTypeRow(
+            agent_type="a", invocations=4, memory_hits=1, discovery_hits=3, resolved=True
+        )
+        self.assertEqual(row.memory_hit_rate, 25)
+        self.assertEqual(row.discovery_hit_rate, 75)
+
+    def test_a_zero_denominator_does_not_raise(self):
+        row = cmt.AgentTypeRow(
+            agent_type="a", invocations=0, memory_hits=0, discovery_hits=0, resolved=True
+        )
+        self.assertEqual(row.memory_hit_rate, 0)
+        self.assertEqual(row.discovery_hit_rate, 0)
+
+
+class AgentTypeScanTest(_Harness):
+    """`scan_by_agent_type` — one invocation per `subagents/agent-*.jsonl`."""
+
+    CWD = "C:/p/brain"
+    MEM = "C:/p/brain/memory/repo/x/note.md"
+    BRIEF = "C:/p/brain/.sisyphus/discovery/task.md"
+
+    def _scan(self, repo_root_posix: str | None = None) -> cmt.AgentTypeScan:
+        return cmt.scan_by_agent_type(
+            self.transcripts, self.CWD if repo_root_posix is None else repo_root_posix
+        )
+
+    def _rows(self, scan: cmt.AgentTypeScan) -> dict[str, cmt.AgentTypeRow]:
+        return {row.agent_type: row for row in scan.rows}
+
+    def _read(self, path: str) -> dict:
+        return _record("s1", self.CWD, [_tool_use("Read", {"file_path": path})])
+
+    # ── aggregation ────────────────────────────────────────────────────────
+
+    def test_invocations_aggregate_per_agent_type(self):
+        for i in range(3):
+            _write_subagent(
+                self.transcripts, "s1", f"explorer{i}", [self._read(self.MEM)],
+                agent_type="explorer",
+            )
+        for i in range(2):
+            _write_subagent(
+                self.transcripts, "s1", f"author{i}", [self._read("src/x.py")],
+                agent_type="test-author",
+            )
+        _write_subagent(
+            self.transcripts, "s2", "rev0", [self._read(self.BRIEF)],
+            agent_type="reviewer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 6)
+        self.assertEqual(scan.invocations, 6)
+        rows = self._rows(scan)
+        self.assertEqual(
+            {k: v.invocations for k, v in rows.items()},
+            {"explorer": 3, "test-author": 2, "reviewer": 1},
+        )
+        self.assertTrue(all(row.resolved for row in scan.rows))
+
+    def test_rows_sort_by_invocations_descending_then_label(self):
+        """`check_directory_size`'s convention, so two tables sort one way."""
+        for i in range(2):
+            _write_subagent(
+                self.transcripts, "s1", f"b{i}", [self._read("x.py")], agent_type="bbb"
+            )
+        _write_subagent(
+            self.transcripts, "s1", "z", [self._read("x.py")], agent_type="zzz"
+        )
+        _write_subagent(
+            self.transcripts, "s1", "a", [self._read("x.py")], agent_type="aaa"
+        )
+        self.assertEqual(
+            [row.agent_type for row in self._scan().rows], ["bbb", "aaa", "zzz"]
+        )
+
+    # ── the residue buckets ────────────────────────────────────────────────
+
+    def test_a_missing_sidecar_lands_in_unknown_and_is_not_dropped(self):
+        _write_subagent(self.transcripts, "s1", "nometa", [self._read(self.MEM)])
+        _write_subagent(
+            self.transcripts, "s1", "typed", [self._read(self.MEM)],
+            agent_type="explorer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 2)
+        self.assertEqual(scan.invocations, 2, "the untyped invocation still happened")
+        rows = self._rows(scan)
+        self.assertEqual(rows[cmt.AGENT_TYPE_UNKNOWN].invocations, 1)
+        self.assertEqual(rows[cmt.AGENT_TYPE_UNKNOWN].memory_hits, 1)
+        self.assertFalse(rows[cmt.AGENT_TYPE_UNKNOWN].resolved)
+        self.assertTrue(rows["explorer"].resolved)
+
+    def test_a_malformed_sidecar_lands_in_unknown(self):
+        _write_subagent(
+            self.transcripts, "s1", "nokey", [self._read("x.py")], meta={"other": 1}
+        )
+        _write_subagent(
+            self.transcripts, "s1", "notdict", [self._read("x.py")], meta=["a", "b"]
+        )
+        bad = self.transcripts / "s1" / "subagents" / "agent-broken.meta.json"
+        _write_subagent(self.transcripts, "s1", "broken", [self._read("x.py")])
+        bad.write_text("{not json", encoding="utf-8", newline="")
+        scan = self._scan()
+        self.assertEqual(self._rows(scan)[cmt.AGENT_TYPE_UNKNOWN].invocations, 3)
+
+    def test_an_unprintable_agent_type_is_bucketed_not_echoed(self):
+        _write_subagent(
+            self.transcripts, "s1", "spaced", [self._read(self.MEM)],
+            agent_type="two words",
+        )
+        _write_subagent(
+            self.transcripts, "s1", "mcp", [self._read("x.py")],
+            agent_type="mcp__acme_internal__agent",
+        )
+        scan = self._scan()
+        rows = self._rows(scan)
+        self.assertNotIn(cmt.AGENT_TYPE_UNKNOWN, rows, "present-but-bad is not missing")
+        row = rows[cmt.AGENT_TYPE_UNPRINTABLE]
+        self.assertEqual(row.invocations, 2)
+        self.assertEqual(row.memory_hits, 1, "the signal survives the redaction")
+        self.assertFalse(row.resolved)
+        rendered = "\n".join(cmt.render_agent_type_table(scan))
+        self.assertNotIn("two words", rendered)
+        self.assertNotIn("mcp__", rendered)
+        self.assertNotIn("acme_internal", rendered)
+
+    # ── the hit counters ───────────────────────────────────────────────────
+
+    def test_a_memory_read_is_a_hit(self):
+        _write_subagent(
+            self.transcripts, "s1", "a", [self._read(self.MEM)], agent_type="explorer"
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual(row.memory_hits, 1)
+        self.assertEqual(row.discovery_hits, 0)
+        self.assertEqual(row.memory_hit_rate, 100)
+
+    def test_reading_the_same_note_twice_is_still_one_hit(self):
+        """Counting reads would make the rate a measure of verbosity."""
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "a",
+            [self._read(self.MEM), self._read(self.MEM), self._read(self.MEM)],
+            agent_type="explorer",
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual(row.invocations, 1)
+        self.assertEqual(row.memory_hits, 1)
+        self.assertEqual(row.memory_hit_rate, 100)
+
+    def test_reading_two_different_notes_is_still_one_hit(self):
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "a",
+            [
+                self._read("C:/p/brain/memory/repo/x/one.md"),
+                self._read("C:/p/brain/memory/feedback/two.md"),
+            ],
+            agent_type="explorer",
+        )
+        self.assertEqual(self._rows(self._scan())["explorer"].memory_hits, 1)
+
+    def test_a_discovery_brief_read_is_a_separate_hit(self):
+        _write_subagent(
+            self.transcripts, "s1", "a", [self._read(self.BRIEF)], agent_type="author"
+        )
+        row = self._rows(self._scan())["author"]
+        self.assertEqual(row.discovery_hits, 1)
+        self.assertEqual(row.memory_hits, 0, "a brief is not a note")
+        self.assertEqual(row.discovery_hit_rate, 100)
+
+    def test_one_invocation_can_register_both_hits_independently(self):
+        """Two columns, never one: the counters are neither merged nor
+        mutually exclusive."""
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "both",
+            [self._read(self.MEM), self._read(self.BRIEF)],
+            agent_type="explorer",
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual(row.invocations, 1)
+        self.assertEqual(row.memory_hits, 1)
+        self.assertEqual(row.discovery_hits, 1)
+        self.assertEqual(row.memory_hit_rate, 100)
+        self.assertEqual(row.discovery_hit_rate, 100)
+
+    def test_both_hits_in_one_block_list_are_registered(self):
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "both",
+            [
+                _record(
+                    "s1",
+                    self.CWD,
+                    [
+                        _tool_use("Read", {"file_path": self.MEM}),
+                        _tool_use("Read", {"file_path": self.BRIEF}),
+                    ],
+                )
+            ],
+            agent_type="explorer",
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual((row.memory_hits, row.discovery_hits), (1, 1))
+
+    def test_an_invocation_with_neither_read_counts_in_the_denominator(self):
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "quiet",
+            [self._read("src/app.py"), _record("s1", self.CWD, [_tool_use("Bash", {"command": "pytest"})])],
+            agent_type="explorer",
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual(row.invocations, 1)
+        self.assertEqual(row.memory_hits, 0)
+        self.assertEqual(row.discovery_hits, 0)
+        self.assertEqual(row.memory_hit_rate, 0)
+
+    def test_only_a_read_counts_not_a_search(self):
+        """A `Grep` of `memory/` is T4's subject, not this one's."""
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "searcher",
+            [
+                _record("s1", self.CWD, [_tool_use("Grep", {"path": "memory"})]),
+                _record("s1", self.CWD, [_tool_use("Glob", {"pattern": "memory/**/*.md"})]),
+                _record(
+                    "s1", self.CWD, [_tool_use("Bash", {"command": "rg x memory/"})]
+                ),
+            ],
+            agent_type="explorer",
+        )
+        row = self._rows(self._scan())["explorer"]
+        self.assertEqual(row.invocations, 1)
+        self.assertEqual(row.memory_hits, 0)
+        self.assertEqual(row.discovery_hits, 0)
+
+    # ── scoping ────────────────────────────────────────────────────────────
+
+    def test_a_foreign_cwd_is_out_of_scope_and_not_a_row(self):
+        _write_subagent(
+            self.transcripts,
+            "s9",
+            "foreign",
+            [
+                _record(
+                    "s9", "C:/p/unrelated", [_tool_use("Read", {"file_path": self.MEM})]
+                )
+            ],
+            agent_type="explorer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 1)
+        self.assertEqual(scan.out_of_scope, 1)
+        self.assertEqual(scan.unscopable, 0)
+        self.assertEqual(scan.rows, ())
+        self.assertEqual(scan.invocations, 0)
+
+    def test_any_repo_includes_everything(self):
+        _write_subagent(
+            self.transcripts,
+            "s9",
+            "foreign",
+            [
+                _record(
+                    "s9", "C:/p/unrelated", [_tool_use("Read", {"file_path": self.MEM})]
+                )
+            ],
+            agent_type="explorer",
+        )
+        scan = self._scan(repo_root_posix="")
+        self.assertEqual(scan.out_of_scope, 0)
+        self.assertEqual(scan.invocations, 1)
+        self.assertEqual(self._rows(scan)["explorer"].memory_hits, 1)
+
+    def test_a_worktree_cwd_attributes_to_the_repository(self):
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "wt",
+            [
+                _record(
+                    "s1",
+                    f"{self.CWD}/.claude/worktrees/feature-x",
+                    [_tool_use("Read", {"file_path": self.MEM})],
+                )
+            ],
+            agent_type="explorer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.out_of_scope, 0)
+        self.assertEqual(self._rows(scan)["explorer"].invocations, 1)
+
+    def test_a_file_with_no_cwd_is_unscopable_not_out_of_scope(self):
+        """A counted, reported omission beats attributing another repo's agents."""
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "nocwd",
+            [_no_cwd_record([_tool_use("Read", {"file_path": self.MEM})])],
+            agent_type="explorer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 1)
+        self.assertEqual(scan.unscopable, 1)
+        self.assertEqual(scan.out_of_scope, 0, "no cwd is a different fact")
+        self.assertEqual(scan.rows, ())
+        self.assertEqual(scan.invocations, 0)
+
+    def test_the_three_exclusion_counters_are_reported_separately(self):
+        _write_subagent(
+            self.transcripts, "s1", "ok", [self._read(self.MEM)], agent_type="explorer"
+        )
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "foreign",
+            [_record("s1", "C:/p/unrelated", [_tool_use("Read", {"file_path": self.MEM})])],
+            agent_type="explorer",
+        )
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "nocwd",
+            [_no_cwd_record([_tool_use("Read", {"file_path": self.MEM})])],
+            agent_type="explorer",
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 3)
+        self.assertEqual(scan.invocations, 1)
+        self.assertEqual(scan.out_of_scope, 1)
+        self.assertEqual(scan.unscopable, 1)
+        self.assertEqual(scan.unreadable, 0)
+        table = "\n".join(cmt.render_agent_type_table(scan))
+        self.assertIn("3 subagent transcript(s)", table)
+        self.assertIn("1 out of scope", table)
+        self.assertIn("1 with no cwd", table)
+
+    # ── which files are read at all ────────────────────────────────────────
+
+    def test_a_top_level_transcript_is_never_scanned(self):
+        """A main-thread session has no agent type; including it under a
+        synthesised label would put the main thread in a delegation table."""
+        _write_transcript(
+            self.transcripts / "s1.jsonl", [self._read(self.MEM)]
+        )
+        _write_transcript(
+            self.transcripts / "s1" / "s1.jsonl", [self._read(self.MEM)]
+        )
+        _write_transcript(
+            self.transcripts / "s1" / "agent-loose.jsonl", [self._read(self.MEM)]
+        )
+        _write_subagent(
+            self.transcripts, "s1", "real", [self._read(self.MEM)], agent_type="explorer"
+        )
+        scan = self._scan()
+        self.assertEqual(scan.files, 1, "only the subagents/agent-*.jsonl file")
+        self.assertEqual(scan.invocations, 1)
+        self.assertEqual(self._rows(scan)["explorer"].invocations, 1)
+
+    def test_a_sidecar_is_not_itself_counted_as_a_transcript(self):
+        _write_subagent(
+            self.transcripts, "s1", "a", [self._read(self.MEM)], agent_type="explorer"
+        )
+        self.assertEqual(self._scan().files, 1)
+
+    def test_malformed_lines_do_not_derail_the_scan(self):
+        path = self.transcripts / "s1" / "subagents" / "agent-a.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            handle.write("not json at all\n")
+            handle.write('["a list, not an object, mentioning memory and tool_use"]\n')
+            handle.write("\n")
+            handle.write(json.dumps(self._read(self.MEM)) + "\n")
+        path.with_name("agent-a.meta.json").write_text(
+            json.dumps({"agentType": "explorer"}), encoding="utf-8", newline=""
+        )
+        scan = self._scan()
+        self.assertEqual(scan.invocations, 1)
+        self.assertEqual(self._rows(scan)["explorer"].memory_hits, 1)
+
+    def test_a_missing_transcript_dir_is_not_scanned_rather_than_zero(self):
+        scan = cmt.scan_by_agent_type(self.transcripts / "gone", self.CWD)
+        self.assertFalse(scan.scanned)
+        self.assertEqual(scan.reason, "no-transcripts")
+        self.assertEqual(scan.rows, ())
+        self.assertIn(
+            "not scanned — reason: no-transcripts",
+            "\n".join(cmt.render_agent_type_table(scan)),
+        )
+
+    def test_an_empty_corpus_renders_as_an_empty_table_not_a_suppressed_one(self):
+        scan = self._scan()
+        self.assertTrue(scan.scanned)
+        self.assertEqual(scan.files, 0)
+        table = "\n".join(cmt.render_agent_type_table(scan))
+        self.assertIn("by agent type", table)
+        self.assertIn("(no subagent invocation in scope)", table)
+
+
+class AgentTypeCliTest(_Harness):
+    """The flag's CLI surface — and, above all, its absence."""
+
+    HEADER = "by agent type"
+    MEM = "memory/repo/x/note.md"
+    BRIEF = ".sisyphus/discovery/task.md"
+
+    def _seed(self) -> None:
+        _seed_notes(self.memory, "repo/x", 3)
+        cwd = self.repo_cwd
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "a",
+            [
+                _record("s1", cwd, [_tool_use("Read", {"file_path": self.MEM})]),
+                _record("s1", cwd, [_tool_use("Read", {"file_path": self.BRIEF})]),
+            ],
+            agent_type="explorer",
+        )
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "b",
+            [_record("s1", cwd, [_tool_use("Read", {"file_path": "src/app.py"})])],
+            agent_type="test-author",
+        )
+
+    def test_without_the_flag_the_human_report_gains_no_line(self):
+        self._seed()
+        rc, out = self.run_cli("--transcripts", str(self.transcripts))
+        self.assertEqual(rc, cmt.EXIT_PASS, out)
+        self.assertNotIn(self.HEADER, out)
+        self.assertNotIn("by_agent_type", out)
+        self.assertNotIn("agent type", out)
+        self.assertNotIn("explorer", out)
+        self.assertNotIn("subagent transcript(s)", out)
+        self.assertTrue(out.rstrip().endswith("not clean bills."), out)
+
+    def test_without_the_flag_the_json_payload_gains_no_key(self):
+        self._seed()
+        rc, out = self.run_cli("--transcripts", str(self.transcripts), "--json")
+        self.assertEqual(rc, cmt.EXIT_PASS, out)
+        self.assertNotIn("by_agent_type", out)
+        payload = json.loads(out)
+        self.assertNotIn("by_agent_type", payload)
+        self.assertEqual(
+            set(payload),
+            {
+                "memory_root",
+                "unrouted_record",
+                "transcripts",
+                "corpus_notes",
+                "directory_notes",
+                "limits",
+                "scan",
+                "triggers",
+                "exit",
+            },
+        )
+
+    def test_skip_transcripts_leaves_the_payload_untouched_too(self):
+        self._seed()
+        _, out = self.run_cli("--skip-transcripts", "--json")
+        self.assertNotIn("by_agent_type", json.loads(out))
+
+    def test_the_flag_adds_the_table_below_the_triggers(self):
+        self._seed()
+        rc, out = self.run_cli(
+            "--transcripts", str(self.transcripts), "--by-agent-type"
+        )
+        self.assertEqual(rc, cmt.EXIT_PASS, out)
+        self.assertIn(self.HEADER, out)
+        self.assertIn("explorer", out)
+        self.assertIn("test-author", out)
+        self.assertLess(
+            out.index("not clean bills"),
+            out.index(self.HEADER),
+            "the table must sit below the four triggers, not among them",
+        )
+
+    def test_the_flag_adds_the_json_key(self):
+        self._seed()
+        _, out = self.run_cli(
+            "--transcripts", str(self.transcripts), "--by-agent-type", "--json"
+        )
+        block = json.loads(out)["by_agent_type"]
+        self.assertTrue(block["scanned"])
+        self.assertEqual(block["files"], 2)
+        self.assertEqual(block["invocations"], 2)
+        self.assertEqual(block["out_of_scope"], 0)
+        self.assertEqual(block["unscopable"], 0)
+        self.assertFalse(block["calibrated"])
+        by_type = {r["agent_type"]: r for r in block["agent_types"]}
+        self.assertEqual(by_type["explorer"]["memory_hits"], 1)
+        self.assertEqual(by_type["explorer"]["discovery_hits"], 1)
+        self.assertEqual(by_type["explorer"]["memory_hit_rate"], 100)
+        self.assertEqual(by_type["test-author"]["memory_hits"], 0)
+        self.assertEqual(by_type["test-author"]["discovery_hit_rate"], 0)
+        self.assertTrue(all(r["resolved"] for r in block["agent_types"]))
+
+    def test_the_flag_cannot_change_the_exit_code(self):
+        """Uncalibrated, like T4: nothing here fires."""
+        self._seed()
+        for extra in ((), ("--json",)):
+            rc_without, _ = self.run_cli("--transcripts", str(self.transcripts), *extra)
+            rc_with, out = self.run_cli(
+                "--transcripts", str(self.transcripts), "--by-agent-type", *extra
+            )
+            self.assertEqual(rc_without, rc_with)
+            self.assertEqual(rc_with, cmt.EXIT_PASS, out)
+
+    def test_the_flag_changes_nothing_but_adds(self):
+        """Byte-for-byte: the report without the flag is a prefix of the one
+        with it. A regression that reworded an existing line would pass a
+        mere `assertNotIn` and fail here."""
+        self._seed()
+        _, plain = self.run_cli("--transcripts", str(self.transcripts))
+        _, flagged = self.run_cli(
+            "--transcripts", str(self.transcripts), "--by-agent-type"
+        )
+        self.assertTrue(flagged.startswith(plain), flagged)
+
+    def test_the_json_payload_is_otherwise_identical(self):
+        self._seed()
+        _, plain = self.run_cli("--transcripts", str(self.transcripts), "--json")
+        _, flagged = self.run_cli(
+            "--transcripts", str(self.transcripts), "--by-agent-type", "--json"
+        )
+        a, b = json.loads(plain), json.loads(flagged)
+        self.assertEqual(b.pop("by_agent_type")["invocations"], 2)
+        self.assertEqual(a, b)
+
+    def test_the_table_leaks_no_mcp_agent_type(self):
+        _seed_notes(self.memory, "repo/x", 1)
+        cwd = self.repo_cwd
+        _write_subagent(
+            self.transcripts,
+            "s1",
+            "leaky",
+            [_record("s1", cwd, [_tool_use("Read", {"file_path": self.MEM})])],
+            agent_type="mcp__acme_internal_crm__agent",
+        )
+        for extra in ((), ("--json",)):
+            _, out = self.run_cli(
+                "--transcripts", str(self.transcripts), "--by-agent-type", *extra
+            )
+            self.assertNotIn("mcp__", out)
+            self.assertNotIn("acme_internal", out.lower())
+            self.assertIn(cmt.AGENT_TYPE_UNPRINTABLE, out)
+
+    def test_the_flagged_run_still_writes_nothing(self):
+        self._seed()
+        watched = list(self.memory.rglob("*")) + list(self.transcripts.rglob("*"))
+        before = {p: p.stat().st_mtime_ns for p in watched}
+        self.run_cli("--transcripts", str(self.transcripts), "--by-agent-type")
+        after = {p: p.stat().st_mtime_ns for p in watched}
+        self.assertEqual(before, after)
+
+    def test_any_repo_widens_the_agent_type_scope_too(self):
+        _seed_notes(self.memory, "repo/x", 1)
+        _write_subagent(
+            self.transcripts,
+            "s9",
+            "foreign",
+            [
+                _record(
+                    "s9", "C:/p/unrelated", [_tool_use("Read", {"file_path": self.MEM})]
+                )
+            ],
+            agent_type="explorer",
+        )
+        _, scoped = self.run_cli(
+            "--transcripts", str(self.transcripts), "--by-agent-type", "--json"
+        )
+        self.assertEqual(json.loads(scoped)["by_agent_type"]["invocations"], 0)
+        self.assertEqual(json.loads(scoped)["by_agent_type"]["out_of_scope"], 1)
+        _, wide = self.run_cli(
+            "--transcripts",
+            str(self.transcripts),
+            "--by-agent-type",
+            "--any-repo",
+            "--json",
+        )
+        self.assertEqual(json.loads(wide)["by_agent_type"]["invocations"], 1)
 
 
 if __name__ == "__main__":

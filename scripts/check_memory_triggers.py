@@ -143,6 +143,36 @@ number nobody picked is worse than one that reports honestly. Its verdict is
 always `unknown (uncalibrated)` and it can never affect the exit code. ADR 0004
 applies exactly this discipline to its own `unknown` state.
 
+## Beyond the four triggers — `--by-agent-type` (#243)
+
+An opt-in fifth report, and deliberately *not* a fifth trigger. It asks a
+question ADR 0002 never asked: of the fleet's agent types, which ones actually
+**read** what they were pointed at — a note under `memory/`, or a brief under
+`.sisyphus/discovery/` — rather than merely being invoked.
+
+Three things make it a separate pass rather than an extension of T4:
+
+  * *Unit.* T4 counts **sessions**, because routing failure is a property of a
+    conversation. This counts **subagent invocations**, one per
+    `subagents/agent-*.jsonl` file, because delegation is what is being
+    measured. The two cannot share a grouping key: a subagent transcript carries
+    its parent's `sessionId`, so T4's key cannot name an agent type at all.
+  * *Event.* T4 counts **searches** and treats a read as evidence of nothing.
+    Here a `Read` is the entire signal, and a search is irrelevant — "did the
+    agent open the thing" is a different question from "did the index fail".
+  * *Identity.* The agent type lives outside the transcript, in the sibling
+    `agent-<id>.meta.json`. A missing or malformed sidecar is routine, so it
+    degrades to a labelled residue bucket; `unknown` is never folded into a
+    measured type's row.
+
+Memory reads and discovery-brief reads stay two columns, never one. One
+invocation can be both, and an agent that reads only its brief is behaving
+differently from one that consults the corpus — the same reason T4 keeps its
+structured and shell tiers apart.
+
+Like T4 it is **uncalibrated**: no threshold exists, so it fires nothing and
+cannot affect the exit code.
+
 ## Privacy — the hard constraint
 
 This repository is public. Transcripts contain arbitrary user content, absolute
@@ -188,6 +218,7 @@ Usage:
     python scripts/check_memory_triggers.py --memory-root C:/path/to/brain/memory
     python scripts/check_memory_triggers.py --skip-transcripts
     python scripts/check_memory_triggers.py --json
+    python scripts/check_memory_triggers.py --by-agent-type
 """
 
 from __future__ import annotations
@@ -385,6 +416,30 @@ def is_memory_path(value: object) -> bool:
     if not isinstance(value, str) or not value:
         return False
     return any(seg == "memory" for seg in re.split(r"[/\\]", value))
+
+
+def is_discovery_brief_path(value: object) -> bool:
+    """True when ``value`` is a path to a discovery brief — `.sisyphus/discovery/…`.
+
+    Segment-exact, and adjacency-exact, for the same reason `is_memory_path` is
+    segment-exact rather than a substring test: `".sisyphus/discovery" in value`
+    would also accept `.sisyphus-backup/discovery-notes/foo.md`, which is a
+    different directory that merely starts with the same letters. A count built
+    on that test reports brief reads that never happened, and the inflation is
+    invisible — it shows up as a healthier number, not as an error.
+
+    Adjacency is required (a `.sisyphus` segment *immediately* followed by a
+    `discovery` segment) because `.sisyphus/plans/discovery/` is a plan, not a
+    brief, and the distinction is the whole point of counting briefs separately
+    from everything else the directory holds.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    segments = re.split(r"[/\\]", value)
+    return any(
+        left == ".sisyphus" and right == "discovery"
+        for left, right in zip(segments, segments[1:])
+    )
 
 
 def neutralise_quoted_separators(cmd: str) -> str:
@@ -784,6 +839,326 @@ def _summarise_scan(
     )
 
 
+# ── the per-agent-type scan (#243) ─────────────────────────────────────────
+#
+# Separate from T4 on purpose, and not folded into `Scan`. T4's unit is a
+# **session**, because routing failure is a property of a conversation; this
+# feature's unit is a **subagent invocation**, because the question is whether a
+# given agent type reads what it was handed. A subagent transcript carries its
+# PARENT's `sessionId` (see the module docstring), so T4's grouping key cannot
+# express an agent type at all, and T4's `reads_index` flag is narrower than
+# what is wanted here — it fires only on a `MEMORY.md` reference, never on a
+# `Read` of an ordinary note. Reusing either would have produced a number that
+# answers a different question under this one's name.
+
+AGENT_TYPE_UNKNOWN = "unknown"
+AGENT_TYPE_UNPRINTABLE = "unprintable-agent-type"
+
+# The shape an agent type name is allowed to have before it may be printed.
+#
+# Unlike tool names, an allowlist is impossible here: the fleet's roster is
+# operator-defined (`.claude/agents/`), so the set of legitimate values is not
+# knowable to this script and a fixed list would bucket every real answer away.
+# A shape constraint is the available substitute — a conservative slug, bounded
+# in length — and it is what keeps arbitrary text out of a public repository's
+# output if a `.meta.json` ever carried something other than a type name.
+# Anything failing it is counted under `AGENT_TYPE_UNPRINTABLE`, never dropped
+# and never echoed.
+_AGENT_TYPE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\-]{0,63}")
+
+# Files this scan reads: a subagent transcript, which is the only transcript
+# shape that has an agent type. A top-level session file has none, and including
+# it under a synthesised label would put the main thread into a table about
+# delegation.
+AGENT_FILE_GLOB = "subagents/agent-*.jsonl"
+
+
+def agent_type_label(value: object) -> str:
+    """A printable label for a `.meta.json` ``agentType``. See `_AGENT_TYPE_RE`.
+
+    The agent-type counterpart of `tool_label`, and the only function that turns
+    a sidecar-derived string into output, so the privacy property is enforced in
+    one place and is testable on its own.
+
+    Missing and malformed are kept apart: `AGENT_TYPE_UNKNOWN` means no usable
+    `agentType` was present, `AGENT_TYPE_UNPRINTABLE` means one was present and
+    could not be shown. Collapsing them would hide a harness change (sidecars
+    stopped carrying the key) behind what looks like a privacy redaction.
+    """
+    if not isinstance(value, str) or not value:
+        return AGENT_TYPE_UNKNOWN
+    if not _AGENT_TYPE_RE.fullmatch(value):
+        return AGENT_TYPE_UNPRINTABLE
+    if value.startswith("mcp__"):
+        # Not a legitimate agent type, and the one namespace already known to
+        # have leaked out of this corpus (#70). It passes the shape test, so the
+        # shape test alone would print it; bucketing costs nothing because no
+        # real agent type is named this way.
+        return AGENT_TYPE_UNPRINTABLE
+    return value
+
+
+@dataclass
+class _AgentTypeState:
+    """Per-agent-type accumulators. Internal to the agent-type scan."""
+
+    invocations: int = 0
+    memory_hits: int = 0
+    discovery_hits: int = 0
+
+
+@dataclass(frozen=True)
+class AgentTypeRow:
+    """One agent type's row in the breakdown. Counts and a vetted label only.
+
+    `resolved` is False for the `unknown` and `unprintable-agent-type` buckets,
+    so a reader — and a JSON consumer — can tell a measured agent type from a
+    residue bucket without string-matching the label. ADR 0004's discipline: a
+    count derived from missing evidence must not be presentable as a complete
+    one.
+    """
+
+    agent_type: str
+    invocations: int
+    memory_hits: int
+    discovery_hits: int
+    resolved: bool
+
+    @property
+    def memory_hit_rate(self) -> int:
+        """Percent of this type's invocations that read a note under `memory/`."""
+        return self.memory_hits * 100 // self.invocations if self.invocations else 0
+
+    @property
+    def discovery_hit_rate(self) -> int:
+        """Percent that read a `.sisyphus/discovery/` brief. Separate from the
+        memory rate by construction — an agent handed a brief and an agent that
+        consulted the corpus are different behaviours, and one invocation can be
+        both."""
+        return self.discovery_hits * 100 // self.invocations if self.invocations else 0
+
+
+@dataclass(frozen=True)
+class AgentTypeScan:
+    """What the subagent transcripts say about per-type memory use. Counts only.
+
+    `rows` is ordered for printing: invocations descending, label ascending on a
+    tie — `check_directory_size`'s convention, so two tables in one report do not
+    sort by two different rules.
+
+    The three exclusion counters are reported rather than absorbed. A file
+    skipped for scope and a file skipped because its head never yielded a `cwd`
+    are different facts, and a breakdown whose denominator silently shed a third
+    of the corpus is the kind of number this script exists not to print.
+    """
+
+    rows: tuple[AgentTypeRow, ...] = ()
+    files: int = 0
+    unreadable: int = 0
+    out_of_scope: int = 0
+    unscopable: int = 0
+    scanned: bool = True
+    reason: str | None = None
+
+    @property
+    def invocations(self) -> int:
+        return sum(row.invocations for row in self.rows)
+
+
+def _resolve_agent_type(transcript: Path) -> str:
+    """The agent type for one subagent transcript, from its `.meta.json` sidecar.
+
+    `agent-<id>.jsonl` → `agent-<id>.meta.json`, key `"agentType"`. The type is
+    not in the transcript itself, which is why this reads a second file at all.
+
+    Never raises, and every failure mode lands in a counted bucket rather than
+    dropping the invocation: a missing sidecar is routine (6 of 15 files in one
+    sampled batch on this machine), and an invocation whose type is unknown still
+    happened. Dropping it would shrink the denominator by exactly the population
+    whose behaviour is least understood.
+    """
+    meta = transcript.with_name(transcript.stem + ".meta.json")
+    try:
+        payload = json.loads(meta.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return AGENT_TYPE_UNKNOWN
+    if not isinstance(payload, dict):
+        return AGENT_TYPE_UNKNOWN
+    return agent_type_label(payload.get("agentType"))
+
+
+def _scan_agent_file(path: Path, repo_root_posix: str) -> tuple[str, bool, bool]:
+    """``(status, read a memory note, read a discovery brief)`` for one file.
+
+    Status is ``"in-scope"``, ``"out-of-scope"``, ``"no-cwd"`` or
+    ``"unreadable"``.
+
+    Scoping is per file, not against a cross-file `in_scope` set as
+    `scan_transcripts` builds: a subagent file's own `cwd` records identify its
+    repository on their own, and the union trick T4 needs exists only because T4
+    must not let its denominator fall below its numerator. Here each file *is*
+    one invocation, so there is nothing to reconcile across files.
+
+    A head scan that never yields a `cwd` reports ``"no-cwd"`` rather than being
+    assumed in scope. Assuming would attribute another repository's agents to
+    this one, which is a wrong row in the table; excluding it costs a counted,
+    reported omission, which is a visible gap. The visible gap is the right
+    trade for a table whose entire purpose is comparing types against each other.
+
+    Both hit flags are at-most-once per file. An agent that reads eight notes
+    read memory, the same as one that read one; counting reads would turn the
+    rate into a measure of verbosity.
+    """
+    status = "in-scope" if not repo_root_posix else "no-cwd"
+    memory_hit = discovery_hit = False
+    try:
+        with open(path, "rb") as handle:
+            head = 0
+            for raw in handle:
+                if status == "no-cwd" and head < HEAD_SCAN_RECORDS:
+                    head += 1
+                    resolved = _file_scope(raw, repo_root_posix)
+                    if resolved is not None:
+                        status = "in-scope" if resolved else "out-of-scope"
+                if status == "out-of-scope":
+                    # Another repository's invocation; its hits are never read,
+                    # so there is nothing left in this file worth parsing.
+                    break
+                if memory_hit and discovery_hit and status != "no-cwd":
+                    break
+                # Same prefilter discipline as `scan_transcripts`, widened by the
+                # one token the discovery paths need. Both hits can only arrive
+                # on a `Read` block, so a line without a `tool_use` and without
+                # either directory's distinctive bytes cannot contribute.
+                if b'"tool_use"' not in raw:
+                    continue
+                if b"emory" not in raw and b"sisyphus" not in raw:
+                    continue
+                try:
+                    record = json.loads(raw.decode("utf-8", "replace"))
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                saw_memory, saw_discovery = _record_read_targets(record)
+                memory_hit = memory_hit or saw_memory
+                discovery_hit = discovery_hit or saw_discovery
+    except OSError:
+        return "unreadable", False, False
+    return status, memory_hit, discovery_hit
+
+
+def _file_scope(raw: bytes, repo_root_posix: str) -> bool | None:
+    """Whether this line places its file in the scoped repo. None = no evidence.
+
+    The per-file analogue of `_register_session`, and it answers the narrower
+    question: this scan needs no `sessionId` (a subagent file's id is its
+    parent's and would group the wrong things), only a `cwd`. So a record with a
+    usable `cwd` is decisive here even when `_register_session` would have
+    rejected it for lacking an id.
+    """
+    try:
+        record = json.loads(raw.decode("utf-8", "replace"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    cwd = record.get("cwd")
+    if not _trail_scope.posix_path(cwd):
+        return None
+    return cwd_in_repo(cwd, repo_root_posix)
+
+
+def _record_read_targets(record: dict) -> tuple[bool, bool]:
+    """``(read a memory note, read a discovery brief)`` for one record.
+
+    Only `Read` counts, and only its `file_path`. A `Grep` of `memory/` is T4's
+    subject, not this one — the question here is whether the agent *consulted*
+    what it was given, and a search is the behaviour T4 already reports under a
+    definition argued at length. Reusing `classify_block` would have imported
+    that definition wholesale.
+    """
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return False, False
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False, False
+    memory_hit = discovery_hit = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        if block.get("name") != "Read":
+            continue
+        inp = block.get("input")
+        if not isinstance(inp, dict):
+            continue
+        file_path = inp.get("file_path")
+        memory_hit = memory_hit or is_memory_path(file_path)
+        discovery_hit = discovery_hit or is_discovery_brief_path(file_path)
+    return memory_hit, discovery_hit
+
+
+def scan_by_agent_type(transcript_dir: Path, repo_root_posix: str) -> AgentTypeScan:
+    """Per-agent-type memory and discovery-brief read rates. Never raises.
+
+    Reads only `subagents/agent-*.jsonl`, one invocation per file, grouped by the
+    `agentType` in each file's sidecar. Strictly additive to this script: it
+    shares `is_memory_path` and `cwd_in_repo` with T4 and contributes nothing
+    back to any trigger's verdict or to the exit code, because it measures a
+    behaviour ADR 0002 never named a threshold for and this script does not
+    invent thresholds (see T4's `can_fire=False`).
+
+    Cost is a second pass, so it runs only when `--by-agent-type` asks for it.
+    It is the cheaper pass of the two: on this machine subagent files are ~90% of
+    the corpus by count but each is scanned for one `Read` of two directories
+    under the same byte prefilter T4 uses, and each file stops early once both
+    flags are set and its scope is known.
+    """
+    if not transcript_dir.is_dir():
+        return AgentTypeScan(scanned=False, reason="no-transcripts")
+
+    per_type: dict[str, _AgentTypeState] = {}
+    files = unreadable = out_of_scope = unscopable = 0
+
+    for path in sorted(transcript_dir.rglob(AGENT_FILE_GLOB)):
+        files += 1
+        status, memory_hit, discovery_hit = _scan_agent_file(path, repo_root_posix)
+        if status == "unreadable":
+            unreadable += 1
+            continue
+        if status == "out-of-scope":
+            out_of_scope += 1
+            continue
+        if status == "no-cwd":
+            unscopable += 1
+            continue
+        state = per_type.setdefault(_resolve_agent_type(path), _AgentTypeState())
+        state.invocations += 1
+        state.memory_hits += int(memory_hit)
+        state.discovery_hits += int(discovery_hit)
+
+    rows = tuple(
+        AgentTypeRow(
+            agent_type=label,
+            invocations=state.invocations,
+            memory_hits=state.memory_hits,
+            discovery_hits=state.discovery_hits,
+            resolved=label not in (AGENT_TYPE_UNKNOWN, AGENT_TYPE_UNPRINTABLE),
+        )
+        for label, state in sorted(
+            per_type.items(), key=lambda kv: (-kv[1].invocations, kv[0])
+        )
+    )
+    return AgentTypeScan(
+        rows=rows,
+        files=files,
+        unreadable=unreadable,
+        out_of_scope=out_of_scope,
+        unscopable=unscopable,
+    )
+
+
 # ── the four checks ────────────────────────────────────────────────────────
 
 
@@ -986,6 +1361,52 @@ def render_report(
     return lines
 
 
+def render_agent_type_table(scan: AgentTypeScan) -> list[str]:
+    """Build the `--by-agent-type` table as lines. The caller prints them.
+
+    Appended below the four triggers rather than woven into them: it is not a
+    trigger, has no verdict, and must not read as one. A zero-row table is
+    printed as a zero-row table — an empty corpus is an honest result and
+    suppressing the section would make "nothing measured" indistinguishable from
+    "the flag did nothing".
+    """
+    lines = ["", "by agent type — memory and discovery-brief reads per invocation"]
+    if not scan.scanned:
+        lines.append(f"  not scanned — reason: {scan.reason}")
+        return lines
+    header = (
+        f"  {'agent type':<26} {'invs':>6} {'mem':>6} {'mem%':>6} "
+        f"{'disc':>6} {'disc%':>6}"
+    )
+    lines.append(header)
+    lines.append("  " + "-" * (len(header) - 2))
+    for row in scan.rows:
+        label = row.agent_type if row.resolved else f"{row.agent_type} (!)"
+        lines.append(
+            f"  {label:<26} {row.invocations:>6} {row.memory_hits:>6} "
+            f"{row.memory_hit_rate:>5}% {row.discovery_hits:>6} "
+            f"{row.discovery_hit_rate:>5}%"
+        )
+    if not scan.rows:
+        lines.append("  (no subagent invocation in scope)")
+    lines.append(
+        f"  files:   {scan.files} subagent transcript(s); "
+        f"{scan.out_of_scope} out of scope, {scan.unscopable} with no cwd "
+        f"(excluded, not zero), {scan.unreadable} unreadable"
+    )
+    if any(not row.resolved for row in scan.rows):
+        lines.append(
+            "  (!) marks a residue bucket, not a measured agent type: "
+            f"'{AGENT_TYPE_UNKNOWN}' had no usable agentType in its sidecar, "
+            f"'{AGENT_TYPE_UNPRINTABLE}' had one this script will not print."
+        )
+    lines.append(
+        "NOT CALIBRATED — no threshold has been chosen for these rates, so "
+        "nothing here fires or affects the exit code."
+    )
+    return lines
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -1014,6 +1435,15 @@ def main(argv=None) -> int:
         help=(
             "do not scope transcripts to the repo owning --memory-root; count "
             "every session on this machine"
+        ),
+    )
+    parser.add_argument(
+        "--by-agent-type",
+        action="store_true",
+        help=(
+            "additionally report, per subagent agent type, how often an "
+            "invocation read a memory/ note or a .sisyphus/discovery/ brief. "
+            "A second transcript pass; affects no trigger and no exit code."
         ),
     )
     parser.add_argument(
@@ -1050,6 +1480,10 @@ def main(argv=None) -> int:
 
     transcript_dir: Path | None = None
     scan = Scan(scanned=False, reason="skipped")
+    # `--by-agent-type` rides on T4's directory and scope rather than deriving
+    # its own: two passes that disagreed about which repository they were
+    # looking at would be worse than either pass alone.
+    agent_scan = AgentTypeScan(scanned=False, reason="skipped")
     if not args.skip_transcripts:
         transcript_dir = (
             Path(args.transcripts)
@@ -1062,6 +1496,8 @@ def main(argv=None) -> int:
             else _trail_scope.posix_path(rs.git_roots(str(repo_dir))[1])
         )
         scan = scan_transcripts(transcript_dir, repo_root_posix)
+        if args.by_agent_type:
+            agent_scan = scan_by_agent_type(transcript_dir, repo_root_posix)
 
     results = [
         check_directory_size(per_dir),
@@ -1071,56 +1507,81 @@ def main(argv=None) -> int:
     ]
 
     if args.json:
-        print(
-            json.dumps(
+        payload = {
+            "memory_root": memory_root.as_posix(),
+            "unrouted_record": record_file.as_posix(),
+            "transcripts": transcript_dir.as_posix() if transcript_dir else None,
+            "corpus_notes": total,
+            "directory_notes": dict(
+                sorted(per_dir.items(), key=lambda kv: (-kv[1], kv[0]))
+            ),
+            "limits": {
+                "directory": DIR_NOTE_LIMIT,
+                "corpus": CORPUS_NOTE_LIMIT,
+            },
+            "scan": {
+                "scanned": scan.scanned,
+                "reason": scan.reason,
+                "files": scan.files,
+                "unreadable": scan.unreadable,
+                "sessions": scan.sessions,
+                "memory_sessions": scan.memory_sessions,
+                "search_sessions": scan.search_sessions,
+                "structured_sessions": scan.structured_sessions,
+                "shell_sessions": scan.shell_sessions,
+                "post_index_sessions": scan.post_index_sessions,
+                "structured_calls": scan.structured_calls,
+                "shell_calls": scan.shell_calls,
+                "unclassified_calls": scan.unclassified_calls,
+                "unclassified_sessions": scan.unclassified_sessions,
+                "by_tool": scan.by_tool,
+            },
+            "triggers": [
                 {
-                    "memory_root": memory_root.as_posix(),
-                    "unrouted_record": record_file.as_posix(),
-                    "transcripts": transcript_dir.as_posix() if transcript_dir else None,
-                    "corpus_notes": total,
-                    "directory_notes": dict(
-                        sorted(per_dir.items(), key=lambda kv: (-kv[1], kv[0]))
-                    ),
-                    "limits": {
-                        "directory": DIR_NOTE_LIMIT,
-                        "corpus": CORPUS_NOTE_LIMIT,
-                    },
-                    "scan": {
-                        "scanned": scan.scanned,
-                        "reason": scan.reason,
-                        "files": scan.files,
-                        "unreadable": scan.unreadable,
-                        "sessions": scan.sessions,
-                        "memory_sessions": scan.memory_sessions,
-                        "search_sessions": scan.search_sessions,
-                        "structured_sessions": scan.structured_sessions,
-                        "shell_sessions": scan.shell_sessions,
-                        "post_index_sessions": scan.post_index_sessions,
-                        "structured_calls": scan.structured_calls,
-                        "shell_calls": scan.shell_calls,
-                        "unclassified_calls": scan.unclassified_calls,
-                        "unclassified_sessions": scan.unclassified_sessions,
-                        "by_tool": scan.by_tool,
-                    },
-                    "triggers": [
-                        {
-                            "trigger": r.trigger,
-                            "verdict": r.verdict,
-                            "reason": r.reason,
-                            "can_fire": r.can_fire,
-                            "headline": r.headline,
-                            "detail": r.detail,
-                        }
-                        for r in results
-                    ],
-                    "exit": EXIT_FIRED if any(r.fired for r in results) else EXIT_PASS,
-                },
-                indent=2,
-            )
-        )
+                    "trigger": r.trigger,
+                    "verdict": r.verdict,
+                    "reason": r.reason,
+                    "can_fire": r.can_fire,
+                    "headline": r.headline,
+                    "detail": r.detail,
+                }
+                for r in results
+            ],
+            "exit": EXIT_FIRED if any(r.fired for r in results) else EXIT_PASS,
+        }
+        # Present only when asked for. An always-present key would change every
+        # existing consumer's payload for a flag they did not pass, and "no
+        # change at all without the flag" is this feature's hard requirement.
+        if args.by_agent_type:
+            payload["by_agent_type"] = {
+                "scanned": agent_scan.scanned,
+                "reason": agent_scan.reason,
+                "files": agent_scan.files,
+                "unreadable": agent_scan.unreadable,
+                "out_of_scope": agent_scan.out_of_scope,
+                "unscopable": agent_scan.unscopable,
+                "invocations": agent_scan.invocations,
+                "agent_types": [
+                    {
+                        "agent_type": row.agent_type,
+                        "resolved": row.resolved,
+                        "invocations": row.invocations,
+                        "memory_hits": row.memory_hits,
+                        "memory_hit_rate": row.memory_hit_rate,
+                        "discovery_hits": row.discovery_hits,
+                        "discovery_hit_rate": row.discovery_hit_rate,
+                    }
+                    for row in agent_scan.rows
+                ],
+                "calibrated": False,
+            }
+        print(json.dumps(payload, indent=2))
     else:
         for line in render_report(memory_root, record_file, transcript_dir, results):
             print(line)
+        if args.by_agent_type:
+            for line in render_agent_type_table(agent_scan):
+                print(line)
 
     return EXIT_FIRED if any(r.fired for r in results) else EXIT_PASS
 
