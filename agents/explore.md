@@ -79,7 +79,10 @@ Flood with parallel calls. Cross-validate findings across multiple tools.
 When the question is *why* code exists or *why it's shaped this way* (not *where* it is), switch to reconstruction:
 
 - Trace the decision with `git blame`, `git log -S"<string>"`, `git log --follow`, and `git show <commit>^:<file>` — read the commit messages and the before/after diffs, not just the current state.
-- Cross-reference `memory/repo/<repo-name>/adr/` and notes for a recorded rationale before inferring one.
+- Cross-reference `~/.claude/memory/repo/<repo-name>/adr/` and notes for a recorded rationale before inferring one.
+  Use that absolute path, not a relative `memory/...`: a relative path resolves against the session's
+  working directory, which in a product checkout has no `memory/` at all, so the lookup silently finds
+  nothing.
 - **Distinguish fact from inference** — "the commit message says…" vs "the diff suggests…". Never present a guess as history.
 - End with a compact timeline (date · author · what changed · why) and a **safe-to-change verdict**: SAFE / CAUTION / DANGEROUS, with the specific risk. Assume purpose until proven otherwise — unexplained code is CAUTION, not SAFE.
 
