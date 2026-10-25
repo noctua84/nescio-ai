@@ -194,6 +194,57 @@ class SelfScanGuardTest(unittest.TestCase):
         )
 
 
+class RedactionTest(unittest.TestCase):
+    """CodeQL alert #7 (py/clear-text-logging-sensitive-data): a FAIL/WARN report
+    must never echo the matched secret text into the (public) log."""
+
+    def test_a_github_token_is_redacted_from_fail_output(self):
+        token = "ghp_" + "A" * 36
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "leaky.env"
+            target.write_text(f"GITHUB_TOKEN={token}\n", encoding="utf-8")
+
+            import io
+            from contextlib import redirect_stdout
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = scrub_check.main([str(target), "--terms", d])
+
+        report = out.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertNotIn(token, report, "the secret itself must never be printed")
+        self.assertIn("[REDACTED]", report)
+        self.assertIn("leaky.env:1:", report)
+        # surrounding non-secret context survives the redaction.
+        self.assertIn("GITHUB_TOKEN=", report)
+
+    def test_a_home_path_username_is_redacted_from_warn_output(self):
+        username = "jdoe"
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "notes.md"
+            target.write_text(
+                f"see /home/{username}/project/notes.txt for details\n",
+                encoding="utf-8",
+            )
+
+            import io
+            from contextlib import redirect_stdout
+
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = scrub_check.main([str(target), "--terms", d])
+
+        report = out.getvalue()
+        self.assertEqual(rc, 0, "WARN-only content is still a clean run")
+        self.assertNotIn(username, report, "the username must never be printed")
+        self.assertIn("[REDACTED]", report)
+        self.assertIn("notes.md:1:", report)
+        # surrounding non-secret context survives the redaction.
+        self.assertIn("see ", report)
+        self.assertIn("for details", report)
+
+
 class SkipDirsHonouredTest(unittest.TestCase):
     def test_a_secret_inside_node_modules_is_not_reported(self):
         with tempfile.TemporaryDirectory() as d:

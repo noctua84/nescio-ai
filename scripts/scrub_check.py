@@ -82,6 +82,15 @@ def load_custom_terms(root: Path) -> list[tuple[str, re.Pattern]]:
     return out
 
 
+def _redact(line: str, rx: re.Pattern) -> str:
+    """Replace every span ``rx`` matches in ``line`` with ``[REDACTED]``.
+
+    Must run before truncation — truncating first can leave a partial secret
+    visible in the printed snippet.
+    """
+    return rx.sub("[REDACTED]", line)
+
+
 def iter_files(target: Path):
     if target.is_file():
         if target.name in SKIP_FILES:
@@ -152,13 +161,13 @@ def main(argv: list[str] | None = None) -> int:
         for lineno, line in enumerate(text.splitlines(), 1):
             for label, rx in SECRET_PATTERNS:
                 if rx.search(line):
-                    fails.append((label, rel, lineno, line.strip()[:120]))
+                    fails.append((label, rel, lineno, _redact(line, rx).strip()[:120]))
             for label, rx in custom:
                 if rx.search(line):
-                    fails.append((label, rel, lineno, line.strip()[:120]))
+                    fails.append((label, rel, lineno, _redact(line, rx).strip()[:120]))
             for label, rx in PATH_PATTERNS:
                 if rx.search(line):
-                    warns.append((label, rel, lineno, line.strip()[:120]))
+                    warns.append((label, rel, lineno, _redact(line, rx).strip()[:120]))
 
     if warns:
         print("WARN (review — machine-specific paths):")
