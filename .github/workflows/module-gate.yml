@@ -17,6 +17,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
 
+# Least privilege: these jobs only check out and read the repo. Declared
+# explicitly so a change to the repo/org default token permissions can't
+# silently widen them. Jobs needing more declare their own block.
+permissions:
+  contents: read
+
 jobs:
   module-gate:
     runs-on: ubuntu-latest
