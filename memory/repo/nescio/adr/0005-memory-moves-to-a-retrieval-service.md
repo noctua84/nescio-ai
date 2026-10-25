@@ -316,6 +316,65 @@ below-threshold match are three different states, and none of them may be render
 as a confident answer. A degraded retrieval path returns "unknown", never "nothing
 relevant exists".
 
+### 7. The service runs mostly unattended, and that is a design constraint rather than a deployment detail
+
+Added 2026-10-25. The operating model is a long-running deployment — a VPS, then
+Kubernetes — performing its task without a person watching. Every decision above was
+written as though an operator were present, and several of them quietly depend on it.
+
+**What changes when nobody is watching.**
+
+1. **Recoverability must be automated and *verified*, not available.** The
+   *Consequences* amendment below argues that `pg_dump` plus a restore covers
+   recoverability better than an HTTP egress path would. That argument survives, but it
+   assumes a person with database credentials and shell access. Unattended, the
+   obligation is a scheduled backup **and a tested restore**: a backup nobody has
+   restored is a hypothesis, not a property. Note also that the repository still
+   contains no deployment manifest, no compose file and no backup or restore script
+   — `pg_dump` appears only as prose. Under *Decision 7* that gap stops being untidy
+   and becomes the thing recoverability rests on.
+2. **"Degraded" has to be a state the system acts on, not just reports.**
+   *Decision 6* requires an unreachable service, an empty result and a below-threshold
+   match to stay three different states, and a degraded path to answer "unknown".
+   Unattended, honest absence is only as good as its consumer: if the caller treats
+   "unknown" as "nothing relevant exists" and proceeds, the discipline is
+   decorative. Decision 6 therefore extends to the **caller contract** — a client
+   that cannot distinguish the three states is not a supported client.
+3. **Every request must be bounded in advance.** The failure that proved this is
+   [nescio-memory#48](https://github.com/noctua84/nescio-memory/issues/48): context
+   expansion selected whole entities including a 1024-dimension embedding the path
+   never read, text-encoded at ~32.6 KB per row, with no `LIMIT`, and a character
+   budget applied only *after* rows were materialised. Worst case was roughly 996 MB in
+   a single request. With a person watching that is a slow page; in a pod with a memory
+   limit it is an OOMKill and a restart loop that nothing reports. The fix generalises
+   into a rule: **measure a fetch before performing it, and bound it on the
+   measurement** — which is what `measure_ranges` plus `max_context_documents` now
+   do, and what any future query path owes.
+4. **The "proof of concept becomes a dependency" list is a precondition, not a
+   risk.** It is recorded below among the costs: no error handling for embedder or
+   database failure, no retry or batching on ingest, no rate limiting, no structured
+   audit of who ingested what. Attended, those are things to get round to. Unattended,
+   each one is a way the service fails silently or stays failed. They are hereby
+   deployment preconditions rather than follow-ups.
+5. **Shared tenancy becomes a shared failure domain.** *Consequence 2* notes that one
+   service's uptime becomes every downstream brain's dependency. Unattended, add: one
+   tenant's unbounded request becomes every tenant's outage, which is why item 3 is a
+   guarantee and not an optimisation.
+
+**What does not change.** The deterministic layer stays exact (*Decision 5*); nothing
+here licenses approximating precedence, dedup, watermarks or the ledger because a
+scheduler is easier to satisfy than a reviewer. And the human review gate stays at
+harvest time in `nescio-ai` — unattended operation applies to *retrieval and
+storage*, never to what gets promoted. A service that admitted learnings without review
+because no one was watching would be the opposite of this decision.
+
+**To re-verify.** This decision is written from an operating model stated in
+conversation, not from a deployed system. There is no manifest in either repository yet,
+so every claim about Kubernetes behaviour here is a prediction. Re-read it against the
+first real deployment, and expect at least one item to be wrong in the way *Decision 3*
+and the authorship split were wrong — confidently and in a direction that flattered
+the argument.
+
 ## Options considered
 
 | Option | Verdict |
@@ -421,6 +480,8 @@ Further costs and risks:
 - **A proof of concept becomes a dependency.** v0.3.1 has no error handling for
   embedder or database failure (both surface as 500), no retry or batching on
   ingest, no rate limiting, and no structured audit of who ingested what.
+  **Promoted to a precondition by *Decision 7*** — unattended, each of these is a
+  way the service fails silently or stays failed.
 - **Ingest is serial, and chunking multiplies the cost.** One embedder round-trip per
   vector, no batching, no retry. Withdrawing Decision 3 removes the mitigation that
   decision provided, so batching and retry on the ingest path move from nice-to-have
