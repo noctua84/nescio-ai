@@ -24,6 +24,10 @@ Tracked as [#160](https://github.com/noctua84/nescio-ai/issues/160).
 **Decision 3 was withdrawn on 2026-10-03 and Decision 4 corrected on the same day**,
 both before implementation. The rest of the ADR stands. See those sections.
 
+**Decision 7 was added on 2026-10-26**, naming the operating model the first six
+decisions assumed without stating: `nescio-ai` is attended, the service is not, and
+the obligations that follow from that are not interchangeable.
+
 ## Context
 
 `nescio-memory` exists: a separate repository at v0.3.1, explicitly a proof of
@@ -316,64 +320,100 @@ below-threshold match are three different states, and none of them may be render
 as a confident answer. A degraded retrieval path returns "unknown", never "nothing
 relevant exists".
 
-### 7. The service runs mostly unattended, and that is a design constraint rather than a deployment detail
+### 7. `nescio-ai` is attended and the service is not, and the asymmetry decides who owes what
 
-Added 2026-10-25. The operating model is a long-running deployment — a VPS, then
-Kubernetes — performing its task without a person watching. Every decision above was
-written as though an operator were present, and several of them quietly depend on it.
+Added 2026-10-26. Decisions 1–6 never named an operating model, which let two
+different kinds of obligation sit in one undifferentiated list. They are not the
+same kind, because the two sides of this decision are watched differently:
 
-**What changes when nobody is watching.**
+| Context | Operating model | Today |
+|---|---|---|
+| `nescio-ai` | **Always attended.** A Claude Code framework on a local machine; every invocation is a human in a session. An operator is present by construction, not by policy. | this ADR's repo |
+| `nescio-memory` | **Never attended.** A long-running deployment — a VPS, then Kubernetes — answering requests with nobody watching. | separate repo, v0.3.1, not deployed |
+| `nescio-agents` | **Unattended with agency** — an agent that must act, not merely answer, with no one to ask. | named as the eventual home for that; no repository yet |
 
-1. **Recoverability must be automated and *verified*, not available.** The
+This ADR is filed under `memory/repo/nescio/`, so it decides for **`nescio-ai`**:
+what the framework adopts, what it permits itself to depend on, and what it must
+keep exact. It can oblige `nescio-memory` to nothing except through its own choice
+to become a client. Obligations only the service can discharge are therefore named
+here, because this ADR is why the dependency exists, and **tracked there**.
+
+**What the asymmetry gives `nescio-ai` cheaply.** *Decision 6* requires an
+unreachable service, an empty result and a below-threshold match to stay three
+distinguishable states, and a degraded path to answer `unknown`. The expensive form
+of that requirement is a consumer that must choose correctly with no one to ask.
+`nescio-ai` never meets it: `unknown` surfaces to the human already in the session,
+who decides. The discipline still binds — a client that collapses the three states
+into "nothing found" is not a supported client — but discharging it costs a sentence
+in a report rather than a fallback policy. **That cheapness does not transfer.**
+`nescio-agents` would inherit the expensive form, and *Decision 6* is the reason it
+could be built at all; a service that answered `unknown` and `empty` identically
+would make an unattended agent's correct behaviour unimplementable.
+
+**What the asymmetry costs `nescio-memory`.** Four obligations follow from being
+unattended, and `nescio-ai` cannot satisfy any of them on the service's behalf:
+
+1. **Recoverability must be automated and *verified*, not merely available.** The
    *Consequences* amendment below argues that `pg_dump` plus a restore covers
-   recoverability better than an HTTP egress path would. That argument survives, but it
-   assumes a person with database credentials and shell access. Unattended, the
-   obligation is a scheduled backup **and a tested restore**: a backup nobody has
-   restored is a hypothesis, not a property. Note also that the repository still
-   contains no deployment manifest, no compose file and no backup or restore script
-   — `pg_dump` appears only as prose. Under *Decision 7* that gap stops being untidy
-   and becomes the thing recoverability rests on.
-2. **"Degraded" has to be a state the system acts on, not just reports.**
-   *Decision 6* requires an unreachable service, an empty result and a below-threshold
-   match to stay three different states, and a degraded path to answer "unknown".
-   Unattended, honest absence is only as good as its consumer: if the caller treats
-   "unknown" as "nothing relevant exists" and proceeds, the discipline is
-   decorative. Decision 6 therefore extends to the **caller contract** — a client
-   that cannot distinguish the three states is not a supported client.
-3. **Every request must be bounded in advance.** The failure that proved this is
-   [nescio-memory#48](https://github.com/noctua84/nescio-memory/issues/48): context
-   expansion selected whole entities including a 1024-dimension embedding the path
-   never read, text-encoded at ~32.6 KB per row, with no `LIMIT`, and a character
-   budget applied only *after* rows were materialised. Worst case was roughly 996 MB in
-   a single request. With a person watching that is a slow page; in a pod with a memory
-   limit it is an OOMKill and a restart loop that nothing reports. The fix generalises
-   into a rule: **measure a fetch before performing it, and bound it on the
-   measurement** — which is what `measure_ranges` plus `max_context_documents` now
-   do, and what any future query path owes.
-4. **The "proof of concept becomes a dependency" list is a precondition, not a
-   risk.** It is recorded below among the costs: no error handling for embedder or
+   recoverability better than an HTTP egress path would. That argument survives, but
+   it presumes someone with credentials and a shell. Unattended, the obligation is a
+   scheduled backup **and a tested restore** — a backup nobody has restored is a
+   hypothesis, not a property. The repository today holds no deployment manifest, no
+   compose file and no backup or restore script; `pg_dump` appears only as prose.
+   Under *Decision 7* that gap stops being untidy and becomes the thing
+   recoverability rests on.
+2. **Every request must be bounded before it is performed.** The failure that proved
+   this is [nescio-memory#48](https://github.com/noctua84/nescio-memory/issues/48):
+   context expansion selected whole entities including a 1024-dimension embedding the
+   path never read, text-encoded at ~32.6 KB per row, with no `LIMIT`, and a character
+   budget applied only *after* rows were materialised — roughly 996 MB worst case in a
+   single request. Attended, that is a slow response somebody notices. In a pod with a
+   memory limit it is an OOMKill and a restart loop that reports nothing. The fix
+   generalises into a rule — **measure a fetch before performing it and bound it on
+   the measurement** — which is what `measure_ranges` plus `max_context_documents` now
+   do, and what every future query path owes.
+3. **The "proof of concept becomes a dependency" list is a precondition, not a
+   follow-up.** Recorded below among the costs: no error handling for embedder or
    database failure, no retry or batching on ingest, no rate limiting, no structured
    audit of who ingested what. Attended, those are things to get round to. Unattended,
-   each one is a way the service fails silently or stays failed. They are hereby
-   deployment preconditions rather than follow-ups.
-5. **Shared tenancy becomes a shared failure domain.** *Consequence 2* notes that one
-   service's uptime becomes every downstream brain's dependency. Unattended, add: one
-   tenant's unbounded request becomes every tenant's outage, which is why item 3 is a
-   guarantee and not an optimisation.
+   each is a way the service fails silently or stays failed.
+4. **Shared tenancy is a shared failure domain.** *Consequence 2* notes that one
+   service's uptime becomes every downstream brain's dependency. Add: one tenant's
+   unbounded request becomes every tenant's outage — which is why item 2 is a
+   guarantee rather than an optimisation.
 
-**What does not change.** The deterministic layer stays exact (*Decision 5*); nothing
+These four are *actionable work*, not decisions awaiting deliberation, and
+`nescio-memory` has no ADR directory to hold them. They belong in its issue tracker,
+citing [#160](https://github.com/noctua84/nescio-ai/issues/160). The precedent is
+#48 itself, which was an issue and landed.
+
+**What does not change.** The deterministic layer stays exact (*Decision 5*): nothing
 here licenses approximating precedence, dedup, watermarks or the ledger because a
-scheduler is easier to satisfy than a reviewer. And the human review gate stays at
-harvest time in `nescio-ai` — unattended operation applies to *retrieval and
-storage*, never to what gets promoted. A service that admitted learnings without review
-because no one was watching would be the opposite of this decision.
+scheduler is easier to satisfy than a reviewer. And the human review gate at harvest
+time is not a casualty of unattended operation, because the repository that holds it
+is the attended one. Unattended operation applies to *retrieval and storage*, never
+to what gets promoted.
 
-**To re-verify.** This decision is written from an operating model stated in
-conversation, not from a deployed system. There is no manifest in either repository yet,
-so every claim about Kubernetes behaviour here is a prediction. Re-read it against the
-first real deployment, and expect at least one item to be wrong in the way *Decision 3*
-and the authorship split were wrong — confidently and in a direction that flattered
-the argument.
+**What the asymmetry predicts about that gate.** Harvest is manual today for two
+reasons worth separating. One is the review itself, which is deliberate and stays.
+The other is that step 3 of `/harvest-memory` — *check the destination first, update
+an existing note rather than creating a near-duplicate* — is a semantic-similarity
+pass performed by an agent reading a markdown tree, and it is the most expensive
+manual step in the flow. *Decision 1* adopts the machinery that makes exactly that
+step a query. So automating harvest is gated on this service being deployed, not on
+appetite for automation; and when the step collapses, the gate survives, because what
+a human approves narrows from "are these filed correctly" to "do I agree with these".
+That is the direction [#40](https://github.com/noctua84/nescio-ai/issues/40) should
+be read in, under the autonomy conditions of [#33](https://github.com/noctua84/nescio-ai/issues/33).
+
+**To re-verify.** The operating models above come from stated intent, not from a
+deployed system: there is no manifest in either repository, and `nescio-agents` is a
+name rather than a codebase. Every claim about Kubernetes behaviour here is therefore
+a prediction. Re-read this against the first real deployment — and note that the
+first draft of this decision asserted unattended operation *of `nescio-ai`*, which is
+false by construction, in the same self-flattering direction *Decision 3* and the
+authorship split failed in. The pattern is now three for three, which is the actual
+reason this section carries a re-verify note at all.
 
 ## Options considered
 
