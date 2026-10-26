@@ -17,6 +17,12 @@ on:
     - cron: "17 6 * * 1" # weekly Monday; offset minute avoids the top-of-hour queue
   workflow_dispatch:
 
+# Least privilege: these jobs only check out and read the repo. Declared
+# explicitly so a change to the repo/org default token permissions can't
+# silently widen them. Jobs needing more declare their own block.
+permissions:
+  contents: read
+
 jobs:
   tests:
     runs-on: ubuntu-latest
