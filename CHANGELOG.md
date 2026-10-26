@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/noctua84/nescio-ai/compare/v1.9.0...v1.9.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* resolve open CodeQL alerts (secret echo in scrub_check, workflow permissions) ([#214](https://github.com/noctua84/nescio-ai/issues/214)) ([f4023a4](https://github.com/noctua84/nescio-ai/commit/f4023a45c46f7a3fe51fcfe59a24c07a7a77af86))
+
 ## [1.9.0](https://github.com/noctua84/nescio-ai/compare/v1.8.1...v1.9.0) (2026-10-23)
 
 
