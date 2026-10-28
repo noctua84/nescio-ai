@@ -329,7 +329,7 @@ same kind, because the two sides of this decision are watched differently:
 | Context | Operating model | Today |
 |---|---|---|
 | `nescio-ai` | **Always attended.** A Claude Code framework on a local machine; every invocation is a human in a session. An operator is present by construction, not by policy. | this ADR's repo |
-| `nescio-memory` | **Never attended.** A long-running deployment — a VPS, then Kubernetes — answering requests with nobody watching. | separate repo, v0.3.1, not deployed |
+| `nescio-memory` | **Never attended.** A long-running deployment — a VPS, then Kubernetes — answering requests with nobody watching. | separate repo, v0.5.0 (2026-10-25), not deployed |
 | `nescio-agents` | **Unattended with agency** — an agent that must act, not merely answer, with no one to ask. | named as the eventual home for that; no repository yet |
 
 This ADR is filed under `memory/repo/nescio/`, so it decides for **`nescio-ai`**:
@@ -377,6 +377,22 @@ unattended, and `nescio-ai` cannot satisfy any of them on the service's behalf:
    database failure, no retry or batching on ingest, no rate limiting, no structured
    audit of who ingested what. Attended, those are things to get round to. Unattended,
    each is a way the service fails silently or stays failed.
+
+   *Re-measured 2026-10-27 against v0.5.0 — which this decision should have done
+   before promoting the list.* One of the four has substantially closed:
+   `app/core/errors.py` now registers typed handlers — `503` with `Retry-After` for
+   transient embedder and database connectivity, `400` for `DataError`, `500` for
+   misconfiguration — so "both surface as 500" is no longer true, and what remains is
+   a catch-all `Exception` handler
+   ([#70](https://github.com/noctua84/nescio-memory/issues/70)) plus logging
+   configuration ([#29](https://github.com/noctua84/nescio-memory/issues/29)). The
+   other three stand: no retry or batching on ingest
+   ([#71](https://github.com/noctua84/nescio-memory/issues/71)); no rate limiting at
+   all, authentication being the whole of what an API key does
+   ([#77](https://github.com/noctua84/nescio-memory/issues/77)); and an audit gap
+   narrower than stated — langfuse `@observe` traces both ingest and search but never
+   attaches `client_name`, so the traces exist and are unattributable
+   ([#78](https://github.com/noctua84/nescio-memory/issues/78)).
 4. **Shared tenancy is a shared failure domain.** *Consequence 2* notes that one
    service's uptime becomes every downstream brain's dependency. Add: one tenant's
    unbounded request becomes every tenant's outage — which is why item 2 is a
@@ -386,6 +402,23 @@ These four are *actionable work*, not decisions awaiting deliberation, and
 `nescio-memory` has no ADR directory to hold them. They belong in its issue tracker,
 citing [#160](https://github.com/noctua84/nescio-ai/issues/160). The precedent is
 #48 itself, which was an issue and landed.
+
+**Filed 2026-10-27**, and deliberately not one-to-one: three of the four were already
+partly tracked, and filing them verbatim would have duplicated open work.
+
+| Obligation | Issue |
+|---|---|
+| 1 — verified restore | [nescio-memory#75](https://github.com/noctua84/nescio-memory/issues/75) |
+| 2 + 4 — bound before fetch, with shared tenancy as its reason | [nescio-memory#76](https://github.com/noctua84/nescio-memory/issues/76) |
+| 3 — rate limiting | [nescio-memory#77](https://github.com/noctua84/nescio-memory/issues/77) |
+| 3 — audit of who ingested what | [nescio-memory#78](https://github.com/noctua84/nescio-memory/issues/78) |
+
+Obligation 4 is not an issue of its own because it is not independently actionable:
+it is *why* obligation 2 is a guarantee rather than an optimisation, so it is that
+issue's rationale. Obligation 3 became two issues because it is four gaps rather than
+one and two of them were already filed. Obligation 2's open instances are
+`nescio-memory` [#54](https://github.com/noctua84/nescio-memory/issues/54) and
+[#55](https://github.com/noctua84/nescio-memory/issues/55).
 
 **What does not change.** The deterministic layer stays exact (*Decision 5*): nothing
 here licenses approximating precedence, dedup, watermarks or the ledger because a
@@ -412,8 +445,11 @@ name rather than a codebase. Every claim about Kubernetes behaviour here is ther
 a prediction. Re-read this against the first real deployment — and note that the
 first draft of this decision asserted unattended operation *of `nescio-ai`*, which is
 false by construction, in the same self-flattering direction *Decision 3* and the
-authorship split failed in. The pattern is now three for three, which is the actual
-reason this section carries a re-verify note at all.
+authorship split failed in. This decision then promoted a four-item gap list to
+*precondition* without re-measuring it, when one of the four had already largely
+closed — overstating the urgency of its own argument — and dated the service at a
+release superseded two days earlier. The pattern is now four for four, which is the
+actual reason this section carries a re-verify note at all.
 
 ## Options considered
 
@@ -521,7 +557,9 @@ Further costs and risks:
   embedder or database failure (both surface as 500), no retry or batching on
   ingest, no rate limiting, and no structured audit of who ingested what.
   **Promoted to a precondition by *Decision 7*** — unattended, each of these is a
-  way the service fails silently or stays failed.
+  way the service fails silently or stays failed. The v0.3.1 reading is left as
+  written, because it was accurate on 2026-10-02; *Decision 7* carries the
+  re-measurement against v0.5.0.
 - **Ingest is serial, and chunking multiplies the cost.** One embedder round-trip per
   vector, no batching, no retry. Withdrawing Decision 3 removes the mitigation that
   decision provided, so batching and retry on the ingest path move from nice-to-have
