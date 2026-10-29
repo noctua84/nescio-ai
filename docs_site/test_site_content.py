@@ -704,6 +704,35 @@ class HeroTest(unittest.TestCase):
     def test_no_external_assets(self) -> None:
         self.assertIsNone(_EXTERNAL_ASSET_RE.search(self.body))
 
+    def test_crew_sentence_names_the_current_specialist_count(self) -> None:
+        """"## The crew" must say how many specialists there are, in words.
+
+        The number is hand-typed prose, not derived from anything, so it goes
+        stale exactly like the diagram caption CrewRosterTest guards against --
+        except nothing else notices this one, because it is not artwork. Spell
+        out the count from `agents/*.md` (orchestrator excluded) and fail loudly
+        if the sentence's number word no longer matches.
+        """
+        _NUMBER_WORDS = {
+            1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+            7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven",
+            12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen",
+            16: "sixteen", 17: "seventeen", 18: "eighteen", 19: "nineteen",
+            20: "twenty",
+        }
+        on_disk = {p.stem for p in (_REPO_ROOT / "agents").glob("*.md")}
+        self.assertIn("orchestrator", on_disk, "agents/orchestrator.md has gone missing")
+        specialist_count = len(on_disk) - 1
+        expected_word = _NUMBER_WORDS[specialist_count]
+        crew_section = self.source.split("## The crew", 1)[1].split("##", 1)[0]
+        self.assertIn(
+            expected_word, crew_section.lower(),
+            f"docs/index.md's \"## The crew\" section does not say "
+            f"'{expected_word}' specialists, but agents/*.md now has "
+            f"{specialist_count} agents besides the orchestrator. Update the "
+            f"sentence to match.",
+        )
+
     def test_periwinkle_rule_is_86_by_3(self) -> None:
         css = _CSS.read_text(encoding="utf-8")
         rule = re.search(r"\.nescio-hero__rule\s*\{[^}]*\}", css, re.S)

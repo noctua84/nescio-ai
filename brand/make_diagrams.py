@@ -272,9 +272,9 @@ CREW_GROUPS = [
         ("advisor", "read-only guidance on tradeoffs"),
     ]),
     ("BUILD", [
-        ("builder", "complex tier on Opus; design judgment, or over 200 lines"),
-        ("builder-standard", "standard tier on Sonnet; 50-200 lines, some judgment"),
-        ("builder-simple", "simple tier on Haiku; mechanical work under 50 lines"),
+        ("builder", "complex tier on Opus; design judgment, cross-system"),
+        ("builder-standard", "standard tier on Sonnet; one or two local decisions"),
+        ("builder-simple", "simple tier on Haiku; mechanical, no decision to make"),
         ("test-writer", "writes tests for the intended interface, not the current output"),
     ]),
     ("VERIFY", [
@@ -514,7 +514,7 @@ def diagram_loop():
     s.append(text(right + bw / 2, top + 30, "2 · activity trail", size=16.5,
                   weight="700", fill=NODE_LABEL, family=MONO))
     for i, l in enumerate(wrap("A Stop hook records what actually happened, "
-                               "locally, when the session ends.", body_chars)):
+                               "locally, when each turn ends.", body_chars)):
         s.append(text(right + bw / 2, top + 54 + i * 17, l, size=13, fill=BODY))
     s.append(text(right + bw / 2, top + 112, "raw, uncurated", size=12, fill=MUTED))
 
@@ -522,28 +522,42 @@ def diagram_loop():
     s.append(box(right, bottom, bw, bh))
     s.append(text(right + bw / 2, bottom + 30, "3 · /harvest-memory", size=16.5,
                   weight="700", fill=NODE_LABEL, family=MONO))
-    for i, l in enumerate(["source precedence decides who wins",
-                           "contradictions surface as decisions",
-                           "a dedup ledger stops repetition"]):
+    for i, l in enumerate(["you confirm each nomination",
+                           "precedence & contradictions resolved",
+                           "dedup ledger, watermark stamped"]):
         s.append(text(right + bw / 2, bottom + 54 + i * 19, line_dot(l), size=13, fill=BODY))
 
     # 4 — memory
     s.append(box(left, bottom, bw, bh))
     s.append(text(left + bw / 2, bottom + 30, "4 · memory/", size=16.5, weight="700",
                   fill=NODE_LABEL, family=MONO))
-    for i, l in enumerate(["per-repo and per-project notes",
-                           "standing feedback · glossary",
-                           "ships as structure, not content"]):
+    for i, l in enumerate(["concepts · context · people",
+                           "per-repo / per-project · feedback",
+                           "glossary · structure, not content"]):
         s.append(text(left + bw / 2, bottom + 54 + i * 19, line_dot(l), size=13, fill=BODY))
 
-    # arrows around the cycle
-    s.append(arrow(left + bw + 14, top + bh / 2, right - 14, top + bh / 2))
+    # arrows around the cycle. The forward cycle (session -> trail -> harvest ->
+    # memory -> session) sits at the band's vertical centre; the SessionStart
+    # nudge is a second, dashed edge running the opposite way between session
+    # and trail, offset above/below centre so the two never overlap. It is the
+    # one genuine layout addition here: hooks/harvest_nudge.py fires at
+    # SessionStart and reads the same trail box 2 writes, so the arrow draws
+    # that return path rather than merely being asserted in prose.
+    cycle_y = top + bh / 2 - 16
+    nudge_y = top + bh / 2 + 16
+    s.append(arrow(left + bw + 14, cycle_y, right - 14, cycle_y))
     s.append(arrow(right + bw / 2, top + bh + 14, right + bw / 2, bottom - 14))
     s.append(arrow(right - 14, bottom + bh / 2, left + bw + 14, bottom + bh / 2))
     s.append(arrow(left + bw / 2, bottom - 14, left + bw / 2, top + bh + 14,
                    color=ACCENT_CONNECTOR, head="accent"))
+    s.append(arrow(right - 14, nudge_y, left + bw + 14, nudge_y, color=MUTED, dash="4 4"))
 
-    s.append(text(W / 2, top + bh / 2 - 12, "session ends", size=12, fill=MUTED))
+    s.append(text(W / 2, cycle_y - 10, "every turn", size=12, fill=MUTED))
+    nudge_chars = chars_wide((right - 14) - (left + bw + 14), 10.5)
+    nudge_lines = wrap("SessionStart nudge: un-harvested turns · unfinished "
+                        "harvest · fired memory trigger", nudge_chars)
+    for i, l in enumerate(nudge_lines):
+        s.append(text(W / 2, nudge_y + 16 + i * 13, l, size=10.5, fill=MUTED))
     s.append(text(right + bw / 2 + 14, (top + bh + bottom) / 2, "you curate, deliberately",
                   size=12, fill=MUTED, anchor="start"))
     s.append(text(W / 2, bottom + bh / 2 - 12, "durable notes written", size=12, fill=MUTED))
@@ -554,16 +568,23 @@ def diagram_loop():
     # flush with the cycle's right column so the deferred annotation reads as
     # tucked under the loop. The old fixed 420 was slack at 1400 and overhung
     # that column by 40px at 1000 — the sort of drift a hardcoded width invites.
+    # readiness.md itself ships today -- every harvest recomputes it from the
+    # trail -- so the box and the edge feeding it are drawn solid, like any
+    # other shipped step. Only the autonomy dial (Epic #33) that would read it
+    # is still deferred, which is why that one line stays in DEFERRED and the
+    # box grows a third line to carry it rather than retiring the dashed style
+    # wholesale.
     ry = bottom + bh + 60
     rx = left + bw + 140
     rw = right + bw - rx
-    s.append(arrow(left + bw + 60, bottom + bh - 10, rx - 10, ry + 20,
-                   color=DEFERRED, head="future", dash="5 4"))
-    s.append(box(rx, ry, rw, 74, stroke=DEFERRED, dash="5 4"))
-    s.append(text(rx + rw / 2, ry + 28, "readiness.md → autonomy dial",
-                  size=15, weight="700", fill=DEFERRED, family=MONO))
-    s.append(text(rx + rw / 2, ry + 50, "per-repo session outcomes. Planned, not shipped.",
-                  size=12.5, fill=MUTED))
+    s.append(arrow(left + bw + 60, bottom + bh - 10, rx - 10, ry + 20))
+    s.append(box(rx, ry, rw, 92))
+    s.append(text(rx + rw / 2, ry + 26, "readiness.md",
+                  size=15, weight="700", fill=NODE_LABEL, family=MONO))
+    s.append(text(rx + rw / 2, ry + 48, "refreshed each harvest · computed from the trail",
+                  size=12.5, fill=BODY))
+    s.append(text(rx + rw / 2, ry + 70, "→ autonomy dial: planned, not shipped",
+                  size=12.5, fill=DEFERRED))
 
     s.append("</svg>")
     return "\n".join(s)
