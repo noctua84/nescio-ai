@@ -255,7 +255,7 @@ def defs():
 # is drawn from without re-parsing rendered SVG text. This list and
 # `gen_catalog.AGENT_GROUPS` are two independent hardcoded copies of one fact —
 # both drifted behind `agents/` once already — and
-# `docs_site/test_site_content.py::CrewRosterTest` is what now ties the three
+# `docs_site/test_site_roster.py::CrewRosterTest` is what now ties the three
 # together. Blurbs are one-line paraphrases of each agent's `description`
 # frontmatter.
 CREW_GROUPS = [

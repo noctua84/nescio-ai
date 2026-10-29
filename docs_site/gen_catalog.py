@@ -136,7 +136,7 @@ AGENT_GROUPS: list[tuple[str, list[str]]] = [
     #
     # Left alphabetical-looking on purpose is NOT what happened here: swapping
     # these two back to read `advisor, critic` reds
-    # docs_site/test_site_content.py::CrewRosterTest, which compares this table
+    # docs_site/test_site_roster.py::CrewRosterTest, which compares this table
     # against brand/make_diagrams.CREW_GROUPS in order.
     ("Plan and challenge", ["planner", "validator", "critic", "advisor"]),
     ("Build", ["builder", "builder-standard", "builder-simple", "test-writer"]),
