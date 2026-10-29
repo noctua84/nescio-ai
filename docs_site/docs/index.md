@@ -134,7 +134,7 @@ Two things it does that most agent setups do not:
 
 ## The crew
 
-Ten agents, each with a narrow remit. Delegation goes one way — down — and
+An orchestrator and sixteen specialists, each with a narrow remit. Delegation goes one way — down — and
 every result comes back through a routing quality gate rather than straight to
 you. The full roster with descriptions is on [Agents](agents.md).
 

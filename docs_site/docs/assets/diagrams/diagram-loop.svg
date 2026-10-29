@@ -42,28 +42,33 @@
 <rect x="610" y="150" width="300" height="132" rx="8" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
 <text x="760.0" y="180" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="16.5" fill="var(--diagram-node-label)" font-weight="700" text-anchor="middle">2 · activity trail</text>
 <text x="760.0" y="204" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">A Stop hook records what actually</text>
-<text x="760.0" y="221" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">happened, locally, when the session ends.</text>
+<text x="760.0" y="221" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">happened, locally, when each turn ends.</text>
 <text x="760.0" y="262" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">raw, uncurated</text>
 <rect x="610" y="460" width="300" height="132" rx="8" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
 <text x="760.0" y="490" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="16.5" fill="var(--diagram-node-label)" font-weight="700" text-anchor="middle">3 · /harvest-memory</text>
-<text x="760.0" y="514" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· source precedence decides who wins</text>
-<text x="760.0" y="533" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· contradictions surface as decisions</text>
-<text x="760.0" y="552" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· a dedup ledger stops repetition</text>
+<text x="760.0" y="514" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· you confirm each nomination</text>
+<text x="760.0" y="533" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· precedence &amp; contradictions resolved</text>
+<text x="760.0" y="552" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· dedup ledger, watermark stamped</text>
 <rect x="90" y="460" width="300" height="132" rx="8" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
 <text x="240.0" y="490" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="16.5" fill="var(--diagram-node-label)" font-weight="700" text-anchor="middle">4 · memory/</text>
-<text x="240.0" y="514" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· per-repo and per-project notes</text>
-<text x="240.0" y="533" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· standing feedback · glossary</text>
-<text x="240.0" y="552" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· ships as structure, not content</text>
-<path d="M 404 216.0 L 596 216.0" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
+<text x="240.0" y="514" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· concepts · context · people</text>
+<text x="240.0" y="533" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· per-repo / per-project · feedback</text>
+<text x="240.0" y="552" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="13" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">· glossary · structure, not content</text>
+<path d="M 404 200.0 L 596 200.0" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
 <path d="M 760.0 296 L 760.0 446" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
 <path d="M 596 526.0 L 404 526.0" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
 <path d="M 240.0 446 L 240.0 296" fill="none" stroke="var(--diagram-accent-connector)" stroke-width="1.4" marker-end="url(#head-accent)"/>
-<text x="500.0" y="204.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">session ends</text>
+<path d="M 596 232.0 L 404 232.0" fill="none" stroke="var(--diagram-muted)" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#head-end)"/>
+<text x="500.0" y="190.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">every turn</text>
+<text x="500.0" y="248.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="10.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">SessionStart nudge: un-harvested</text>
+<text x="500.0" y="261.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="10.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">turns · unfinished harvest · fired</text>
+<text x="500.0" y="274.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="10.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">memory trigger</text>
 <text x="774.0" y="371.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="start">you curate, deliberately</text>
 <text x="500.0" y="514.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">durable notes written</text>
 <text x="226.0" y="371.0" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12" fill="var(--diagram-accent)" font-weight="400" text-anchor="end">loaded on demand</text>
-<path d="M 450 582 L 520 672" fill="none" stroke="var(--diagram-deferred)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#head-future)"/>
-<rect x="530" y="652" width="380" height="74" rx="8" fill="var(--diagram-node-fill)" stroke="var(--diagram-deferred)" stroke-width="1.2" stroke-dasharray="5 4"/>
-<text x="720.0" y="680" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="15" fill="var(--diagram-deferred)" font-weight="700" text-anchor="middle">readiness.md → autonomy dial</text>
-<text x="720.0" y="702" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12.5" fill="var(--diagram-muted)" font-weight="400" text-anchor="middle">per-repo session outcomes. Planned, not shipped.</text>
+<path d="M 450 582 L 520 672" fill="none" stroke="var(--diagram-connector)" stroke-width="1.4" marker-end="url(#head-end)"/>
+<rect x="530" y="652" width="380" height="92" rx="8" fill="var(--diagram-node-fill)" stroke="var(--diagram-node-stroke)" stroke-width="1.2"/>
+<text x="720.0" y="678" font-family="'Nescio Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Courier New', monospace" font-size="15" fill="var(--diagram-node-label)" font-weight="700" text-anchor="middle">readiness.md</text>
+<text x="720.0" y="700" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12.5" fill="var(--diagram-body)" font-weight="400" text-anchor="middle">refreshed each harvest · computed from the trail</text>
+<text x="720.0" y="722" font-family="'Nescio Sans', Carlito, Calibri, Helvetica, Arial, sans-serif" font-size="12.5" fill="var(--diagram-deferred)" font-weight="400" text-anchor="middle">→ autonomy dial: planned, not shipped</text>
 </svg>
