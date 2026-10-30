@@ -34,7 +34,7 @@ Full-lifecycle development coordinator. Manages discovery, analysis, planning, e
 
 ### `scout`
 
-Pre-planning consultant. Analyzes requests to identify hidden intentions, ambiguities, and AI failure points before planning begins.
+Pre-planning consultant. Before a plan exists, asks "did we forget something specific to this task?" — surfaces unstated requirements, edge cases, scope gaps, and hidden intent.
 
 **Model** `claude-opus-5-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/scout.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/scout.md)
 
@@ -72,13 +72,13 @@ Work plan reviewer. Verifies plans are executable with valid references. Blocker
 
 ### `critic`
 
-Devil's-advocate reviewer. Challenges a plan's approach and assumptions in a single bounded pass — blind spots, shaky premises, overlooked alternatives, and PII/legal exposure — then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan risk triage), validator (executability), advisor (design direction), and reviewer (built-code audit).
+Devil's-advocate reviewer. After a plan exists, asks "will this break existing parts or combine into a new bug if built as proposed?" — challenges a plan's approach, assumptions, and integration risk in a single bounded pass, then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan, did we forget something), validator (executability), advisor (which design direction), and reviewer (built-code audit).
 
 **Model** `claude-opus-5-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/critic.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/critic.md)
 
 ### `advisor`
 
-Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
+Read-only architecture advisor. Asks "what design shape or direction fits here?" — deep reasoning for debugging, design decisions, and multi-system tradeoffs.
 
 **Model** `claude-opus-5-5` · **Allowed tools** `Read`, `Bash`, `Grep`, `Glob` · [`agents/advisor.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/advisor.md)
 
