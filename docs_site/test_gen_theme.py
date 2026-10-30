@@ -196,9 +196,13 @@ class ThemeRosterTest(unittest.TestCase):
 class HeadingShapeTest(unittest.TestCase):
     """The fragment must not disturb the agents-page count guard.
 
-    `catalog_core.ITEM_HEADING_RE` (``^### ``) counts the rendered agent
-    detail headings. The fragment is appended after that guard runs, so a
-    backtick-leading `###` heading in it would corrupt a later count.
+    `catalog_core.ITEM_HEADING_RE` (a `###` heading opening with a backtick)
+    counts the rendered agent
+    detail headings. The fragment is appended to `agents.md` BEFORE that
+    guard runs (`gen_catalog.build_pages`), so the guard counts the fragment
+    too -- a backtick-leading `###` heading in it would inflate the count and
+    fail the build. The guard is safe only because the fragment carries no
+    such heading, which is what this test pins.
     """
 
     def test_fragment_has_no_item_heading(self) -> None:

@@ -458,6 +458,28 @@ class TestAgainstTheRealRepo(unittest.TestCase):
             with self.subTest(command=item.name):
                 self.assertTrue(item.meta["lead"].strip(), f"{item.rel_path}: empty lead")
 
+    def test_the_committed_page_equals_a_fresh_render(self) -> None:
+        """`docs_site/docs/commands.md` is tracked AND generated.
+
+        `gen_catalog.py --check` fails CI on any drift between the two, and
+        the published site is a fresh render regardless -- so a hand-edit here
+        is work that gets thrown away and a build that goes red. Byte equality
+        is the whole contract; this asserts it directly rather than waiting
+        for the drift check to report it from a workflow log.
+        """
+        committed = catalog_core.DEFAULT_OUT_DIR / "commands.md"
+        self.assertTrue(committed.is_file(), f"missing {committed}")
+        catalog = gen_commands.discover_commands(self.repo)
+        fresh, _ = gen_commands.render_commands(catalog)
+        self.assertEqual(
+            committed.read_text(encoding="utf-8"),
+            fresh,
+            f"{committed} is stale or hand-edited. It is a generated artefact: "
+            "edit the frontmatter and lead prose in commands/*.md, then run "
+            "`python docs_site/gen_catalog.py` and commit the result -- do not "
+            "edit the page itself.",
+        )
+
     def test_no_repo_relative_link_survives_into_the_page(self) -> None:
         """Every rewritable link target is absolute or an in-page anchor."""
         catalog = gen_commands.discover_commands(self.repo)

@@ -57,6 +57,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import catalog_core
+import gen_catalog
 
 _DOCS_SITE = Path(__file__).resolve().parent
 _REPO_ROOT = _DOCS_SITE.parent
@@ -183,6 +184,31 @@ class PageExistsTest(unittest.TestCase):
             text,
             "hooks.md is hand-written; a generated banner means the contract "
             "of this test file changed",
+        )
+
+    def test_the_catalog_generator_never_produces_this_page(self):
+        """`gen_catalog` must not claim `hooks.md` as one of its artefacts.
+
+        The page-exists guard above only notices a banner that was *written*;
+        this one closes the door one step earlier. `gen_catalog.generate`
+        writes every key of `build_pages` into `docs/`, so the moment
+        `hooks.md` appears in that mapping the hand-written page is
+        overwritten on the next regeneration -- and `--check` starts failing
+        the build over prose a human deliberately typed. The four generated
+        pages are asserted by name so that a *renamed* generated page also
+        has to come through this test.
+        """
+        pages, _ = gen_catalog.build_pages(_REPO_ROOT)
+        self.assertNotIn(
+            _PAGE.name,
+            pages,
+            f"gen_catalog.build_pages now renders {_PAGE.name}, which is "
+            "hand-written; generating it would overwrite the page on the next "
+            "`python docs_site/gen_catalog.py`",
+        )
+        self.assertEqual(
+            sorted(pages),
+            ["agents.md", "commands.md", "lifecycle.md", "skills.md"],
         )
 
     def test_page_is_wired_into_the_nav(self):
