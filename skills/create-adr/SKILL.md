@@ -56,7 +56,7 @@ The new decision must NOT, without explicit resolution:
 
 ## Step 4 — Write the ADR (brain format)
 
-Match the existing files exactly. Frontmatter + four core sections:
+Match the existing files exactly. Frontmatter + core sections:
 
 ```markdown
 ---
@@ -80,8 +80,18 @@ whether this conflicts with any — resolved per Step 2.]
 
 ## Decision
 
-[The decision in active voice: "We will …" / "X is typed as …". Subsections and
-code snippets where they clarify. For as-built ADRs, describe what the code does.]
+[The decision in active voice: "We will …" / "X is typed as …". Include the
+rationale: why this option won, against which drivers and constraints.
+Subsections and code snippets where they clarify. For as-built ADRs, describe
+what the code does.]
+
+## Options considered
+
+**Required for `proposed` and `accepted` ADRs; exempt for `as-built`** (which
+document existing code, not a weighed choice). List each alternative you
+actually weighed, with its pros/cons and **why it was not chosen**. Always
+include "do nothing / status quo" as one option. Don't invent straw men or pad
+a genuinely straightforward decision.
 
 ## Consequences
 
@@ -90,7 +100,7 @@ or risk; an ADR with only upsides is under-examined. Note anything a future
 session should re-verify.]
 ```
 
-**Optional — when the decision genuinely weighed alternatives**, add an `## Options considered` section before Consequences with each option's pros/cons and, if useful, a small comparison table. Always include "do nothing / status quo" as one option and say why it was rejected. Don't pad a straightforward decision with a fake options list.
+**Note on frontmatter:** `adr-template.md` uses the *published* form frontmatter (`title`/`status`/`source_repo`), as transformed by `scripts/_adr_transform.py`. Brain ADRs use the form shown above (`name`/`description`/`type`/`status`). Match whichever applies to your ADR's location.
 
 ## Step 5 — Supersession (only if replacing an existing ADR)
 
@@ -109,6 +119,7 @@ When the new ADR replaces an old one:
 | Silent contradiction of an accepted ADR | Supersede it, or justify coexistence in Context. |
 | Only positive consequences | Add at least one negative/risk. |
 | Importing a heavy multi-section corporate template | Use the brain's four-section format; match the existing files. |
-| Faking an options matrix for an obvious decision | Options section is optional — use it only when alternatives were really weighed. |
+| `proposed` or `accepted` with no Options considered | Add the alternatives you actually weighed and why each was rejected. Exempt only `as-built` ADRs. |
+| No rationale in Decision | State why the chosen option won against which drivers/constraints. |
 | Author self-marks `accepted` | Default `proposed`; promote to `accepted` only when the decision is actually adopted. |
 | Rewriting a superseded ADR's body | Update status + add a pointer; leave the reasoning intact. |
