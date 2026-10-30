@@ -1,7 +1,8 @@
 ---
 name: explore
 description: Codebase search specialist. Finds files, code patterns, and relationships. Fire multiple in parallel for broad searches.
-model: claude-haiku-4-5
+model: claude-haiku-5-5
+effort: low
 tools: Read, Bash, Grep, Glob, LSP, mcp__serena__*
 omitClaudeMd: true
 ---

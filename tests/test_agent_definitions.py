@@ -45,9 +45,13 @@ AGENTS_DIR = ROOT / "agents"
 ALLOWED_MODELS = {
     "claude-opus-5",
     "claude-opus-4-8",
+    "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-haiku-4-5",
+    "claude-haiku-5-5",
 }
+# Superseded IDs are kept so a model revert is a one-line change.
 
 # Claude Code accepts a `[1m]` suffix on a model name to request the 1M-context
 # variant. In the CLI it is part of the model *identifier*, not a separate

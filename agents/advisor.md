@@ -1,7 +1,8 @@
 ---
 name: advisor
 description: Read-only architecture advisor. Deep reasoning for debugging, design decisions, and multi-system tradeoffs.
-model: claude-opus-5
+model: claude-opus-5-5
+effort: high
 tools: Read, Bash, Grep, Glob
 ---
 

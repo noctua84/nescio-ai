@@ -130,6 +130,15 @@ add it to an agent in this repo, say why in the PR; if you are an instance
 overlaying this one, expect `sync_from_upstream.py` to revert it, since `agents/`
 is a framework path, and expect it to have no effect at all in Desktop.
 
+**Agent effort levels govern dispatched agents, not the session.** Measured with
+Claude Code CLI 2.1.312 (two runs per arm, so directional): `claude-haiku-5-5`
+resolves and reports `contextWindow: 1000000` with no `[1m]` suffix. A frontmatter
+`effort:` is honoured when the agent is dispatched as a subagent — the same prompt
+on a haiku-5-5 subagent produced ≈11–15k output tokens at `low` vs ≈18–24k at
+`high`. When the agent runs as the main session (`claude -p --agent`), frontmatter
+`effort` showed no effect while `--effort low/high` moved output 283 → 507 tokens,
+so the session effort (settings `effortLevel`, `--effort`) governs the orchestrator.
+
 ## Adding a skill
 
 Create `skills/<name>/SKILL.md` with `name` / `description` frontmatter and the

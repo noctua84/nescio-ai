@@ -1,7 +1,8 @@
 ---
 name: builder-simple
 description: Implementation specialist — simple tier. Mechanical, unambiguous tasks where the pattern to copy is already named and there is no decision to make. Same contract as builder; runs on Haiku for cost efficiency. Use when the plan classifies the task as `simple`. Distinct from planner (decides what to build), advisor (decides how it should be shaped), and reviewer (audits it after the fact).
-model: claude-haiku-4-5
+model: claude-haiku-5-5
+effort: high
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
