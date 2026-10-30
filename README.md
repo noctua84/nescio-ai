@@ -60,8 +60,9 @@ python install.py               # any OS incl. Windows (prompts for settings + C
 ```
 
 `install.py` symlinks the config Claude Code reads at user scope — `agents/`,
-`skills/`, `memory/`, `commands/`, `hooks/` — into `~/.claude`, then asks two
-consent questions: how to integrate **`settings.json`** and **`CLAUDE.md`**.
+`skills/`, `memory/`, `commands/`, `hooks/`, `scripts/` — into `~/.claude`, then
+asks two consent questions: how to integrate **`settings.json`** and
+**`CLAUDE.md`**.
 
 **`settings.json`** — a keyword (`full | minimal | skip`) **or a comma-list of parts** (`agent,permissions,plugins`):
 

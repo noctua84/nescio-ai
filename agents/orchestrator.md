@@ -446,7 +446,7 @@ Agent(
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
    ```bash
-   python scripts/verify_commit_position.py <reported-sha> <branch> --base origin/main
+   python "$HOME/.claude/scripts/verify_commit_position.py" <reported-sha> <branch> --base origin/main
    ```
    Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
    is detached — recover before proceeding. A stale-base line is a warning only.
@@ -460,7 +460,7 @@ Agent(
      **stop and take it to the user.** A second implementer returns either
      another `BLOCKED` or the guess `builder` is forbidden to make — get the
      answer, then re-dispatch. Work that proved **harder than this tier** →
-     escalate one tier per the Escalate section below, one step at a time; if
+     escalate one tier per the Escalate section above, one step at a time; if
      the top tier `builder` blocks on difficulty, take it to the user too —
      never loop.
 5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report

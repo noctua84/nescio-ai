@@ -54,12 +54,18 @@ CLAUDE_DIR = Path.home() / ".claude"
 # user-scope hooks must live in ~/.claude/settings.json, which is machine-specific
 # and not synced). CLAUDE.md is handled by install_claude_md() per a consent choice
 # (import the framework's into / replace / skip the user's ~/.claude/CLAUDE.md).
+# scripts/ is linked too: the scripts already ship on disk inside the repo, so
+# linking them doesn't grant any new privilege. What it buys is a stable path —
+# agent prompts invoke them as `~/.claude/scripts/<name>.py`, which only resolves
+# in a product checkout (where the brain repo isn't on disk at a known location)
+# if ~/.claude/scripts exists.
 LINKS = [
     ("memory", "memory"),
     ("skills", "skills"),
     ("agents", "agents"),
     ("commands", "commands"),
     ("hooks", "hooks"),
+    ("scripts", "scripts"),
 ]
 
 # No user-scope template files: Claude Code does not read ~/.claude/settings.local.json

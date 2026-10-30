@@ -121,8 +121,8 @@ cd ~/dev/nescio && python install.py
 A portable, version-controlled configuration for
 [Claude Code](https://claude.com/claude-code): a crew of specialised agents, a
 memory that grows from finished work, and a learning loop. `install.py`
-symlinks `agents/`, `skills/`, `memory/`, `commands/` and `hooks/` into
-`~/.claude`, then asks how to handle `settings.json` and `CLAUDE.md`.
+symlinks `agents/`, `skills/`, `memory/`, `commands/`, `hooks/` and `scripts/`
+into `~/.claude`, then asks how to handle `settings.json` and `CLAUDE.md`.
 
 Two things it does that most agent setups do not:
 

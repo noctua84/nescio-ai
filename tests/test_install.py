@@ -85,6 +85,12 @@ class InstallModuleTest(unittest.TestCase):
                 self.install.backup(f, "20260101-000000", dry_run=True)
             self.assertTrue(f.exists())
 
+    def test_links_include_scripts(self):
+        # scripts/ is linked alongside memory/skills/agents/commands/hooks so
+        # agent prompts can resolve ~/.claude/scripts/<name>.py in a product
+        # checkout, where the repo itself isn't on disk at a known path.
+        self.assertIn(("scripts", "scripts"), self.install.LINKS)
+
     def test_is_conflict_false_for_missing(self):
         self.assertFalse(self.install.is_conflict(Path("/no/such/path")))
 
@@ -305,6 +311,26 @@ class RelinkIntegrationTest(unittest.TestCase):
             self.assertTrue((home / "memory").is_dir())
             self.assertEqual((home / "memory" / "note.md").read_text(encoding="utf-8"), "mine\n")
             self.assertFalse((home / "memory.pre-adopt-20260101-000000.bak").exists())
+            self.assertEqual(rc, 1)
+
+    def test_relink_restores_scripts_when_symlink_fails(self):
+        # scripts/ is a LINK target like memory/skills/agents/commands/hooks:
+        # a real ~/.claude/scripts conflict is backed up and restored, never
+        # left missing, if the symlink itself fails.
+        with tempfile.TemporaryDirectory() as repo_d, tempfile.TemporaryDirectory() as home_d:
+            repo, home = Path(repo_d), Path(home_d)
+            self._repo(repo)
+            (repo / "scripts").mkdir()
+            (home / "scripts").mkdir()
+            (home / "scripts" / "old.py").write_text("stale\n", encoding="utf-8")
+
+            rc = self._run(repo, home,
+                           can_symlink=lambda _d: True,             # past the pre-flight
+                           symlink=lambda src, dst, dry_run: False)  # ...but each link fails
+
+            self.assertTrue((home / "scripts").is_dir())
+            self.assertEqual((home / "scripts" / "old.py").read_text(encoding="utf-8"), "stale\n")
+            self.assertFalse((home / "scripts.pre-adopt-20260101-000000.bak").exists())
             self.assertEqual(rc, 1)
 
     def test_relink_imports_claude_md(self):

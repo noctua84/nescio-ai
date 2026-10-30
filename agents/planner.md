@@ -144,9 +144,10 @@ mean "get this right". Every tier is held to the same verification bar.
 - If a task touches 4+ files, SPLIT IT
 - Aim for 5-8 tasks per wave
 - Extract shared dependencies as early tasks to unblock parallel work
-- Run `python scripts/module_scan.py --json` while decomposing — pass
-  `--tripwire <N>` when the project's `## Architecture` section declares an
-  override, e.g. `python scripts/module_scan.py --json --tripwire 300`; the
+- Run `python "$HOME/.claude/scripts/module_scan.py" --json` while decomposing
+  — pass `--tripwire <N>` when the project's `## Architecture` section
+  declares an override, e.g.
+  `python "$HOME/.claude/scripts/module_scan.py" --json --tripwire 300`; the
   scanner only reports files over whichever tripwire it is given, so a
   declared override never reaches the JSON without it. If a task would add
   code to a file that appears over the tripwire (400 lines by default, or the
