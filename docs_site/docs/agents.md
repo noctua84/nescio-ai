@@ -135,3 +135,25 @@ Documentation landscape specialist. Reads existing project docs and returns a st
 Documentation author. Consumes doc-researcher findings and a description of what changed, then writes or updates documentation files using the project's existing vocabulary and structure. Hard file boundary: may not touch implementation files. Distinct from doc-researcher (maps the landscape), builder (writes production code), and reviewer (audits code quality).
 
 **Model** `claude-sonnet-5` · **Allowed tools** `Read`, `Edit`, `Write`, `Bash`, `Grep`, `Glob` · [`agents/doc-writer.md`](https://github.com/noctua84/nescio-ai/blob/main/agents/doc-writer.md)
+
+## The philosopher theme
+
+The agent names used throughout this site are functional on purpose. If you'd like personality, an optional theme renames the thinker, builder and craft agents after Graeco-Roman philosophers -- the same renaming `scripts/apply_theme.py` applies to the agent files, their `name:` frontmatter, and every cross-reference in the crew.
+
+| functional | philosopher | why |
+| --- | --- | --- |
+| `planner` | `plato` | named for the Socrates → Plato → Aristotle lineage — the planner at its centre |
+| `advisor` | `aristotle` | the same lineage's systematiser, which suits the advisor |
+| `reviewer` | `pyrrho` | the skeptic |
+| `critic` | `socrates` | the same lineage's questioner, which suits the critic |
+| `builder` | `archimedes` | the engineer and craftsman, deliberately outside that lineage, which suits the agent that builds rather than reasons |
+| `test-writer` | `euclid` | proofs laid out step by step |
+| `qa-guard` | `cato` | the censor, who checked what others shipped |
+| `doc-researcher` | `callimachus` | catalogued the library of Alexandria |
+| `doc-writer` | `cicero` | the prose stylist |
+
+The two builder cost tiers (`builder-simple` and `builder-standard`) follow `builder`, so 11 files are renamed in all: the 9 pairs above plus the two builder tiers.
+
+The remaining agents -- `explore`, `librarian`, `orchestrator`, `scout`, `validator`, `vision` -- keep their functional names under both themes.
+
+Apply it with `python scripts/apply_theme.py philosophers` (and `python scripts/apply_theme.py functional` to revert). It renames the agent files, frontmatter, and all cross-references; it's idempotent and reversible. `--dry-run` prints what it would do without touching anything.

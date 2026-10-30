@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the agent + skill catalog pages for docs.nescio-ai.org.
+"""Generate the agent/skill/commands/lifecycle catalog pages for docs.nescio-ai.org.
 
 Stdlib only. The repo is stdlib-only and the docs build must stay that way, so
 the frontmatter parser below is the same fence-delimited, flat-scalar parser the
@@ -8,7 +8,9 @@ reimplemented locally rather than imported, because ``docs_site/`` sits off
 ``FRAMEWORK_PATHS`` and the docs build must not need ``scripts/`` on
 ``PYTHONPATH``. (The frontmatter parser itself now lives in
 ``catalog_core.py``, imported below -- this module still does not import
-anything from ``scripts/``.)
+anything from ``scripts/``. ``gen_theme.py``, imported below for the theme
+fragment appended to ``agents.md``, is the one deliberate exception -- see its
+own docstring.)
 
 Two ways to run it, both supported:
 
@@ -29,11 +31,16 @@ Two ways to run it, both supported:
    the hook must not write.
 
    ``generate()`` returns ``{"agents": n, "skills": m}`` and raises
-   :class:`CatalogError` on any problem, which fails the build.
+   :class:`CatalogError` on any problem, which fails the build. (It does not
+   also report a ``"commands"`` count: see the comment on its return
+   statement for why that count is kept out of the dict this function hands
+   back, rather than added to it.)
 
-The pages it writes -- ``docs/agents.md`` and ``docs/skills.md`` -- are
-**generated artefacts**. Do not hand-edit them; edit the frontmatter in
-``agents/*.md`` / ``skills/*/SKILL.md``, or the grouping tables below.
+The pages it writes -- ``docs/agents.md``, ``docs/skills.md``,
+``docs/commands.md`` and ``docs/lifecycle.md`` -- are **generated
+artefacts**. Do not hand-edit them; edit the frontmatter in ``agents/*.md`` /
+``skills/*/SKILL.md`` / ``commands/*.md``, the grouping tables below, or (for
+the lifecycle page) ``agents/orchestrator.md`` itself.
 
 What raises, and what does not
 ------------------------------
@@ -89,8 +96,20 @@ from catalog_core import (  # noqa: F401 - re-exported for callers
     _source_link,
     _unquote,
     check_count,
+    generated_banner,
     split_frontmatter,
 )
+
+# Same top-level-import rule as the catalog_core import above, and for the same
+# reason (mkdocs.config.config_options.Hooks._load_hook, mkdocs 1.6.1): this
+# file is itself the registered hook, so by the time on_pre_build runs, a
+# function-level import here would already be too late. gen_commands and
+# gen_lifecycle are both stdlib-only, same as this module; gen_theme is the
+# one exception that reaches into scripts/_crew_common (see its docstring for
+# why that is deliberate and safe).
+import gen_commands
+import gen_lifecycle
+import gen_theme
 
 # --------------------------------------------------------------------------
 # Grouping
@@ -490,18 +509,73 @@ def render_skills(catalog: Catalog) -> tuple[str, list[str]]:
 
 
 def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
-    """Render both pages in memory. Returns ({filename: text}, warnings)."""
+    """Render all four pages in memory. Returns ({filename: text}, warnings).
+
+    ``agents.md``/``skills.md`` honour ``repo_dir`` -- that parameter exists so
+    ``test_gen_catalog.py`` can point this function at a small synthetic
+    fixture tree instead of the real repo. ``commands.md`` and ``lifecycle.md``
+    are deliberately **not** parameterised the same way: they read
+    ``commands/*.md`` and ``agents/orchestrator.md`` straight off ``REPO_DIR``
+    regardless of what ``repo_dir`` is. Those fixtures hold a handful of
+    agent/skill stubs and nothing under ``commands/``, let alone an
+    ``agents/orchestrator.md`` with real ``## PHASE n: NAME`` headings, so a
+    parameterised call would raise ``CatalogError`` for every one of them --
+    not because anything is wrong, but because the fixture was never built to
+    carry that data. The real CLI and the MkDocs hook always run against
+    ``REPO_DIR`` in practice anyway, so this costs nothing there.
+    """
     agents = discover_agents(repo_dir)
     skills = discover_skills(repo_dir)
+    commands = gen_commands.discover_commands(REPO_DIR)
 
     agents_page, agent_warnings = render_agents(agents)
+    # The theme fragment is appended AFTER the detail sections (and after the
+    # count-guard below runs against it) so it cannot shift "## At a glance"
+    # later than any "### `name`" heading, and it introduces none of its own
+    # (see gen_theme's docstring), so the guard's count is unaffected either
+    # way.
+    agents_page = agents_page.rstrip() + "\n\n" + gen_theme.render_theme_section()
     skills_page, skill_warnings = render_skills(skills)
+    commands_page, commands_warnings = gen_commands.render_commands(commands)
+    lifecycle_page, lifecycle_warnings = gen_lifecycle.render_lifecycle(REPO_DIR)
+
+    # Both renderers open with the generic agents/skills banner (they import
+    # the same GENERATED_BANNER everything else here does); swap in the
+    # correct source description for each page without touching either
+    # renderer module.
+    commands_page = commands_page.replace(
+        GENERATED_BANNER, generated_banner("commands/*.md"), 1
+    )
+    lifecycle_page = lifecycle_page.replace(
+        GENERATED_BANNER,
+        generated_banner(
+            "agents/orchestrator.md (the phase list and triage table; the "
+            "surrounding prose is hand-written and pinned by a staleness digest)"
+        ),
+        1,
+    )
 
     check_count("agents", agents_page, agent_paths(repo_dir), repo_dir)
     check_count("skills", skills_page, skill_paths(repo_dir), repo_dir)
+    check_count(
+        "commands", commands_page, gen_commands.command_paths(REPO_DIR), REPO_DIR
+    )
 
-    warnings = agents.warnings + agent_warnings + skills.warnings + skill_warnings
-    return {"agents.md": agents_page, "skills.md": skills_page}, warnings
+    warnings = (
+        agents.warnings
+        + agent_warnings
+        + skills.warnings
+        + skill_warnings
+        + commands.warnings
+        + commands_warnings
+        + lifecycle_warnings
+    )
+    return {
+        "agents.md": agents_page,
+        "skills.md": skills_page,
+        "commands.md": commands_page,
+        "lifecycle.md": lifecycle_page,
+    }, warnings
 
 
 def generate(
@@ -510,10 +584,20 @@ def generate(
     *,
     check_only: bool = False,
 ) -> dict[str, int]:
-    """Write ``agents.md`` + ``skills.md``; return the rendered counts.
+    """Write all four pages; return the rendered agents/skills counts.
 
     Safe to call from a MkDocs ``on_pre_build`` hook. Raises
     :class:`CatalogError` on any problem, which fails the build.
+
+    The returned dict stays ``{"agents": n, "skills": m}``, the same shape it
+    has always had -- ``test_gen_catalog.py::TestRendering.test_writes_both_pages``
+    asserts it by exact equality against a repo fixture with no ``commands/``
+    directory, so a third ``"commands"`` key would fail that assertion for a
+    reason that has nothing to do with what it is actually guarding. The CLI
+    below still reports a commands count in its closing message -- it just
+    gets it from the live directory listing directly, the same number
+    ``check_count`` already proved the rendered page matches, rather than from
+    this dict.
     """
     repo_dir = Path(repo_dir) if repo_dir else REPO_DIR
     out_dir = Path(out_dir) if out_dir else DEFAULT_OUT_DIR
@@ -582,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
         "--out-dir",
         type=Path,
         default=DEFAULT_OUT_DIR,
-        help="where agents.md/skills.md are written (default: %(default)s)",
+        help="where the generated pages are written (default: %(default)s)",
     )
     parser.add_argument(
         "--check",
@@ -597,8 +681,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"gen_catalog: ERROR: {exc}", file=sys.stderr)
         return 1
 
+    # `commands` is not one of `counts`' keys (see generate()'s docstring for
+    # why), so it is read here straight from the live directory listing --
+    # the same number check_count already proved the rendered page matches.
+    # REPO_DIR, not args.repo_dir: build_pages() renders commands.md and
+    # lifecycle.md from REPO_DIR unconditionally (see its docstring), so
+    # --repo-dir never changes this number either.
+    commands_count = len(gen_commands.command_paths(REPO_DIR))
     verb = "verified" if args.check else "wrote"
-    print(f"gen_catalog: {verb} {counts['agents']} agents and {counts['skills']} skills")
+    print(
+        f"gen_catalog: {verb} {counts['agents']} agents, {counts['skills']} skills "
+        f"and {commands_count} commands"
+    )
     return 0
 
 
