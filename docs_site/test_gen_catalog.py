@@ -38,20 +38,96 @@ user-invocable: true
 Body text for {name}.
 """
 
+#: `gen_lifecycle.render_lifecycle` needs `agents/orchestrator.md` to carry a
+#: real structured spine: at least two `## PHASE n: NAME` headings (PHASE 0's
+#: is the triage table's anchor), a markdown table right after PHASE 0, and a
+#: `### Per-Task Dispatch` heading with its own table -- see
+#: `orchestrator_spine.parse_phases`/`triage_table`/`tier_table`. The two phase
+#: names used below (`TRIAGE`, `DISCOVER`) are deliberately real `PHASE_PROSE`
+#: keys in `gen_lifecycle.py`, so a fixture build produces no "phase has no
+#: summary" warning for `TestRendering.test_every_row_has_name_and_description`
+#: to trip over.
+ORCHESTRATOR_BODY = """
+## PHASE 0: TRIAGE (Every Request)
+
+| Request type | Phases |
+|---|---|
+| Trivial | EXECUTE only |
+
+## PHASE 1: DISCOVER (Understand the problem)
+
+Fixture phase body.
+
+### Per-Task Dispatch
+
+| Tier | Model |
+|---|---|
+| simple | haiku |
+"""
+
+ORCHESTRATOR_FM = (
+    """---
+name: orchestrator
+description: {description}
+model: claude-opus-4-8
+disallowedTools: Write, Edit
+---
+"""
+    + ORCHESTRATOR_BODY
+)
+
+#: `gen_commands.discover_commands` needs a `commands/` directory holding at
+#: least one well-formed command, every fixture repo included -- otherwise
+#: `build_pages` raises before it ever reaches the agents/skills pages this
+#: fixture is actually testing. `user-invocable` is set so no fixture build
+#: produces the "missing 'user-invocable'" warning.
+COMMAND_FM = """---
+name: fixture-command
+description: Fixture description for fixture-command.
+user-invocable: true
+---
+
+# /fixture-command
+
+Fixture lead prose for fixture-command.
+"""
+
 
 def _make_repo(root: Path, agents: dict[str, str], skills: dict[str, str]) -> Path:
     (root / "agents").mkdir(parents=True, exist_ok=True)
     (root / "skills").mkdir(parents=True, exist_ok=True)
+    (root / "commands").mkdir(parents=True, exist_ok=True)
     for name, description in agents.items():
-        (root / "agents" / f"{name}.md").write_text(
-            AGENT_FM.format(name=name, description=description), encoding="utf-8"
-        )
+        if name == "orchestrator":
+            (root / "agents" / "orchestrator.md").write_text(
+                ORCHESTRATOR_FM.format(description=description), encoding="utf-8"
+            )
+        else:
+            (root / "agents" / f"{name}.md").write_text(
+                AGENT_FM.format(name=name, description=description), encoding="utf-8"
+            )
     for name, description in skills.items():
         directory = root / "skills" / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "SKILL.md").write_text(
             SKILL_FM.format(name=name, description=description), encoding="utf-8"
         )
+
+    # Lifecycle and commands pages need these regardless of what the caller's
+    # own agent/skill roster is (a themed fixture's agents are philosopher
+    # aliases, never "orchestrator") -- written once and left alone on repeat
+    # calls against the same repo, so a later `_make_repo(self.repo, ...)` call
+    # that only adds agents/skills cannot clobber either.
+    orchestrator_path = root / "agents" / "orchestrator.md"
+    if not orchestrator_path.is_file():
+        orchestrator_path.write_text(
+            ORCHESTRATOR_FM.format(description="Drives the full task lifecycle."),
+            encoding="utf-8",
+        )
+    command_path = root / "commands" / "fixture-command.md"
+    if not command_path.is_file():
+        command_path.write_text(COMMAND_FM, encoding="utf-8")
+
     return root
 
 
@@ -371,10 +447,19 @@ class TestThemedRosterIsRefused(unittest.TestCase):
     #:
     #: Source of truth: `scripts/_crew_common.PAIRS` (the nine word-pairs) plus
     #: `_crew_common.TIERED_AGENTS` resolved through `themed_name` (the two
-    #: `archimedes-*` tier variants). Kept as a literal on purpose --
-    #: `docs_site/` must not import from `scripts/`, because the docs build has
-    #: to work with nothing from `scripts/` on PYTHONPATH. That makes this list
-    #: a hand-maintained copy: adding a PAIRS entry means adding it here.
+    #: `archimedes-*` tier variants). Kept as a literal on purpose: this test
+    #: builds *synthetic* fixture repos (see `_make_repo` below) rather than
+    #: reading the real crew, so there is no live roster here to import
+    #: `_crew_common` against -- a hand-maintained copy is the only shape that
+    #: fits. That makes this list a hand-maintained copy: adding a PAIRS entry
+    #: means adding it here.
+    #:
+    #: This no longer means "`docs_site/` must not import from `scripts/`" in
+    #: general -- `docs_site/gen_theme.py` reads the live theme table straight
+    #: out of `scripts/_crew_common.py` through a top-level, repo-root
+    #: `sys.path` insert that needs no `PYTHONPATH` at all (see that module's
+    #: docstring). The two are consistent: the live theme table has a real
+    #: roster to read, and this fixture-building test does not.
     #:
     #: (An earlier version also listed `sisyphus`, which the theme script never
     #: produces -- it is the `.sisyphus/` plan directory, not an agent.)
