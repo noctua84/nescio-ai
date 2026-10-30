@@ -338,15 +338,15 @@ class TestRendering(FixtureRepoMixin):
         self.assertEqual([], self.warnings)
 
     def test_the_page_opens_with_the_generated_banner(self) -> None:
-        """The shared literal banner, which `build_pages` then re-sources.
+        """The page opens with a banner naming its source.
 
-        This renderer emits `catalog_core.GENERATED_BANNER`; the swap to
-        `generated_banner("commands/*.md")` is `gen_catalog.build_pages`'s job
-        (and its test's), so what is pinned here is that *a* banner is the
-        first thing on the page and that it is the one `build_pages` looks for.
+        This renderer now emits the correct `generated_banner("commands/*.md")`
+        directly, so what is pinned here is that the page opens with that
+        specific banner.
         """
-        self.assertTrue(self.page.startswith(catalog_core.GENERATED_BANNER), self.page[:120])
-        self.assertIn("Do not edit by hand", catalog_core.GENERATED_BANNER)
+        expected_banner = catalog_core.generated_banner("commands/*.md")
+        self.assertTrue(self.page.startswith(expected_banner), self.page[:120])
+        self.assertIn("Do not edit by hand", expected_banner)
 
     def test_the_count_comes_from_the_catalog_not_a_literal(self) -> None:
         self.assertIn(f"{len(self.catalog.items)} slash commands", self.page)

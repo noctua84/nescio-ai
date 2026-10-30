@@ -37,12 +37,12 @@ from pathlib import Path
 from catalog_core import (
     Catalog,
     CatalogError,
-    GENERATED_BANNER,
     Item,
     REPO_BLOB_BASE,
     REPO_DIR,
     _parse_item,
     _source_link,
+    generated_banner,
     split_frontmatter,
 )
 
@@ -202,7 +202,7 @@ def render_commands(catalog: Catalog) -> tuple[str, list[str]]:
     """
     count = len(catalog.items)
     lines = [
-        GENERATED_BANNER,
+        generated_banner("commands/*.md"),
         "",
         "# Commands",
         "",

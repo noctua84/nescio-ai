@@ -531,22 +531,6 @@ def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
     commands_page, commands_warnings = gen_commands.render_commands(commands)
     lifecycle_page, lifecycle_warnings = gen_lifecycle.render_lifecycle(repo_dir)
 
-    # Both renderers open with the generic agents/skills banner (they import
-    # the same GENERATED_BANNER everything else here does); swap in the
-    # correct source description for each page without touching either
-    # renderer module.
-    commands_page = commands_page.replace(
-        GENERATED_BANNER, generated_banner("commands/*.md"), 1
-    )
-    lifecycle_page = lifecycle_page.replace(
-        GENERATED_BANNER,
-        generated_banner(
-            "agents/orchestrator.md (the phase list and triage table; the "
-            "surrounding prose is hand-written and pinned by a staleness digest)"
-        ),
-        1,
-    )
-
     check_count("agents", agents_page, agent_paths(repo_dir), repo_dir)
     check_count("skills", skills_page, skill_paths(repo_dir), repo_dir)
     check_count(

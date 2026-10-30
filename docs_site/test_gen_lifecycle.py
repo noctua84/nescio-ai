@@ -237,16 +237,16 @@ class RealRepoFactsTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIsNone(_PHASE_COUNT.search(phrase))
 
-    def test_render_matches_the_committed_page_but_for_the_banner(self) -> None:
-        """The committed page is the renderer's output, modulo the banner swap.
+    def test_render_matches_the_committed_page(self) -> None:
+        """The committed page is the exact renderer's output.
 
-        ``gen_catalog.build_pages`` replaces the generic banner with a
-        lifecycle-specific one, so only the body is compared here.
+        The renderer now emits the correct banner directly, so the full page
+        is compared.
         """
         rendered, _ = render_lifecycle(REPO_DIR)
         self.assertEqual(
-            rendered.split("\n", 2)[-1].lstrip(),
-            self.page.split("\n", 1)[-1].lstrip(),
+            rendered,
+            self.page,
             "docs/lifecycle.md is stale -- rerun python docs_site/gen_catalog.py",
         )
 

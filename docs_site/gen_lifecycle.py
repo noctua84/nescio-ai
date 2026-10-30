@@ -41,10 +41,10 @@ from pathlib import Path
 # function-level sibling import works from the CLI and fails inside
 # ``mkdocs build``.
 from catalog_core import (
-    GENERATED_BANNER,
     REPO_DIR,
     CatalogError,
     _source_link,
+    generated_banner,
 )
 from orchestrator_spine import (
     ORCHESTRATOR_REL,
@@ -308,7 +308,10 @@ def render_lifecycle(repo_dir: Path = REPO_DIR) -> tuple[str, list[str]]:
     source = _source_link(ORCHESTRATOR_REL)
 
     lines = [
-        GENERATED_BANNER,
+        generated_banner(
+            "agents/orchestrator.md (the phase list and triage table; the "
+            "surrounding prose is hand-written and pinned by a staleness digest)"
+        ),
         "",
         "# The orchestrator lifecycle",
         "",
