@@ -334,6 +334,15 @@ jobs:
       # below the install, where the absence of a dependency is structural
       # instead of merely asserted.
       - run: python -m unittest discover -s docs_site -p "test_ci_coverage.py" -v
+      # docs_site/test_workflow_module_gate.py reads module-gate.yml with
+      # PyYAML. It used to be in tests/ and redded every downstream instance,
+      # which ships tests/ but not .github/. The `tests` job installs pyyaml for
+      # its own suite; this job is a separate runner and has none, and the
+      # mkdocs-material install below is `continue-on-error`, so PyYAML cannot be
+      # borrowed from it. Hence an explicit pin, the same one `tests` uses, and a
+      # step that fails hard: a missing parser must not read as a passing check.
+      - run: pip install --retries 5 --timeout 30 pyyaml==6.0.3
+      - run: python -m unittest discover -s docs_site -p "test_workflow_module_gate.py" -v
       # Same hard pin as .github/workflows/docs.yml, and for the same reason:
       # the custom schemes are coupled to Material's CSS variable names. Keep
       # the two in step.
