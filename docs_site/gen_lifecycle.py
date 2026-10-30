@@ -58,6 +58,21 @@ from orchestrator_spine import (
     triage_table,
 )
 
+# `Phase` and `orchestrator_path` are not referenced below -- this module
+# re-exports the spine so importers need one module, per
+# ``test_gen_lifecycle.py::ReexportTest``. `__all__` tells ruff's F401 these
+# are deliberate re-exports, not dead imports.
+__all__ = [
+    "ORCHESTRATOR_REL",
+    "Phase",
+    "orchestrator_path",
+    "parse_phases",
+    "tier_table",
+    "triage_table",
+    "section_text",
+    "render_lifecycle",
+]
+
 # The five sections the prose below summarises, each keyed for the staleness pin
 # in ``test_gen_lifecycle.py``. Two anchor kinds:
 #
