@@ -184,15 +184,16 @@ jobs:
   # THE DEPENDENCY SPLIT LIVES INSIDE THE TEST MODULE, NOT ON THE STEPS, so the
   # tolerance reaches as little as possible. NEITHER test step carries an `if:`
   # -- both run whatever the install did. test_gen_catalog.py imports stdlib
-  # plus gen_catalog, which is itself stdlib-only. test_site_content.py is
-  # stdlib plus gen_catalog at module level too; the one class that needs
+  # plus gen_catalog, which is itself stdlib-only. The test_site_*.py modules
+  # are stdlib plus gen_catalog at module level too; the one class that needs
   # Material, BuiltSiteTest, imports mkdocs inside its own setUpClass and raises
   # unittest.SkipTest when that import fails. So a broken install costs exactly
   # that class: MaterialPinTest, CrewRosterTest, DiagramSourcesTest,
   # DiagramLayoutTest, DiagramModalTest, HeroTest and OverridesTest all still
   # run, and all still fail hard.
   #
-  # It was not always so. test_site_content.py used to sit behind
+  # It was not always so. test_site_content.py (since split into the
+  # test_site_*.py modules) used to sit behind
   # `if: steps.install.outcome == 'success'`, which meant a PyPI outage skipped
   # the entire module -- CrewRosterTest, which pins the catalog's roster against
   # brand/make_diagrams.py, and MaterialPinTest, which guards the two-workflow
@@ -251,7 +252,7 @@ jobs:
   #
   # What is NOT exposed any more is everything provable by reading the sources:
   # test_gen_catalog.py in full, the strict roster assertion included, and every
-  # other class in test_site_content.py -- CrewRosterTest and MaterialPinTest
+  # other class in the test_site_*.py modules -- CrewRosterTest and MaterialPinTest
   # among them. Those run whatever the install did, which is the point of the
   # split above.
   #
@@ -284,10 +285,11 @@ jobs:
       # A MERGE GATE" paragraph draws, applied to the subsystem that draws the
       # site. brand/ is the docs site's design system. Every consumer of it lives
       # in docs_site/ -- hooks/assets.py, hooks/inline_svg.py, gen_catalog.py,
-      # test_site_content.py -- and nothing in scripts/ or agents/ imports it. It
-      # is deliberately NOT on FRAMEWORK_PATHS, so a derived downstream instance
-      # never receives brand/ at all. Making it a merge gate would gate a
-      # contributor on a subsystem their install does not contain.
+      # test_site_diagrams.py, test_site_roster.py -- and nothing in scripts/ or
+      # agents/ imports it. It is deliberately NOT on FRAMEWORK_PATHS, so a
+      # derived downstream instance never receives brand/ at all. Making it a
+      # merge gate would gate a contributor on a subsystem their install does
+      # not contain.
       #
       # NO `if:`, AND ABOVE THE INSTALL ON PURPOSE. brand/ is stdlib-only, so it
       # wants nothing the step below downloads -- and standing here, before
@@ -355,7 +357,7 @@ jobs:
       # exactly the silent-green failure mode being guarded against.
       - if: steps.install.outcome != 'success'
         run: |
-          echo "::warning title=docs_site site was never built on this commit::Installing the pinned mkdocs-material failed after 5 retries, so BuiltSiteTest skipped itself -- no real 'mkdocs build --strict' ran and nothing checked what shipped into site/. Every other docs_site test did run and pass: test_gen_catalog.py in full, and the rest of test_site_content.py including MaterialPinTest and CrewRosterTest. Re-run the job once PyPI is reachable."
+          echo "::warning title=docs_site site was never built on this commit::Installing the pinned mkdocs-material failed after 5 retries, so BuiltSiteTest skipped itself -- no real 'mkdocs build --strict' ran and nothing checked what shipped into site/. Every other docs_site test did run and pass: test_gen_catalog.py in full, and the rest of the test_site_*.py modules including MaterialPinTest and CrewRosterTest. Re-run the job once PyPI is reachable."
           {
             echo "### :warning: \`docs-tests\`: the site was never built"
             echo
@@ -364,7 +366,7 @@ jobs:
             echo "ran on this commit, and nothing checked what shipped into \`site/\`."
             echo
             echo "Everything else ran and passed -- \`test_gen_catalog.py\` in full, and"
-            echo "every other class in \`test_site_content.py\`, \`MaterialPinTest\` and"
+            echo "every other class in \`test_site_*.py\`, \`MaterialPinTest\` and"
             echo "\`CrewRosterTest\` included. This job is green for the end-to-end half"
             echo "because the install broke, not because those cases passed."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -372,7 +374,7 @@ jobs:
       # above. Only BuiltSiteTest needs Material, and it self-skips on
       # ImportError; gating the whole module on the install would take
       # MaterialPinTest and CrewRosterTest down with a PyPI outage.
-      - run: python -m unittest discover -s docs_site -p "test_site_content.py" -v
+      - run: python -m unittest discover -s docs_site -p "test_site_*.py" -v
 
   # `uv.lock` records the project's own version, so it drifts from pyproject.toml
   # on every release. release-please keeps it in step via `extra-files` in

@@ -30,7 +30,7 @@ problem case is the downstream repo that *has* one. No test in `tests/` reads
 this repository's own `.github/` today -- the ones that mention workflows write
 fixtures into a temporary directory instead -- and that is the boundary being
 kept. `docs_site/` is off FRAMEWORK_PATHS, already holds the precedent for
-reading these workflow files (`test_site_content.py::MaterialPinTest`, which
+reading these workflow files (`test_site_theme.py::MaterialPinTest`, which
 pins the two-workflow `mkdocs-material` agreement), and is itself a root with a
 job behind it.
 
