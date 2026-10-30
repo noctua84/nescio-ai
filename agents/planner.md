@@ -128,11 +128,13 @@ When in doubt between two tiers, choose the **lower** one. This is deliberate an
 it inverts the usual instinct: all three tiers carry an identical contract — same
 method, same mandatory verification, same output block — and differ only in which
 model runs them, so over-tiering buys no extra rigour, only a higher price for
-the same behaviour. Mis-tiering downward is also self-correcting and cheap: the
-implementer returns `BLOCKED` naming what proved harder, and the orchestrator
-escalates one tier. That is the designed path, not a classification failure.
-Mis-tiering upward is invisible and never corrected — nothing ever reports that
-Opus was unnecessary.
+the same behaviour. Mis-tiering downward is also self-correcting and cheap: if
+the task proves harder than classified, the implementer returns `BLOCKED`
+naming what proved harder, and the orchestrator escalates one tier. That is the
+designed path, not a classification failure. A `BLOCKED` naming a missing
+decision or fact is a different case — the orchestrator takes that to the user,
+not up a tier. Mis-tiering upward is invisible and never corrected — nothing
+ever reports that Opus was unnecessary.
 
 Do not inflate a tier to signal that a task matters, and do not use `complex` to
 mean "get this right". Every tier is held to the same verification bar.

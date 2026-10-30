@@ -387,16 +387,19 @@ over-tiering buys no additional rigour whatsoever — it buys the same behaviour
 Opus prices. When in doubt between two tiers, choose the **lower** one; the
 escalation path below is cheap and exists precisely to catch a mis-tier.
 
-**Escalate one tier at a time.** If `builder-simple` returns `BLOCKED` because
-the task proved harder than classified, re-dispatch as `builder-standard` — not
-`builder`. Escalate again only if `standard` also blocks. Jumping straight to Opus
-on the first block discards two cheaper tiers' worth of evidence and is how a
-fleet drifts to always-Opus. The task keeps its original tier in the plan; note
-the escalation in the wave's progress update.
+**Escalate one tier at a time — and only for difficulty.** You are the
+classifier of record for every `BLOCKED`; the builder's own framing names what
+it hit, it does not decide where the block goes (see After Each Task, rule 4).
+If `builder-simple` returns `BLOCKED` because the task proved harder than
+classified, re-dispatch as `builder-standard` — not `builder`. Escalate again
+only if `standard` also blocks. Jumping straight to Opus on the first block
+discards two cheaper tiers' worth of evidence and is how a fleet drifts to
+always-Opus. The task keeps its original tier in the plan; note the escalation
+in the wave's progress update.
 
-A `BLOCKED` that names a missing **decision** is different — that goes to the
-user, not up a tier (see After Each Task, rule 4). Escalation is for "harder than
-expected", never for "underspecified".
+A `BLOCKED` that names a missing **decision or fact** is different — that goes
+to the user, not up a tier. Escalation is for "harder than expected", never for
+"underspecified".
 
 ```
 Agent(
@@ -449,11 +452,17 @@ Agent(
    is detached — recover before proceeding. A stale-base line is a warning only.
 4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
    `PARTIAL` or `BLOCKED`:
-   - `COMPLETE` or `PARTIAL` with a fixable gap → dispatch a follow-up agent
-     naming the specific remaining work
-   - `BLOCKED` → **stop and take it to the user.** A block names a decision or a
-     missing fact; a second implementer returns either another `BLOCKED` or the
-     guess `builder` is forbidden to make. Get the answer, then re-dispatch.
+   - `COMPLETE` → accept
+   - `PARTIAL` with a fixable gap → dispatch a follow-up agent naming the
+     specific remaining work
+   - `BLOCKED` → read the named blocker and classify it yourself; the builder's
+     own framing is input, not the verdict. A missing **decision or fact** →
+     **stop and take it to the user.** A second implementer returns either
+     another `BLOCKED` or the guess `builder` is forbidden to make — get the
+     answer, then re-dispatch. Work that proved **harder than this tier** →
+     escalate one tier per the Escalate section below, one step at a time; if
+     the top tier `builder` blocks on difficulty, take it to the user too —
+     never loop.
 5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
    into a running list you carry to DELIVER. `builder` and its tiers actually
    read and edit the code, so their incidental findings are the highest-value
