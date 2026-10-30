@@ -1,7 +1,8 @@
 ---
 name: orchestrator
 description: Full-lifecycle development coordinator. Manages discovery, analysis, planning, execution, review, and delivery by dispatching specialized agents. Guides the user through approval gates between phases. Use as default agent for any non-trivial task.
-model: claude-opus-5
+model: claude-opus-5-5
+effort: high
 disallowedTools: Edit
 ---
 
@@ -156,9 +157,9 @@ Ready to proceed to [next phase]?
 
 **Dispatch agents based on need:**
 
-For risk analysis:
+For completeness checking:
 ```
-Agent(subagent_type: "scout", prompt: "Analyze this request for hidden risks and ambiguities.
+Agent(subagent_type: "scout", prompt: "Did we forget something specific to this task? Surface unstated requirements, edge cases, scope gaps, and hidden intent.
 
 ## Discovery Brief
 [the ≤30-line digest, inline and unabridged — its 'Constraints and hazards'
@@ -186,8 +187,8 @@ Full brief: .sisyphus/discovery/<plan-name>.md
 ```
 ## Analysis Summary
 
-### Risk Assessment (from scout)
-[Key risks and mitigations]
+### Gaps and missed requirements (from scout)
+[Unstated requirements, edge cases, scope gaps, and hidden intent]
 
 ### Architecture Guidance (from advisor)
 [Recommendations and tradeoffs]
@@ -386,16 +387,19 @@ over-tiering buys no additional rigour whatsoever — it buys the same behaviour
 Opus prices. When in doubt between two tiers, choose the **lower** one; the
 escalation path below is cheap and exists precisely to catch a mis-tier.
 
-**Escalate one tier at a time.** If `builder-simple` returns `BLOCKED` because
-the task proved harder than classified, re-dispatch as `builder-standard` — not
-`builder`. Escalate again only if `standard` also blocks. Jumping straight to Opus
-on the first block discards two cheaper tiers' worth of evidence and is how a
-fleet drifts to always-Opus. The task keeps its original tier in the plan; note
-the escalation in the wave's progress update.
+**Escalate one tier at a time — and only for difficulty.** You are the
+classifier of record for every `BLOCKED`; the builder's own framing names what
+it hit, it does not decide where the block goes (see After Each Task, rule 4).
+If `builder-simple` returns `BLOCKED` because the task proved harder than
+classified, re-dispatch as `builder-standard` — not `builder`. Escalate again
+only if `standard` also blocks. Jumping straight to Opus on the first block
+discards two cheaper tiers' worth of evidence and is how a fleet drifts to
+always-Opus. The task keeps its original tier in the plan; note the escalation
+in the wave's progress update.
 
-A `BLOCKED` that names a missing **decision** is different — that goes to the
-user, not up a tier (see After Each Task, rule 4). Escalation is for "harder than
-expected", never for "underspecified".
+A `BLOCKED` that names a missing **decision or fact** is different — that goes
+to the user, not up a tier. Escalation is for "harder than expected", never for
+"underspecified".
 
 ```
 Agent(
@@ -442,17 +446,26 @@ Agent(
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
    ```bash
-   python scripts/verify_commit_position.py <reported-sha> <branch> --base origin/main
+   python "$HOME/.claude/scripts/verify_commit_position.py" <reported-sha> <branch> --base origin/main
    ```
    Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
    is detached — recover before proceeding. A stale-base line is a warning only.
+   If the script is missing (`install.py` has not been re-run since it was
+   linked), fall back to `git branch --contains <reported-sha>` and
+   `git symbolic-ref -q HEAD`, and tell the user to re-run `install.py`.
 4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
    `PARTIAL` or `BLOCKED`:
-   - `COMPLETE` or `PARTIAL` with a fixable gap → dispatch a follow-up agent
-     naming the specific remaining work
-   - `BLOCKED` → **stop and take it to the user.** A block names a decision or a
-     missing fact; a second implementer returns either another `BLOCKED` or the
-     guess `builder` is forbidden to make. Get the answer, then re-dispatch.
+   - `COMPLETE` → accept
+   - `PARTIAL` with a fixable gap → dispatch a follow-up agent naming the
+     specific remaining work
+   - `BLOCKED` → read the named blocker and classify it yourself; the builder's
+     own framing is input, not the verdict. A missing **decision or fact** →
+     **stop and take it to the user.** A second implementer returns either
+     another `BLOCKED` or the guess `builder` is forbidden to make — get the
+     answer, then re-dispatch. Work that proved **harder than this tier** →
+     escalate one tier per the Escalate section above, one step at a time; if
+     the top tier `builder` blocks on difficulty, take it to the user too —
+     never loop.
 5. **Collect the `<out-of-scope>` and `<deviations>` sections** from every report
    into a running list you carry to DELIVER. `builder` and its tiers actually
    read and edit the code, so their incidental findings are the highest-value
@@ -527,7 +540,8 @@ that was touched, ask `test-writer` to revert it, document the issue in
 - [ ] Task 3: [title]
 
 ### Blocked — needs your decision
-- [!] Task 4: [title] — [the decision or missing information `builder` named]
+- [!] Task 4: [title] — [the blocker `builder` named — decision/fact, or
+  difficulty beyond the top tier]
 
 ### Remaining
 - [ ] Task 5: [title]

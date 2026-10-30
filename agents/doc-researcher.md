@@ -1,7 +1,8 @@
 ---
 name: doc-researcher
 description: Documentation landscape specialist. Reads existing project docs and returns a structured map of coverage, gaps, and update targets — given a description of what just changed. Produces findings for doc-writer; does not write or modify any file. Distinct from explore (reads source code), librarian (reads external docs), and doc-writer (writes documentation).
-model: claude-sonnet-5
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Bash, Grep, Glob
 omitClaudeMd: true
 ---

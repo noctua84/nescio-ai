@@ -1,7 +1,8 @@
 ---
 name: planner
 description: Strategic planning consultant. Interviews users, gathers requirements, and creates detailed work plans. Read-only except for .sisyphus/ markdown files.
-model: claude-opus-5
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Bash, Grep, Glob, Agent(explore, librarian)
 ---
 
@@ -127,11 +128,13 @@ When in doubt between two tiers, choose the **lower** one. This is deliberate an
 it inverts the usual instinct: all three tiers carry an identical contract — same
 method, same mandatory verification, same output block — and differ only in which
 model runs them, so over-tiering buys no extra rigour, only a higher price for
-the same behaviour. Mis-tiering downward is also self-correcting and cheap: the
-implementer returns `BLOCKED` naming what proved harder, and the orchestrator
-escalates one tier. That is the designed path, not a classification failure.
-Mis-tiering upward is invisible and never corrected — nothing ever reports that
-Opus was unnecessary.
+the same behaviour. Mis-tiering downward is also self-correcting and cheap: if
+the task proves harder than classified, the implementer returns `BLOCKED`
+naming what proved harder, and the orchestrator escalates one tier. That is the
+designed path, not a classification failure. A `BLOCKED` naming a missing
+decision or fact is a different case — the orchestrator takes that to the user,
+not up a tier. Mis-tiering upward is invisible and never corrected — nothing
+ever reports that Opus was unnecessary.
 
 Do not inflate a tier to signal that a task matters, and do not use `complex` to
 mean "get this right". Every tier is held to the same verification bar.
@@ -141,13 +144,16 @@ mean "get this right". Every tier is held to the same verification bar.
 - If a task touches 4+ files, SPLIT IT
 - Aim for 5-8 tasks per wave
 - Extract shared dependencies as early tasks to unblock parallel work
-- Run `python scripts/module_scan.py --json` while decomposing — pass
-  `--tripwire <N>` when the project's `## Architecture` section declares an
-  override, e.g. `python scripts/module_scan.py --json --tripwire 300`; the
+- Run `python "$HOME/.claude/scripts/module_scan.py" --json` while decomposing
+  — pass `--tripwire <N>` when the project's `## Architecture` section
+  declares an override, e.g.
+  `python "$HOME/.claude/scripts/module_scan.py" --json --tripwire 300`; the
   scanner only reports files over whichever tripwire it is given, so a
-  declared override never reaches the JSON without it. If a task would add
-  code to a file that appears over the tripwire (400 lines by default, or the
-  project's `## Architecture` override), schedule the extraction as its own
+  declared override never reaches the JSON without it. If the script is
+  missing (`install.py` has not been re-run since it was linked), fall back to
+  `wc -l` against the tripwire by hand. If a task would add code to a file
+  that appears over the tripwire (400 lines by default, or the project's
+  `## Architecture` override), schedule the extraction as its own
   **preceding** task, tiered `standard` or `complex`. An implementer will not
   split mid-task, so an unscheduled extraction never happens.
 

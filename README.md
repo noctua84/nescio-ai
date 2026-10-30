@@ -60,8 +60,9 @@ python install.py               # any OS incl. Windows (prompts for settings + C
 ```
 
 `install.py` symlinks the config Claude Code reads at user scope — `agents/`,
-`skills/`, `memory/`, `commands/`, `hooks/` — into `~/.claude`, then asks two
-consent questions: how to integrate **`settings.json`** and **`CLAUDE.md`**.
+`skills/`, `memory/`, `commands/`, `hooks/`, `scripts/` — into `~/.claude`, then
+asks two consent questions: how to integrate **`settings.json`** and
+**`CLAUDE.md`**.
 
 **`settings.json`** — a keyword (`full | minimal | skip`) **or a comma-list of parts** (`agent,permissions,plugins`):
 
@@ -101,7 +102,7 @@ and changes nothing if it can't.
 | Agent | Role |
 |-------|------|
 | `orchestrator` | Coordinates the lifecycle (triage → discover → analyze → plan → execute → verify → deliver); delegates, never writes production code itself. |
-| `scout` | Pre-plan risk/intent triage — surfaces assumptions and likely failure points. |
+| `scout` | Pre-plan completeness check — did we forget something specific to this task? Surfaces unstated requirements, edge cases, scope gaps, and hidden intent. |
 | `planner` | Interviews for requirements and writes the work plan. |
 | `validator` | Checks a plan is executable before work starts. |
 | `builder` | Implements one scoped task from a plan — the complex/unclassified tier. Verifies before reporting. |

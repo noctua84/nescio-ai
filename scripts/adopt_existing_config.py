@@ -50,6 +50,8 @@ SOURCES: list[tuple[str, Path]] = [
     ("claude-code/commands", CLAUDE_DIR / "commands"),
     ("claude-code/skills", CLAUDE_DIR / "skills"),
     ("claude-code/memory", CLAUDE_DIR / "memory"),
+    ("claude-code/hooks", CLAUDE_DIR / "hooks"),
+    ("claude-code/scripts", CLAUDE_DIR / "scripts"),
     ("claude-desktop/claude_desktop_config.json", desktop_config_path()),
 ]
 

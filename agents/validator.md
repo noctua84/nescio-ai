@@ -1,7 +1,8 @@
 ---
 name: validator
 description: Work plan reviewer. Verifies plans are executable with valid references. Blocker-finder, not perfectionist.
-model: claude-opus-5
+model: claude-opus-5-5
+effort: high
 tools: Read, Bash, Grep, Glob
 ---
 

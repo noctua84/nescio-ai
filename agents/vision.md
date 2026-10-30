@@ -1,7 +1,8 @@
 ---
 name: vision
 description: Interprets media files (PDFs, images, diagrams, screenshots) that require visual analysis beyond what the Read tool extracts as plain text. Returns only the extracted information, not the raw file.
-model: claude-sonnet-5
+model: claude-sonnet-5-5
+effort: medium
 tools: Read
 ---
 

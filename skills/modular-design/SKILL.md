@@ -32,10 +32,12 @@ Default **400 physical lines**. A project may override it in its `CLAUDE.md`
 Get the numbers instead of guessing at them:
 
 ```bash
-python scripts/module_scan.py
-python scripts/module_scan.py --tripwire 500 --top 10
-python scripts/module_scan.py --json          # for programmatic use
+python "$HOME/.claude/scripts/module_scan.py"
+python "$HOME/.claude/scripts/module_scan.py" --tripwire 500 --top 10
+python "$HOME/.claude/scripts/module_scan.py" --json          # for programmatic use
 ```
+
+(In this framework checkout itself, `python scripts/module_scan.py` also works.)
 
 **Crossing the tripwire does not mandate a split.** It mandates running the
 three tests below and stating the outcome. A cohesive 900-line file passes and

@@ -140,12 +140,16 @@ block, same anti-patterns — and differ only in the model they run on, so
 over-tiering buys no extra rigour, just the same behaviour at Opus prices. When
 in doubt between two tiers, choose the **lower** one.
 
-Escalation goes **one tier at a time**: a `simple` task that returns `BLOCKED`
-because it was harder than classified is re-dispatched as `standard`, and only
-then as `complex`. Jumping straight to the top on the first block throws away two
-cheaper tiers' worth of evidence. A `BLOCKED` that names a missing **decision**
-is a different thing entirely — that comes to **you**, not up a tier. Escalation
-is for "harder than expected", never for "underspecified".
+The orchestrator is the **classifier of record for every `BLOCKED`** — a
+builder's own framing of what it hit is input, not the verdict. Escalation goes
+**one tier at a time**, and only for difficulty: a `simple` task that returns
+`BLOCKED` because it was harder than classified is re-dispatched as `standard`,
+and only then as `complex`. Jumping straight to the top on the first block throws
+away two cheaper tiers' worth of evidence. A `BLOCKED` that names a missing
+**decision or fact** is a different thing entirely — that goes to **you**, not up
+a tier, and so does a top-tier `builder` blocked on sheer difficulty: there is no
+tier left to escalate to, so it comes to you rather than looping. Escalation is
+for "harder than expected", never for "underspecified".
 
 Those agent names are the functional theme, which is what the repository
 ships; the philosopher-theme equivalents are tabulated on

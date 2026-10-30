@@ -45,9 +45,23 @@ AGENTS_DIR = ROOT / "agents"
 ALLOWED_MODELS = {
     "claude-opus-5",
     "claude-opus-4-8",
+    "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-haiku-4-5",
+    "claude-haiku-5-5",
 }
+# Superseded IDs are kept so a model revert is a one-line change.
+
+# Reasoning-effort levels Claude Code accepts in an agent's `effort:` field.
+#
+# Effort is the second half of a model choice on the 5.5 generation: the same
+# model ID runs a charter very differently at `low` than at `xhigh`, so a
+# charter that names a model and leaves effort unset has only half-declared
+# what it runs as, and inherits whatever the host happens to default to. A
+# misspelt value (`very-high`, `High`) is the same failure wearing a
+# deliberate face — hence an allowlist rather than a mere presence check.
+ALLOWED_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
 # Claude Code accepts a `[1m]` suffix on a model name to request the 1M-context
 # variant. In the CLI it is part of the model *identifier*, not a separate
@@ -73,6 +87,11 @@ ALLOWED_MODELS = {
 # and the 1M variant is priced differently. Instances opt in rather than
 # inheriting it.
 CONTEXT_WINDOW_SUFFIX = "[1m]"
+
+# Suffix every model ID on the generation the crew currently runs on carries.
+# Checked separately from ALLOWED_MODELS on purpose — see
+# `test_every_agent_model_is_on_the_current_generation`.
+CURRENT_GENERATION_SUFFIX = "-5-5"
 
 
 def _base_model(model: object) -> object:
@@ -459,6 +478,65 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
                     _base_model(model),
                     ALLOWED_MODELS,
                     f"{path.name}: unexpected model {model!r}",
+                )
+
+    def test_every_agent_model_is_on_the_current_generation(self):
+        """The whole crew moves generations together, or not at all.
+
+        This splits a job `ALLOWED_MODELS` deliberately does not do.
+        The allowlist keeps superseded IDs in it so reverting one charter to
+        the previous generation stays a one-line change — which means it
+        cannot notice a *half*-finished bump, where some charters moved and
+        others were missed. Mixed generations are the expensive state: the
+        tier ladder stops being a cost ladder, and the crew behaves
+        differently depending on which agent happens to be dispatched.
+
+        So: a deliberate revert updates both places — this suffix and, if the
+        whole crew is going back, the generation named here. An accidental
+        half-bump updates neither and fails here.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
+            with self.subTest(agent=path.stem):
+                model = _base_model(self._frontmatter(path).get("model"))
+                self.assertIsInstance(
+                    model, str, f"{path.name}: declares no `model:`"
+                )
+                self.assertTrue(
+                    model.endswith(CURRENT_GENERATION_SUFFIX),
+                    f"{path.name}: model {model!r} is not on the "
+                    f"`*{CURRENT_GENERATION_SUFFIX}` generation the rest of the crew "
+                    f"runs on — either the bump missed this charter, or the whole "
+                    f"crew moved and CURRENT_GENERATION_SUFFIX did not",
+                )
+
+    def test_every_agent_declares_an_allowed_effort(self):
+        """A model without an effort level is half a declaration.
+
+        On the 5.5 generation the reasoning effort is as load-bearing as the
+        model ID: the same charter at `low` and at `xhigh` are different
+        agents. An omitted `effort:` silently inherits the host's default, so
+        the same crew behaves differently on two machines and neither one is
+        the reviewed configuration. The allowlist is there because a typo
+        (`High`, `very-high`) fails the same way an omission does, only less
+        visibly.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
+            with self.subTest(agent=path.stem):
+                effort = self._frontmatter(path).get("effort")
+                self.assertIsNotNone(
+                    effort,
+                    f"{path.name}: declares no `effort:` — it runs at whatever the "
+                    f"host defaults to, which is not a reviewed setting",
+                )
+                self.assertIn(
+                    effort,
+                    ALLOWED_EFFORTS,
+                    f"{path.name}: unexpected effort {effort!r}; expected one of "
+                    f"{sorted(ALLOWED_EFFORTS)}",
                 )
 
     def test_description_is_substantive(self):
@@ -1457,19 +1535,22 @@ class TestModularDesignDoctrine(unittest.TestCase):
                 )
 
     def test_the_tiers_carry_identical_doctrine_wording(self):
-        """Tier parity, diffed line by line against the complex tier.
+        """Tier parity on the doctrine lines, wherever in the file they sit.
 
         The three tiers differ only in model and in how much judgement the task
         is assumed to need; the doctrine they apply is the same doctrine. Drift
         here is the quietest kind of drift — a correction applied to `builder`
         and not to the two cheaper tiers leaves the tiers that take the *bulk*
-        of the dispatches on the old wording, and nothing in the suite notices
-        unless the comparison is made.
+        of the dispatches on the old wording.
 
-        Compares the stripped lines mentioning the skill rather than whole
-        bodies: the bodies legitimately differ (the tier's own name and model
-        rationale appear throughout), and whole-body equality would be a test
-        that can only be made to pass by making the tiers identical.
+        `TestBuilderTierParity.test_the_tiers_share_one_body_from_the_purpose_heading_onward`
+        now asserts byte-for-byte equality below `## Your Purpose`, which is
+        where all of today's doctrine lines live — so on the current files this
+        comparison is implied by that one. It is kept because it is not
+        *structurally* implied: the tier paragraph above that heading is
+        allowed to differ, and a doctrine sentence added there — the natural
+        place to put a tier-specific gloss on the skill — would drift unnoticed
+        with whole-body parity still green. This test reads the whole file.
         """
         base = BUILDER_TIERS[0]
         expected = self._doctrine_lines(base)
@@ -1485,6 +1566,274 @@ class TestModularDesignDoctrine(unittest.TestCase):
                     expected,
                     f"{name}: its `{MODULAR_DESIGN_SKILL}` wording has drifted from "
                     f"`{base}`",
+                )
+
+
+class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
+    """The three builder tiers are one charter at three prices.
+
+    Their own prose says so: each tier's opening paragraph tells its agent that
+    the other tiers "carry this same contract" (the top tier: "this identical
+    contract on cheaper models") and that size alone does not justify a more
+    expensive one. The orchestrator leans on that promise when it tells itself
+    that over-tiering buys no extra rigour and that escalating a block one tier
+    is cheap. If a correction lands on `builder` and not on the two cheaper
+    tiers — which take the bulk of the dispatches — the promise is false and
+    nothing else in the suite notices.
+
+    Located by heading, never by line number: the frontmatter and the tier
+    paragraph above `## Your Purpose` are *allowed* to differ (that is where a
+    tier says which tier it is), and their wrapping changes whenever the
+    sentence is edited.
+    """
+
+    #: Everything from this heading onward is the shared contract. Above it
+    #: live the frontmatter and the one paragraph that names the tier.
+    SHARED_CONTRACT_HEADING = "## Your Purpose"
+
+    #: Where the charter explains what each verdict means to the agent emitting it.
+    VERDICTS_HEADING = "### Verdicts"
+
+    def _path(self, functional_name):
+        return AGENTS_DIR / f"{_themed(functional_name)}.md"
+
+    def _shared_contract(self, functional_name):
+        text = self._path(functional_name).read_text(encoding="utf-8")
+        index = text.find(self.SHARED_CONTRACT_HEADING)
+        self.assertNotEqual(
+            index,
+            -1,
+            f"{functional_name}: no `{self.SHARED_CONTRACT_HEADING}` heading — the "
+            f"parity comparison has no anchor to cut on",
+        )
+        return text[index:]
+
+    def _flat_preamble(self, functional_name):
+        """Everything above the shared contract, whitespace collapsed.
+
+        Collapsed because the tier paragraph is hard-wrapped prose: a phrase
+        assertion against the raw text would pass or fail on where the wrap
+        happens to fall, which is not what any of this is about.
+        """
+        text = self._path(functional_name).read_text(encoding="utf-8")
+        return " ".join(text[: text.find(self.SHARED_CONTRACT_HEADING)].split())
+
+    def _flat_verdicts(self, functional_name):
+        """The `### Verdicts` block, whitespace collapsed. Same reason."""
+        text = self._path(functional_name).read_text(encoding="utf-8")
+        start = text.find(self.VERDICTS_HEADING)
+        self.assertNotEqual(
+            start,
+            -1,
+            f"{functional_name}: no `{self.VERDICTS_HEADING}` section — the charter "
+            f"defines an output contract whose verdicts it never explains",
+        )
+        end = text.find("\n## ", start)
+        return " ".join(text[start : end if end != -1 else len(text)].split())
+
+    def test_the_tiers_declare_the_same_effort(self):
+        """Tiers differ in model. Effort is not a tier dial.
+
+        The doctrine is that the cheaper tiers run the *same* charter with the
+        same rigour, only on a smaller model; the plan picks a tier by how much
+        judgement the task needs, not by how hard the agent should think about
+        it. Dropping `builder-simple` to a lower effort would make "same
+        contract" a lie in a way no reader of the charters could see, and would
+        turn a mis-tier into a quality difference instead of a cost difference.
+        """
+        base = BUILDER_TIERS[0]
+        expected = self._frontmatter(self._path(base)).get("effort")
+        self.assertIn(
+            expected,
+            ALLOWED_EFFORTS,
+            f"{base}: effort {expected!r} is not one of {sorted(ALLOWED_EFFORTS)} — "
+            f"the parity comparison below would pin a typo",
+        )
+        for name in BUILDER_TIERS[1:]:
+            with self.subTest(agent=name):
+                self.assertEqual(
+                    self._frontmatter(self._path(name)).get("effort"),
+                    expected,
+                    f"{name}: declares a different `effort:` from `{base}`. The tiers "
+                    f"are a cost ladder, not a rigour ladder — they may differ only "
+                    f"in `model:`",
+                )
+
+    def test_the_tiers_differ_only_in_model_and_description(self):
+        """Frontmatter parity, field by field, excluding the tier's identity.
+
+        `name`, `description` and `model` are the tier's identity and must
+        differ. Every other field — the tool allowlist above all — is part of
+        the shared contract: a tier handed a tool the others lack is a
+        different agent regardless of what its prose claims.
+        """
+        base = BUILDER_TIERS[0]
+        identity = {"name", "description", "model"}
+        expected = {
+            key: value
+            for key, value in self._frontmatter(self._path(base)).items()
+            if key not in identity
+        }
+        self.assertTrue(
+            expected,
+            f"{base}: no frontmatter fields outside {sorted(identity)} — nothing asserted",
+        )
+        for name in BUILDER_TIERS[1:]:
+            with self.subTest(agent=name):
+                found = {
+                    key: value
+                    for key, value in self._frontmatter(self._path(name)).items()
+                    if key not in identity
+                }
+                self.assertEqual(
+                    found,
+                    expected,
+                    f"{name}: its frontmatter has drifted from `{base}` outside the "
+                    f"fields a tier is allowed to own ({sorted(identity)})",
+                )
+
+    def test_the_tiers_share_one_body_from_the_purpose_heading_onward(self):
+        """Byte-for-byte parity on the contract, not a sampled line or two.
+
+        The existing doctrine test diffs only the `modular-design` lines, which
+        catches drift in one paragraph and nothing else. Below `## Your
+        Purpose` there is no legitimate reason for the tiers to differ at all:
+        the DO/DO NOT lists, the verification rule, the output contract and the
+        anti-patterns are the contract itself. Equality is a fair assertion
+        here precisely because sameness is the stated design, so the only way
+        to make it pass is to restore it.
+        """
+        base = BUILDER_TIERS[0]
+        expected = self._shared_contract(base)
+        for name in BUILDER_TIERS[1:]:
+            with self.subTest(agent=name):
+                self.assertEqual(
+                    self._shared_contract(name),
+                    expected,
+                    f"{name}: its body below `{self.SHARED_CONTRACT_HEADING}` differs "
+                    f"from `{base}`. Tier-specific wording belongs above that heading",
+                )
+
+    def test_each_tier_names_its_own_tier_above_the_shared_contract(self):
+        """The one thing that *must* differ, and where it must live.
+
+        If a tier stopped naming itself, the body-parity test above would still
+        pass — three identical charters are maximally in parity — while the
+        dispatch classification they implement became invisible to the agent
+        running it. This is the guard that keeps parity from being achieved by
+        deletion.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                text = self._path(name).read_text(encoding="utf-8")
+                preamble = text[: text.find(self.SHARED_CONTRACT_HEADING)]
+                tier = name.split("-", 1)[1] if "-" in name else "complex"
+                self.assertIn(
+                    f"`{tier}` tier",
+                    preamble,
+                    f"{name}: does not name itself as the `{tier}` tier before "
+                    f"`{self.SHARED_CONTRACT_HEADING}`",
+                )
+
+    def test_each_tier_tells_its_agent_the_other_tiers_carry_the_same_contract(self):
+        """The cost ladder has to be stated where the agent reads it.
+
+        Everything else in this class proves the tiers *are* one contract. This
+        proves each tier is told so. An agent that does not know the other
+        tiers run the same charter reads its own tier as a quality grade — the
+        cheap tiers treat their work as the throwaway kind, and `builder` reads
+        a long or important task as its own justification. Hence the second
+        half: being big is not being hard, and only hardness buys a bigger
+        model.
+        """
+        # The top tier says it from above ("cheaper models"), the others from
+        # below ("at higher cost") — same claim, opposite vantage point.
+        contract_claims = ("carry this same contract", "carries this same contract",
+                           "carry this identical contract")
+        # `builder` phrases the size point as the reason it was dispatched
+        # ("because the task needs reasoning, not because it is long"); the
+        # cheaper tiers phrase it as a reason not to escalate.
+        size_claims = ("size alone does not justify it",
+                       "not because it is long or important")
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                preamble = self._flat_preamble(name)
+                self.assertTrue(
+                    any(claim in preamble for claim in contract_claims),
+                    f"{name}: its tier paragraph never says the other tiers carry the "
+                    f"same contract — expected one of {contract_claims}",
+                )
+                self.assertTrue(
+                    any(claim in preamble for claim in size_claims),
+                    f"{name}: its tier paragraph does not say that size alone is not a "
+                    f"reason to tier up — expected one of {size_claims}",
+                )
+
+    def test_the_blocked_verdict_names_both_branches(self):
+        """`BLOCKED` carries two cases, and the definition must admit both.
+
+        The tier paragraph tells the agent to return `BLOCKED` either for a
+        decision the plan has not settled *or* for work harder than this tier,
+        and the orchestrator routes those two differently — a decision goes to
+        the user, difficulty goes one tier up (or, from `builder`, also to the
+        user). A verdict definition that names only the missing-decision case
+        contradicts the paragraph above it: the agent that has merely hit
+        something too hard finds no verdict describing its situation and
+        reaches for `PARTIAL`, which routes as progress rather than as an
+        escalation.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                verdicts = self._flat_verdicts(name)
+                self.assertIn(
+                    "**BLOCKED**",
+                    verdicts,
+                    f"{name}: `{self.VERDICTS_HEADING}` does not define `BLOCKED`",
+                )
+                self.assertIn(
+                    "decision or fact that is missing",
+                    verdicts,
+                    f"{name}: the `BLOCKED` definition does not name the "
+                    f"missing-decision/fact branch",
+                )
+                self.assertIn(
+                    "harder than this tier",
+                    verdicts,
+                    f"{name}: the `BLOCKED` definition does not name the "
+                    f"harder-than-this-tier branch, which its own tier paragraph "
+                    f"tells the agent to use it for",
+                )
+
+    def test_only_the_top_tier_says_there_is_nowhere_higher(self):
+        """The tier charters and the orchestrator's routing rule must agree.
+
+        `builder-simple` and `builder-standard` tell their agent that
+        difficulty routes "one tier up"; `builder` cannot say that, because it
+        is the top tier — the orchestrator sends a difficulty block there to
+        the user instead. A copy-paste that gave the complex tier the cheaper
+        tiers' sentence would promise an escalation path that does not exist,
+        and the agent would frame its block for a reader who is not there.
+        """
+        base = BUILDER_TIERS[0]
+        self.assertIn(
+            "nowhere higher to escalate",
+            self._path(base).read_text(encoding="utf-8"),
+            f"{base}: the top tier does not say so — its agent is told to expect an "
+            f"escalation path above Opus, and there is none",
+        )
+        for name in BUILDER_TIERS[1:]:
+            with self.subTest(agent=name):
+                body = self._path(name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "one tier up",
+                    body,
+                    f"{name}: does not tell its agent that difficulty escalates one "
+                    f"tier up",
+                )
+                self.assertNotIn(
+                    "nowhere higher to escalate",
+                    body,
+                    f"{name}: claims to be the top tier — only `{base}` is",
                 )
 
 
@@ -1716,10 +2065,180 @@ class TestOrchestratorWiring(unittest.TestCase):
         self.assertIn("<deviations>", text)
 
     def test_orchestrator_routes_blocked_to_the_user(self):
-        """BLOCKED means a decision is needed — not another implementer."""
+        """A `BLOCKED` splits two ways, and the charter must say which is which.
+
+        A block naming a missing **decision or fact** goes to the user: a
+        second implementer handed the same underspecified task returns either
+        another `BLOCKED` or the guess the builder was forbidden to make. A
+        block naming work **harder than this tier** escalates one tier — and
+        when the top tier blocks on difficulty, that goes to the user too, so
+        there is no loop at the top. The charter needs a user-facing channel
+        for the first case, which `### Blocked` is.
+        """
         text = self._text()
         self.assertIn("`BLOCKED`", text)
         self.assertIn("### Blocked", text)
+
+    def test_orchestrator_sends_missing_decisions_to_the_user(self):
+        """Underspecification is not difficulty, and must not be re-dispatched.
+
+        This is the distinction the whole routing rule rests on: "harder than
+        expected" has somewhere cheaper to go, "underspecified" does not. If
+        the charter stops drawing it, every block becomes an escalation and the
+        fleet drifts to always-Opus while the question the user had to answer
+        goes unasked.
+        """
+        text = self._text()
+        self.assertIn("decision or fact", text)
+        self.assertIn("to the user, not up a tier", text)
+
+    def test_orchestrator_escalates_difficulty_exactly_one_tier(self):
+        """One step at a time, and the top tier stops.
+
+        Jumping `simple` straight to Opus on the first block discards two
+        cheaper tiers' worth of evidence. The terminal case matters just as
+        much: with nothing above `builder`, a difficulty block at the top tier
+        has to reach the user, or the orchestrator re-dispatches the same tier
+        forever.
+        """
+        text = self._text()
+        self.assertIn("Escalate one tier at a time", text)
+        self.assertIn("escalate one tier", text)
+        self.assertIn("never loop", text)
+
+
+ADR_SKILL_DIR = ROOT / "skills" / "create-adr"
+
+
+class TestScoutEchoesTheHandedTriageClass(unittest.TestCase):
+    """Scout reports the class it was handed; it does not re-derive one.
+
+    The orchestrator triages the request and hands the class down with the
+    brief. An output contract that asks scout for its own `Type` and a
+    `Confidence` on it invites exactly the re-litigation the dispatch was
+    meant to settle: two classifications reach the plan, the second one carries
+    a hedge, and nothing says which governs. Keeping a named `Override` slot is
+    the deliberate exception — disagreement is allowed, but it has to be
+    declared as disagreement rather than substituted silently.
+    """
+
+    OUTPUT_HEADING = "## OUTPUT FORMAT"
+
+    def setUp(self):
+        self.path = AGENTS_DIR / f"{_themed('scout')}.md"
+        self.text = self.path.read_text(encoding="utf-8")
+
+    def _output_contract(self):
+        """The `## OUTPUT FORMAT` section, fence and all.
+
+        Scanned line by line rather than cut at the next `\\n## `: the section
+        *is* a fenced markdown block whose own headings start with `## `, so a
+        substring cut ends the section at the first line of the thing being
+        asserted about.
+        """
+        lines = self.text.splitlines()
+        try:
+            start = lines.index(self.OUTPUT_HEADING)
+        except ValueError:
+            self.fail(f"{self.path.name}: no `{self.OUTPUT_HEADING}` section")
+        out, fenced = [], False
+        for line in lines[start + 1 :]:
+            if line.startswith("```"):
+                fenced = not fenced
+            elif line.startswith("## ") and not fenced:
+                break
+            out.append(line)
+        return "\n".join(out)
+
+    def test_the_output_contract_echoes_the_handed_class(self):
+        contract = self._output_contract()
+        self.assertIn(
+            "## Triage class",
+            contract,
+            f"{self.path.name}: its output contract has no triage-class section",
+        )
+        self.assertIn(
+            "(as handed)",
+            contract,
+            f"{self.path.name}: the triage class in its output contract is not marked "
+            f"as the one it was handed — a reader cannot tell whose classification "
+            f"it is looking at",
+        )
+        self.assertIn(
+            "**Override**",
+            contract,
+            f"{self.path.name}: no `Override` slot — disagreement with the handed "
+            f"class has nowhere to go but a silent substitution",
+        )
+
+    def test_the_output_contract_asks_for_no_self_classification(self):
+        """The two fields that made the report a second triage.
+
+        `Type` was the re-derivation; `Confidence` was the hedge on it. Both
+        are gone, and neither is the kind of field that comes back on purpose —
+        it comes back by someone restoring an older copy of the block.
+        """
+        contract = self._output_contract()
+        for field in ("Intent Classification", "**Type**", "Confidence"):
+            with self.subTest(field=field):
+                self.assertNotIn(
+                    field,
+                    contract,
+                    f"{self.path.name}: its output contract still asks for {field!r} — "
+                    f"that is scout classifying the request a second time",
+                )
+
+    def test_nothing_in_the_charter_still_calls_it_intent_classification(self):
+        self.assertNotIn(
+            "Intent Classification",
+            self.text,
+            f"{self.path.name}: still names an `Intent Classification` step — the "
+            f"class is handed down, not derived here",
+        )
+
+
+class TestAdrOptionsConsidered(unittest.TestCase):
+    """An ADR without the rejected options is a changelog entry.
+
+    The decision is the cheap part to write down; what makes an ADR worth
+    reading a year later is which alternatives were weighed and why each lost.
+    The exemption is narrow and deliberate: an `as-built` ADR documents code
+    that already exists and was never a weighed decision, so demanding
+    alternatives from it would invite fiction.
+    """
+
+    HEADING = "## Options considered"
+
+    def test_the_template_carries_the_section(self):
+        """The template is the shape a published ADR is checked against.
+
+        It is not simply "the file an author copies": per SKILL.md's note on
+        frontmatter, `adr-template.md` carries the *published* form
+        (`title`/`status`/`source_repo`) that `scripts/_adr_transform.py`
+        produces, while a brain-internal ADR uses the `name`/`description`/
+        `type`/`status` form shown in the skill body. The sections below the
+        frontmatter are common to both, which is why the heading has to be here
+        *and* in SKILL.md — the next test covers the other route.
+        """
+        template = (ADR_SKILL_DIR / "adr-template.md").read_text(encoding="utf-8")
+        self.assertIn(
+            self.HEADING,
+            template,
+            f"adr-template.md: no `{self.HEADING}` section — an author copying the "
+            f"template produces an ADR that omits it by default",
+        )
+
+    def test_the_skill_requires_it_except_for_as_built(self):
+        """Required, and exempt in exactly one named case.
+
+        A section the skill merely *suggests* is a section reviewers cannot
+        refuse an ADR for. Naming the one exemption is what keeps "required"
+        from being read as "required unless inconvenient".
+        """
+        skill = (ADR_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(self.HEADING, skill)
+        self.assertIn("Required for `proposed` and `accepted` ADRs", skill)
+        self.assertIn("as-built", skill)
 
 
 if __name__ == "__main__":

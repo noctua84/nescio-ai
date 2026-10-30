@@ -1,7 +1,8 @@
 ---
 name: librarian
 description: External documentation and OSS code search specialist. Finds official docs, implementation examples, and best practices using web search and GitHub.
-model: claude-sonnet-5
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Grep, Glob, WebFetch, WebSearch, Bash
 omitClaudeMd: true
 ---

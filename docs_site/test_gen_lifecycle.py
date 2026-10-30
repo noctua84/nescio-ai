@@ -52,7 +52,7 @@ DIGESTS: dict[str, str] = {
     "competence_check": "0128cfe0a38bb6ea9f21ebb2d45c376ce0e6078e34c2f9796b3fb2637f2e04ab",
     "discovery_brief_carrying": "bd12bab416b9737a9ce57c5c4d24f0d0a8d801ad3b3df661a1ae389ee382c108",
     "routing_quality_gate": "e2469c3f861d240b2caa25ae99ce90102eff108fb9b153925b581c342fac0857",
-    "tiering": "714265e38cc9b43810d1aee24d4ed7b0a36854fb5f4f4ecdbcba09b70c5fa01b",
+    "tiering": "74f186d45b13bd08be4aec24ac100b9a8920dbe4d9aa0368a5f199bf6ba5ca34",
     "work_placement": "a005f36907e98904068ee00e7a9ed9ac064c4bf5630b52c0769679f023b05d36",
 }
 
