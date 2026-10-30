@@ -371,10 +371,19 @@ class TestThemedRosterIsRefused(unittest.TestCase):
     #:
     #: Source of truth: `scripts/_crew_common.PAIRS` (the nine word-pairs) plus
     #: `_crew_common.TIERED_AGENTS` resolved through `themed_name` (the two
-    #: `archimedes-*` tier variants). Kept as a literal on purpose --
-    #: `docs_site/` must not import from `scripts/`, because the docs build has
-    #: to work with nothing from `scripts/` on PYTHONPATH. That makes this list
-    #: a hand-maintained copy: adding a PAIRS entry means adding it here.
+    #: `archimedes-*` tier variants). Kept as a literal on purpose: this test
+    #: builds *synthetic* fixture repos (see `_make_repo` below) rather than
+    #: reading the real crew, so there is no live roster here to import
+    #: `_crew_common` against -- a hand-maintained copy is the only shape that
+    #: fits. That makes this list a hand-maintained copy: adding a PAIRS entry
+    #: means adding it here.
+    #:
+    #: This no longer means "`docs_site/` must not import from `scripts/`" in
+    #: general -- `docs_site/gen_theme.py` reads the live theme table straight
+    #: out of `scripts/_crew_common.py` through a top-level, repo-root
+    #: `sys.path` insert that needs no `PYTHONPATH` at all (see that module's
+    #: docstring). The two are consistent: the live theme table has a real
+    #: roster to read, and this fixture-building test does not.
     #:
     #: (An earlier version also listed `sisyphus`, which the theme script never
     #: produces -- it is the `.sisyphus/` plan directory, not an agent.)

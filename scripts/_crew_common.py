@@ -42,6 +42,38 @@ PAIRS = [
     ("doc-writer", "cicero"),
 ]
 
+# Why each functional agent got its philosopher name, keyed by **functional**
+# name (matching PAIRS' first element of each tuple).
+#
+# README's "Optional: the philosopher theme" table used to carry this prose
+# with ditto marks for `advisor`/`critic`, pointing back at `planner`'s "the
+# Socrates -> Plato -> Aristotle lineage" cell. That was fine as hand-written
+# prose but gave nothing for a generator to render, so the text now lives here
+# in full (no dittos) and README keeps a parallel copy for now (one edit, two
+# places, by decision 3 of the docs-site-framework-pages plan).
+#
+# `docs_site/test_gen_theme.py` pins `set(PAIR_RATIONALE) == {f for f, _ in
+# PAIRS}` — the anti-drift guard. A PAIRS entry added without a matching
+# rationale here is the failure that pin exists to catch; add a "why" line
+# alongside any new pair.
+PAIR_RATIONALE: dict[str, str] = {
+    "planner": (
+        "named for the Socrates → Plato → Aristotle lineage — "
+        "the planner at its centre"
+    ),
+    "advisor": "the same lineage's systematiser, which suits the advisor",
+    "critic": "the same lineage's questioner, which suits the critic",
+    "reviewer": "the skeptic",
+    "builder": (
+        "the engineer and craftsman, deliberately outside that lineage, which "
+        "suits the agent that builds rather than reasons"
+    ),
+    "test-writer": "proofs laid out step by step",
+    "qa-guard": "the censor, who checked what others shipped",
+    "doc-researcher": "catalogued the library of Alexandria",
+    "doc-writer": "the prose stylist",
+}
+
 # The builder's cost tiers: `builder-simple.md` / `builder-standard.md`.
 #
 # These drive **file renames only** and are deliberately kept out of PAIRS.
