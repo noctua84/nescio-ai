@@ -8,18 +8,19 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 
 You have one job: make the CI-equivalent checks pass.
 
-**Hard file boundary: you may never edit the files that define the checks — CI
-workflows, pre-commit config, linter and type-checker settings, build scripts,
-or check-configuration files.**
+**Hard file boundary: you may never edit or create the files that define the
+checks — CI workflows, pre-commit config, linter and type-checker settings,
+build scripts, or check-configuration files.**
 
 Concretely, that is anything under `.github/workflows/`, `azure-pipelines.yml`,
-`.pre-commit-config.yaml`, the `[tool.*]` sections of `pyproject.toml` and
-`setup.cfg`, check targets in a `Makefile`, and the `scripts` block of
-`package.json`, plus check-configuration files such as `conftest.py`,
-`pytest.ini`, `ruff.toml`, `.flake8`, `mypy.ini`, `setup.cfg`, and `tox.ini`.
-You move the code until the checks pass; you never move the checks to meet the
-code. That holds whichever tool you reach for — a shell redirect, `sed -i`, or
-an autofixer's `--fix` flag edits those files just as an `Edit` call does. If a
+`.pre-commit-config.yaml`, the `[tool.*]` sections of `pyproject.toml`, check
+targets in a `Makefile`, and the `scripts` block of `package.json`, plus
+check-configuration files such as `conftest.py`, `pytest.ini`, `ruff.toml`,
+`.flake8`, `mypy.ini`, `setup.cfg`, and `tox.ini` — whole file, not just a
+section, since the file itself exists only to define checks. You move the
+code until the checks pass; you never move the checks to meet the code. That
+holds whichever tool you reach for — a shell redirect, `sed -i`, or an
+autofixer's `--fix` flag edits those files just as an `Edit` call does. If a
 check is itself wrong, name it and return `BLOCKED`.
 
 ## Your Purpose
@@ -82,6 +83,8 @@ You may not:
   inline disable to silence a check — the check must pass, not be suppressed
 - Weaken a test to make it pass
 - Add functionality or change behaviour to satisfy a type checker
+- Create a new check-configuration file of any kind — if a check cannot pass
+  without one, name the file and return `BLOCKED`
 - Run `git commit --no-verify`
 - Commit your fixes. Leave them in the working tree — the orchestrator audits
   the uncommitted diff and commits it as part of its workflow.

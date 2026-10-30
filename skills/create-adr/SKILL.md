@@ -118,7 +118,7 @@ When the new ADR replaces an old one:
 | Skipping Step 2 | Read every existing ADR first — conflict detection is the point. |
 | Silent contradiction of an accepted ADR | Supersede it, or justify coexistence in Context. |
 | Only positive consequences | Add at least one negative/risk. |
-| Importing a heavy multi-section corporate template | Use the brain's four-section format; match the existing files. |
+| Importing a heavy multi-section corporate template | Use the sections in Step 4 and nothing else — Status, Context, Decision, Options considered (exempt for `as-built`), Consequences; match the existing files. |
 | `proposed` or `accepted` with no Options considered | Add the alternatives you actually weighed and why each was rejected. Exempt only `as-built` ADRs. |
 | No rationale in Decision | State why the chosen option won against which drivers/constraints. |
 | Author self-marks `accepted` | Default `proposed`; promote to `accepted` only when the decision is actually adopted. |

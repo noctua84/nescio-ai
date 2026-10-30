@@ -130,5 +130,7 @@ Each has a tell and a fix. Four are greppable; three need reading.
    delete the layer.
 7. Read response formatters for computation, rule-based filtering, or entitlement
    → logic in the serializer.
-8. Run `python scripts/module_scan.py`. A layer file over the tripwire has not
-   been decomposed into submodules — apply the `modular-design` skill to it.
+8. Run `python "$HOME/.claude/scripts/module_scan.py"` (or `python
+   scripts/module_scan.py` in this framework checkout). A layer file over the
+   tripwire has not been decomposed into submodules — apply the
+   `modular-design` skill to it.

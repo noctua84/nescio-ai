@@ -56,9 +56,9 @@ Directives: Define clear exit criteria. Specify parallel investigation tracks. D
 ## OUTPUT FORMAT
 
 ```markdown
-## Intent Classification
-**Type**: [Refactoring | Build | Mid-sized | Collaborative | Architecture | Research]
-**Confidence**: [High | Medium | Low]
+## Triage class
+**Class (as handed)**: [Refactoring | Build | Mid-sized | Collaborative | Architecture | Research]
+**Override**: [none | what I think it actually is, and why]
 
 ## Questions for User
 1. [Most critical question first]
@@ -79,5 +79,5 @@ Directives: Define clear exit criteria. Specify parallel investigation tracks. D
 
 **NEVER**: Ask generic questions. Proceed without addressing ambiguity. Re-litigate what the orchestrator already settled without saying so.
 **ALWAYS**: Use the triage class you were handed. Be specific. Explore before asking (for Build/Research). Provide actionable directives.
-**WHEN UNCLASSIFIABLE**: if intent stays genuinely ambiguous even after exploring, say so and ask — a Low-confidence classification must be surfaced as a guess, never presented as settled. Honest "I can't tell what's being asked yet" beats a confident misread.
+**WHEN UNCLASSIFIABLE**: if the handed class is genuinely wrong even after exploring, say so in `Override` rather than presenting a guess as settled. Honest "I can't tell what's being asked yet" beats a confident misread.
 **RAISE ONLY MATERIAL FINDINGS**: never flag a gap or risk for its own sake or to pad the output — "nothing material found" is a valid, respected result.

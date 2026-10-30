@@ -97,8 +97,8 @@ important thing to say.
 The epistemic refusal — "I cannot determine this" or "no competent path exists"
 — must be a named outcome, not an implicit fallback. `validator` approves by
 default, but its prompt names disapproval explicitly and defines exactly when it
-applies. `advisor`'s `interrogate` mode is a named outcome for the situation
-where giving an answer before asking questions would be dishonest.
+applies. `advisor` naming "insufficient basis to recommend" is a named outcome
+for the situation where inventing a recommendation would be dishonest.
 
 When you design a new agent, list every honest outcome before writing the rest
 of the prompt. If the list has only one entry, the agent is over-constrained.

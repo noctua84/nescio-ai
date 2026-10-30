@@ -149,9 +149,11 @@ mean "get this right". Every tier is held to the same verification bar.
   declares an override, e.g.
   `python "$HOME/.claude/scripts/module_scan.py" --json --tripwire 300`; the
   scanner only reports files over whichever tripwire it is given, so a
-  declared override never reaches the JSON without it. If a task would add
-  code to a file that appears over the tripwire (400 lines by default, or the
-  project's `## Architecture` override), schedule the extraction as its own
+  declared override never reaches the JSON without it. If the script is
+  missing (`install.py` has not been re-run since it was linked), fall back to
+  `wc -l` against the tripwire by hand. If a task would add code to a file
+  that appears over the tripwire (400 lines by default, or the project's
+  `## Architecture` override), schedule the extraction as its own
   **preceding** task, tiered `standard` or `complex`. An implementer will not
   split mid-task, so an unscheduled extraction never happens.
 

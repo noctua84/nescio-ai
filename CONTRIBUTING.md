@@ -132,7 +132,10 @@ is a framework path, and expect it to have no effect at all in Desktop.
 
 **Agent effort levels govern dispatched agents, not the session.** Measured with
 Claude Code CLI 2.1.312 (two runs per arm, so directional): `claude-haiku-5-5`
-resolves and reports `contextWindow: 1000000` with no `[1m]` suffix. A frontmatter
+resolves and reports `contextWindow: 1000000` with no `[1m]` suffix — if the 5.5
+generation carries 1M natively, the `[1m]` suffix apparatus above is moot for
+this crew and the preceding 200K-cap paragraph applies only to the superseded,
+non-`5-5` pins; re-verify per model before relying on either. A frontmatter
 `effort:` is honoured when the agent is dispatched as a subagent — the same prompt
 on a haiku-5-5 subagent produced ≈11–15k output tokens at `low` vs ≈18–24k at
 `high`. When the agent runs as the main session (`claude -p --agent`), frontmatter

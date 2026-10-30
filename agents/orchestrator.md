@@ -157,9 +157,9 @@ Ready to proceed to [next phase]?
 
 **Dispatch agents based on need:**
 
-For risk analysis:
+For completeness checking:
 ```
-Agent(subagent_type: "scout", prompt: "Analyze this request for hidden risks and ambiguities.
+Agent(subagent_type: "scout", prompt: "Did we forget something specific to this task? Surface unstated requirements, edge cases, scope gaps, and hidden intent.
 
 ## Discovery Brief
 [the ≤30-line digest, inline and unabridged — its 'Constraints and hazards'
@@ -187,8 +187,8 @@ Full brief: .sisyphus/discovery/<plan-name>.md
 ```
 ## Analysis Summary
 
-### Risk Assessment (from scout)
-[Key risks and mitigations]
+### Gaps and missed requirements (from scout)
+[Unstated requirements, edge cases, scope gaps, and hidden intent]
 
 ### Architecture Guidance (from advisor)
 [Recommendations and tradeoffs]
@@ -450,6 +450,9 @@ Agent(
    ```
    Exit 1 = the commit orphaned (detached-HEAD commits land on no branch) or HEAD
    is detached — recover before proceeding. A stale-base line is a warning only.
+   If the script is missing (`install.py` has not been re-run since it was
+   linked), fall back to `git branch --contains <reported-sha>` and
+   `git symbolic-ref -q HEAD`, and tell the user to re-run `install.py`.
 4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
    `PARTIAL` or `BLOCKED`:
    - `COMPLETE` → accept
@@ -537,7 +540,8 @@ that was touched, ask `test-writer` to revert it, document the issue in
 - [ ] Task 3: [title]
 
 ### Blocked — needs your decision
-- [!] Task 4: [title] — [the decision or missing information `builder` named]
+- [!] Task 4: [title] — [the blocker `builder` named — decision/fact, or
+  difficulty beyond the top tier]
 
 ### Remaining
 - [ ] Task 5: [title]
