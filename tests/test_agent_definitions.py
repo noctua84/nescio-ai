@@ -88,6 +88,11 @@ ALLOWED_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 # inheriting it.
 CONTEXT_WINDOW_SUFFIX = "[1m]"
 
+# Suffix every model ID on the generation the crew currently runs on carries.
+# Checked separately from ALLOWED_MODELS on purpose — see
+# `test_every_agent_model_is_on_the_current_generation`.
+CURRENT_GENERATION_SUFFIX = "-5-5"
+
 
 def _base_model(model: object) -> object:
     """Strip an optional context-window suffix, leaving anything else untouched.
@@ -473,6 +478,37 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
                     _base_model(model),
                     ALLOWED_MODELS,
                     f"{path.name}: unexpected model {model!r}",
+                )
+
+    def test_every_agent_model_is_on_the_current_generation(self):
+        """The whole crew moves generations together, or not at all.
+
+        This splits a job `ALLOWED_MODELS` deliberately does not do.
+        The allowlist keeps superseded IDs in it so reverting one charter to
+        the previous generation stays a one-line change — which means it
+        cannot notice a *half*-finished bump, where some charters moved and
+        others were missed. Mixed generations are the expensive state: the
+        tier ladder stops being a cost ladder, and the crew behaves
+        differently depending on which agent happens to be dispatched.
+
+        So: a deliberate revert updates both places — this suffix and, if the
+        whole crew is going back, the generation named here. An accidental
+        half-bump updates neither and fails here.
+        """
+        paths = _agent_files()
+        self.assertTrue(paths, "no agent files found — nothing asserted")
+        for path in paths:
+            with self.subTest(agent=path.stem):
+                model = _base_model(self._frontmatter(path).get("model"))
+                self.assertIsInstance(
+                    model, str, f"{path.name}: declares no `model:`"
+                )
+                self.assertTrue(
+                    model.endswith(CURRENT_GENERATION_SUFFIX),
+                    f"{path.name}: model {model!r} is not on the "
+                    f"`*{CURRENT_GENERATION_SUFFIX}` generation the rest of the crew "
+                    f"runs on — either the bump missed this charter, or the whole "
+                    f"crew moved and CURRENT_GENERATION_SUFFIX did not",
                 )
 
     def test_every_agent_declares_an_allowed_effort(self):
@@ -1499,19 +1535,22 @@ class TestModularDesignDoctrine(unittest.TestCase):
                 )
 
     def test_the_tiers_carry_identical_doctrine_wording(self):
-        """Tier parity, diffed line by line against the complex tier.
+        """Tier parity on the doctrine lines, wherever in the file they sit.
 
         The three tiers differ only in model and in how much judgement the task
         is assumed to need; the doctrine they apply is the same doctrine. Drift
         here is the quietest kind of drift — a correction applied to `builder`
         and not to the two cheaper tiers leaves the tiers that take the *bulk*
-        of the dispatches on the old wording, and nothing in the suite notices
-        unless the comparison is made.
+        of the dispatches on the old wording.
 
-        Compares the stripped lines mentioning the skill rather than whole
-        bodies: the bodies legitimately differ (the tier's own name and model
-        rationale appear throughout), and whole-body equality would be a test
-        that can only be made to pass by making the tiers identical.
+        `TestBuilderTierParity.test_the_tiers_share_one_body_from_the_purpose_heading_onward`
+        now asserts byte-for-byte equality below `## Your Purpose`, which is
+        where all of today's doctrine lines live — so on the current files this
+        comparison is implied by that one. It is kept because it is not
+        *structurally* implied: the tier paragraph above that heading is
+        allowed to differ, and a doctrine sentence added there — the natural
+        place to put a tier-specific gloss on the skill — would drift unnoticed
+        with whole-body parity still green. This test reads the whole file.
         """
         base = BUILDER_TIERS[0]
         expected = self._doctrine_lines(base)
@@ -1533,8 +1572,10 @@ class TestModularDesignDoctrine(unittest.TestCase):
 class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
     """The three builder tiers are one charter at three prices.
 
-    Their own prose says so: "same contract", "they differ only in the model
-    they run on". The orchestrator leans on that promise when it tells itself
+    Their own prose says so: each tier's opening paragraph tells its agent that
+    the other tiers "carry this same contract" (the top tier: "this identical
+    contract on cheaper models") and that size alone does not justify a more
+    expensive one. The orchestrator leans on that promise when it tells itself
     that over-tiering buys no extra rigour and that escalating a block one tier
     is cheap. If a correction lands on `builder` and not on the two cheaper
     tiers — which take the bulk of the dispatches — the promise is false and
@@ -1550,6 +1591,9 @@ class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
     #: live the frontmatter and the one paragraph that names the tier.
     SHARED_CONTRACT_HEADING = "## Your Purpose"
 
+    #: Where the charter explains what each verdict means to the agent emitting it.
+    VERDICTS_HEADING = "### Verdicts"
+
     def _path(self, functional_name):
         return AGENTS_DIR / f"{_themed(functional_name)}.md"
 
@@ -1563,6 +1607,29 @@ class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
             f"parity comparison has no anchor to cut on",
         )
         return text[index:]
+
+    def _flat_preamble(self, functional_name):
+        """Everything above the shared contract, whitespace collapsed.
+
+        Collapsed because the tier paragraph is hard-wrapped prose: a phrase
+        assertion against the raw text would pass or fail on where the wrap
+        happens to fall, which is not what any of this is about.
+        """
+        text = self._path(functional_name).read_text(encoding="utf-8")
+        return " ".join(text[: text.find(self.SHARED_CONTRACT_HEADING)].split())
+
+    def _flat_verdicts(self, functional_name):
+        """The `### Verdicts` block, whitespace collapsed. Same reason."""
+        text = self._path(functional_name).read_text(encoding="utf-8")
+        start = text.find(self.VERDICTS_HEADING)
+        self.assertNotEqual(
+            start,
+            -1,
+            f"{functional_name}: no `{self.VERDICTS_HEADING}` section — the charter "
+            f"defines an output contract whose verdicts it never explains",
+        )
+        end = text.find("\n## ", start)
+        return " ".join(text[start : end if end != -1 else len(text)].split())
 
     def test_the_tiers_declare_the_same_effort(self):
         """Tiers differ in model. Effort is not a tier dial.
@@ -1666,6 +1733,75 @@ class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
                     preamble,
                     f"{name}: does not name itself as the `{tier}` tier before "
                     f"`{self.SHARED_CONTRACT_HEADING}`",
+                )
+
+    def test_each_tier_tells_its_agent_the_other_tiers_carry_the_same_contract(self):
+        """The cost ladder has to be stated where the agent reads it.
+
+        Everything else in this class proves the tiers *are* one contract. This
+        proves each tier is told so. An agent that does not know the other
+        tiers run the same charter reads its own tier as a quality grade — the
+        cheap tiers treat their work as the throwaway kind, and `builder` reads
+        a long or important task as its own justification. Hence the second
+        half: being big is not being hard, and only hardness buys a bigger
+        model.
+        """
+        # The top tier says it from above ("cheaper models"), the others from
+        # below ("at higher cost") — same claim, opposite vantage point.
+        contract_claims = ("carry this same contract", "carries this same contract",
+                           "carry this identical contract")
+        # `builder` phrases the size point as the reason it was dispatched
+        # ("because the task needs reasoning, not because it is long"); the
+        # cheaper tiers phrase it as a reason not to escalate.
+        size_claims = ("size alone does not justify it",
+                       "not because it is long or important")
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                preamble = self._flat_preamble(name)
+                self.assertTrue(
+                    any(claim in preamble for claim in contract_claims),
+                    f"{name}: its tier paragraph never says the other tiers carry the "
+                    f"same contract — expected one of {contract_claims}",
+                )
+                self.assertTrue(
+                    any(claim in preamble for claim in size_claims),
+                    f"{name}: its tier paragraph does not say that size alone is not a "
+                    f"reason to tier up — expected one of {size_claims}",
+                )
+
+    def test_the_blocked_verdict_names_both_branches(self):
+        """`BLOCKED` carries two cases, and the definition must admit both.
+
+        The tier paragraph tells the agent to return `BLOCKED` either for a
+        decision the plan has not settled *or* for work harder than this tier,
+        and the orchestrator routes those two differently — a decision goes to
+        the user, difficulty goes one tier up (or, from `builder`, also to the
+        user). A verdict definition that names only the missing-decision case
+        contradicts the paragraph above it: the agent that has merely hit
+        something too hard finds no verdict describing its situation and
+        reaches for `PARTIAL`, which routes as progress rather than as an
+        escalation.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                verdicts = self._flat_verdicts(name)
+                self.assertIn(
+                    "**BLOCKED**",
+                    verdicts,
+                    f"{name}: `{self.VERDICTS_HEADING}` does not define `BLOCKED`",
+                )
+                self.assertIn(
+                    "decision or fact that is missing",
+                    verdicts,
+                    f"{name}: the `BLOCKED` definition does not name the "
+                    f"missing-decision/fact branch",
+                )
+                self.assertIn(
+                    "harder than this tier",
+                    verdicts,
+                    f"{name}: the `BLOCKED` definition does not name the "
+                    f"harder-than-this-tier branch, which its own tier paragraph "
+                    f"tells the agent to use it for",
                 )
 
     def test_only_the_top_tier_says_there_is_nowhere_higher(self):
@@ -1974,6 +2110,93 @@ class TestOrchestratorWiring(unittest.TestCase):
 ADR_SKILL_DIR = ROOT / "skills" / "create-adr"
 
 
+class TestScoutEchoesTheHandedTriageClass(unittest.TestCase):
+    """Scout reports the class it was handed; it does not re-derive one.
+
+    The orchestrator triages the request and hands the class down with the
+    brief. An output contract that asks scout for its own `Type` and a
+    `Confidence` on it invites exactly the re-litigation the dispatch was
+    meant to settle: two classifications reach the plan, the second one carries
+    a hedge, and nothing says which governs. Keeping a named `Override` slot is
+    the deliberate exception — disagreement is allowed, but it has to be
+    declared as disagreement rather than substituted silently.
+    """
+
+    OUTPUT_HEADING = "## OUTPUT FORMAT"
+
+    def setUp(self):
+        self.path = AGENTS_DIR / f"{_themed('scout')}.md"
+        self.text = self.path.read_text(encoding="utf-8")
+
+    def _output_contract(self):
+        """The `## OUTPUT FORMAT` section, fence and all.
+
+        Scanned line by line rather than cut at the next `\\n## `: the section
+        *is* a fenced markdown block whose own headings start with `## `, so a
+        substring cut ends the section at the first line of the thing being
+        asserted about.
+        """
+        lines = self.text.splitlines()
+        try:
+            start = lines.index(self.OUTPUT_HEADING)
+        except ValueError:
+            self.fail(f"{self.path.name}: no `{self.OUTPUT_HEADING}` section")
+        out, fenced = [], False
+        for line in lines[start + 1 :]:
+            if line.startswith("```"):
+                fenced = not fenced
+            elif line.startswith("## ") and not fenced:
+                break
+            out.append(line)
+        return "\n".join(out)
+
+    def test_the_output_contract_echoes_the_handed_class(self):
+        contract = self._output_contract()
+        self.assertIn(
+            "## Triage class",
+            contract,
+            f"{self.path.name}: its output contract has no triage-class section",
+        )
+        self.assertIn(
+            "(as handed)",
+            contract,
+            f"{self.path.name}: the triage class in its output contract is not marked "
+            f"as the one it was handed — a reader cannot tell whose classification "
+            f"it is looking at",
+        )
+        self.assertIn(
+            "**Override**",
+            contract,
+            f"{self.path.name}: no `Override` slot — disagreement with the handed "
+            f"class has nowhere to go but a silent substitution",
+        )
+
+    def test_the_output_contract_asks_for_no_self_classification(self):
+        """The two fields that made the report a second triage.
+
+        `Type` was the re-derivation; `Confidence` was the hedge on it. Both
+        are gone, and neither is the kind of field that comes back on purpose —
+        it comes back by someone restoring an older copy of the block.
+        """
+        contract = self._output_contract()
+        for field in ("Intent Classification", "**Type**", "Confidence"):
+            with self.subTest(field=field):
+                self.assertNotIn(
+                    field,
+                    contract,
+                    f"{self.path.name}: its output contract still asks for {field!r} — "
+                    f"that is scout classifying the request a second time",
+                )
+
+    def test_nothing_in_the_charter_still_calls_it_intent_classification(self):
+        self.assertNotIn(
+            "Intent Classification",
+            self.text,
+            f"{self.path.name}: still names an `Intent Classification` step — the "
+            f"class is handed down, not derived here",
+        )
+
+
 class TestAdrOptionsConsidered(unittest.TestCase):
     """An ADR without the rejected options is a changelog entry.
 
@@ -1987,7 +2210,16 @@ class TestAdrOptionsConsidered(unittest.TestCase):
     HEADING = "## Options considered"
 
     def test_the_template_carries_the_section(self):
-        """The template is the only part of the skill an author actually copies."""
+        """The template is the shape a published ADR is checked against.
+
+        It is not simply "the file an author copies": per SKILL.md's note on
+        frontmatter, `adr-template.md` carries the *published* form
+        (`title`/`status`/`source_repo`) that `scripts/_adr_transform.py`
+        produces, while a brain-internal ADR uses the `name`/`description`/
+        `type`/`status` form shown in the skill body. The sections below the
+        frontmatter are common to both, which is why the heading has to be here
+        *and* in SKILL.md — the next test covers the other route.
+        """
         template = (ADR_SKILL_DIR / "adr-template.md").read_text(encoding="utf-8")
         self.assertIn(
             self.HEADING,
