@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.10.0](https://github.com/noctua84/nescio-ai/compare/v1.9.1...v1.10.0) (2026-10-30)
+
+
+### Features
+
+* move crew to 5.5 models and fix charter contradictions ([#222](https://github.com/noctua84/nescio-ai/issues/222)) ([8b766bb](https://github.com/noctua84/nescio-ai/commit/8b766bb04dbdcc10669b5ab51cb5cdbc98398950))
+* surface a fired ADR 0002 memory trigger at SessionStart ([#216](https://github.com/noctua84/nescio-ai/issues/216)) ([a678e95](https://github.com/noctua84/nescio-ai/commit/a678e951386cb70e462304f4d364ae35b099f8ae))
+
+
+### Bug Fixes
+
+* [fix] move module-gate workflow tests out of the downstream-shipped tests/ ([#223](https://github.com/noctua84/nescio-ai/issues/223)) ([6080c57](https://github.com/noctua84/nescio-ai/commit/6080c575df4f8661f9b333c92da809c13a27663c))
+
+
+### Documentation
+
+* [docs] point ADR 0005 Decision 7 at the issues that discharge it ([#218](https://github.com/noctua84/nescio-ai/issues/218)) ([822feb8](https://github.com/noctua84/nescio-ai/commit/822feb84b53d4fb8830569ac2bd3bd027bb052ef)), closes [#160](https://github.com/noctua84/nescio-ai/issues/160)
+* [fix] correct crew count and learning-loop diagram ([#219](https://github.com/noctua84/nescio-ai/issues/219)) ([3c3ca4e](https://github.com/noctua84/nescio-ai/commit/3c3ca4e799a223016fa869c7567d7926b364829e))
+* ADR 0005 Decision 7 -- nescio-ai is attended and the service is not ([#213](https://github.com/noctua84/nescio-ai/issues/213)) ([a346f56](https://github.com/noctua84/nescio-ai/commit/a346f56a6a49cd9fbd3599c7c3b5a92fbe8d84a2))
+* **site:** add Commands, Hooks, Lifecycle pages and philosopher-theme table ([#221](https://github.com/noctua84/nescio-ai/issues/221)) ([9f88a51](https://github.com/noctua84/nescio-ai/commit/9f88a5116e618ba32499f93d7d7680c7583fe799))
+
 ## [1.9.1](https://github.com/noctua84/nescio-ai/compare/v1.9.0...v1.9.1) (2026-10-25)
 
 
