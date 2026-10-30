@@ -116,7 +116,19 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.superfences
 
+# `links.anchors: warn` plus `--strict` turns a markdown link to a missing
+# in-page anchor (e.g. `agents.md#the-philosopher-theme`,
+# `commands.md#harvest-memory`) into a build failure instead of the default
+# `info`-level log line nobody notices. mkdocs 1.6.1 schema: `anchors` lives
+# under `validation.links`, not at the top level of `validation` itself.
+validation:
+  links:
+    anchors: warn
+
 nav:
   - Home: index.md
   - Agents: agents.md
   - Skills: skills.md
+  - Commands: commands.md
+  - Hooks: hooks.md
+  - Lifecycle: lifecycle.md

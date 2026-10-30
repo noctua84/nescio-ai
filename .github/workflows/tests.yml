@@ -340,11 +340,18 @@ jobs:
       - id: install
         continue-on-error: true
         run: pip install --retries 5 --timeout 30 mkdocs-material==9.7.7
-      # NO `if:` HERE, DELIBERATELY. test_gen_catalog.py imports stdlib plus
-      # gen_catalog, which is itself stdlib-only -- it does not care whether the
-      # step above worked. It holds the strict roster guarantee and nothing else
+      # NO `if:` HERE, DELIBERATELY. The generator suites import stdlib plus
+      # the `gen_*` modules, which are themselves stdlib-only (`gen_theme.py`
+      # additionally reads `scripts/_crew_common`, which is in this repo and
+      # also stdlib-only) -- none of them care whether the step above worked.
+      # test_gen_catalog.py holds the strict roster guarantee and nothing else
       # does, so it must not be reachable by a PyPI outage.
-      - run: python -m unittest discover -s docs_site -p "test_gen_catalog.py" -v
+      #
+      # The pattern is a glob, not one filename, so a new generator's suite
+      # (`test_gen_commands.py`, `test_gen_theme.py`, `test_gen_lifecycle.py`)
+      # runs here the moment it lands instead of needing a step of its own --
+      # which is the gap docs_site/test_ci_coverage.py exists to catch.
+      - run: python -m unittest discover -s docs_site -p "test_gen_*.py" -v
       # `outcome` is the step's result BEFORE continue-on-error rewrites it;
       # `conclusion` would read `success` here no matter what happened, which is
       # exactly the silent-green failure mode being guarded against.
