@@ -511,22 +511,14 @@ def render_skills(catalog: Catalog) -> tuple[str, list[str]]:
 def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
     """Render all four pages in memory. Returns ({filename: text}, warnings).
 
-    ``agents.md``/``skills.md`` honour ``repo_dir`` -- that parameter exists so
+    Every page honours ``repo_dir`` -- that parameter exists so
     ``test_gen_catalog.py`` can point this function at a small synthetic
-    fixture tree instead of the real repo. ``commands.md`` and ``lifecycle.md``
-    are deliberately **not** parameterised the same way: they read
-    ``commands/*.md`` and ``agents/orchestrator.md`` straight off ``REPO_DIR``
-    regardless of what ``repo_dir`` is. Those fixtures hold a handful of
-    agent/skill stubs and nothing under ``commands/``, let alone an
-    ``agents/orchestrator.md`` with real ``## PHASE n: NAME`` headings, so a
-    parameterised call would raise ``CatalogError`` for every one of them --
-    not because anything is wrong, but because the fixture was never built to
-    carry that data. The real CLI and the MkDocs hook always run against
-    ``REPO_DIR`` in practice anyway, so this costs nothing there.
+    fixture tree instead of the real repo, and the real CLI and the MkDocs
+    hook run it against ``REPO_DIR`` by default.
     """
     agents = discover_agents(repo_dir)
     skills = discover_skills(repo_dir)
-    commands = gen_commands.discover_commands(REPO_DIR)
+    commands = gen_commands.discover_commands(repo_dir)
 
     agents_page, agent_warnings = render_agents(agents)
     # The theme fragment is appended AFTER the detail sections (and after the
@@ -537,7 +529,7 @@ def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
     agents_page = agents_page.rstrip() + "\n\n" + gen_theme.render_theme_section()
     skills_page, skill_warnings = render_skills(skills)
     commands_page, commands_warnings = gen_commands.render_commands(commands)
-    lifecycle_page, lifecycle_warnings = gen_lifecycle.render_lifecycle(REPO_DIR)
+    lifecycle_page, lifecycle_warnings = gen_lifecycle.render_lifecycle(repo_dir)
 
     # Both renderers open with the generic agents/skills banner (they import
     # the same GENERATED_BANNER everything else here does); swap in the
@@ -558,7 +550,7 @@ def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
     check_count("agents", agents_page, agent_paths(repo_dir), repo_dir)
     check_count("skills", skills_page, skill_paths(repo_dir), repo_dir)
     check_count(
-        "commands", commands_page, gen_commands.command_paths(REPO_DIR), REPO_DIR
+        "commands", commands_page, gen_commands.command_paths(repo_dir), repo_dir
     )
 
     warnings = (
@@ -591,13 +583,12 @@ def generate(
 
     The returned dict stays ``{"agents": n, "skills": m}``, the same shape it
     has always had -- ``test_gen_catalog.py::TestRendering.test_writes_both_pages``
-    asserts it by exact equality against a repo fixture with no ``commands/``
-    directory, so a third ``"commands"`` key would fail that assertion for a
-    reason that has nothing to do with what it is actually guarding. The CLI
-    below still reports a commands count in its closing message -- it just
-    gets it from the live directory listing directly, the same number
-    ``check_count`` already proved the rendered page matches, rather than from
-    this dict.
+    asserts it by exact equality, so a third ``"commands"`` key would fail that
+    assertion for a reason that has nothing to do with what it is actually
+    guarding. The CLI below still reports a commands count in its closing
+    message -- it just gets it from the live directory listing directly, the
+    same number ``check_count`` already proved the rendered page matches,
+    rather than from this dict.
     """
     repo_dir = Path(repo_dir) if repo_dir else REPO_DIR
     out_dir = Path(out_dir) if out_dir else DEFAULT_OUT_DIR
@@ -684,10 +675,7 @@ def main(argv: list[str] | None = None) -> int:
     # `commands` is not one of `counts`' keys (see generate()'s docstring for
     # why), so it is read here straight from the live directory listing --
     # the same number check_count already proved the rendered page matches.
-    # REPO_DIR, not args.repo_dir: build_pages() renders commands.md and
-    # lifecycle.md from REPO_DIR unconditionally (see its docstring), so
-    # --repo-dir never changes this number either.
-    commands_count = len(gen_commands.command_paths(REPO_DIR))
+    commands_count = len(gen_commands.command_paths(args.repo_dir))
     verb = "verified" if args.check else "wrote"
     print(
         f"gen_catalog: {verb} {counts['agents']} agents, {counts['skills']} skills "
