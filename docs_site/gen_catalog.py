@@ -433,7 +433,10 @@ def render_agents(catalog: Catalog) -> tuple[str, list[str]]:
     grouped, warnings = _group(catalog.items, AGENT_GROUPS)
     count = len(catalog.items)
     lines = [
-        GENERATED_BANNER,
+        generated_banner(
+            "the YAML frontmatter of agents/*.md and skills/*/SKILL.md, plus "
+            "the theme table in scripts/_crew_common.py"
+        ),
         "",
         "# Agents",
         "",
@@ -511,21 +514,25 @@ def render_skills(catalog: Catalog) -> tuple[str, list[str]]:
 def build_pages(repo_dir: Path = REPO_DIR) -> tuple[dict[str, str], list[str]]:
     """Render all four pages in memory. Returns ({filename: text}, warnings).
 
-    Every page honours ``repo_dir`` -- that parameter exists so
-    ``test_gen_catalog.py`` can point this function at a small synthetic
+    Every generated page *body* honours ``repo_dir`` -- that parameter exists
+    so ``test_gen_catalog.py`` can point this function at a small synthetic
     fixture tree instead of the real repo, and the real CLI and the MkDocs
-    hook run it against ``REPO_DIR`` by default.
+    hook run it against ``REPO_DIR`` by default. The one exception is the
+    theme fragment appended to ``agents.md``: it is deliberately
+    repo-invariant and reads ``scripts/_crew_common`` from ``REPO_DIR``
+    regardless of ``repo_dir`` -- see ``gen_theme.render_theme_section``.
     """
     agents = discover_agents(repo_dir)
     skills = discover_skills(repo_dir)
     commands = gen_commands.discover_commands(repo_dir)
 
     agents_page, agent_warnings = render_agents(agents)
-    # The theme fragment is appended AFTER the detail sections (and after the
-    # count-guard below runs against it) so it cannot shift "## At a glance"
-    # later than any "### `name`" heading, and it introduces none of its own
-    # (see gen_theme's docstring), so the guard's count is unaffected either
-    # way.
+    # The theme fragment is appended BEFORE the count-guard below runs, so
+    # the guard counts the fragment too. That is safe: the fragment carries
+    # no "### `name`" heading of its own (see gen_theme's docstring, pinned
+    # by test_gen_theme.py::HeadingShapeTest), so it cannot inflate the
+    # count -- and if it ever did, check_count would fail the build loudly
+    # rather than miscount silently.
     agents_page = agents_page.rstrip() + "\n\n" + gen_theme.render_theme_section()
     skills_page, skill_warnings = render_skills(skills)
     commands_page, commands_warnings = gen_commands.render_commands(commands)

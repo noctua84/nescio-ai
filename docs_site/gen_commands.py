@@ -7,8 +7,10 @@ including) the next heading. The frontmatter ``description`` says what a
 command is *for*; the lead says what it *does*, in the author's own words, and
 dropping it would leave the page thinner than the source it is generated from.
 
-Stdlib only, same constraint as the rest of ``docs_site/``: the docs build must
-work with nothing from ``scripts/`` on ``PYTHONPATH``.
+Stdlib only -- this module's own constraint, not a claim about the rest of
+``docs_site/``: ``gen_theme.py`` reads ``scripts/_crew_common`` through a
+top-level, repo-root ``sys.path`` insert, so the docs build does require
+``scripts/`` to be present in the tree (but never on ``PYTHONPATH``).
 
 This module is wired into ``gen_catalog.build_pages`` by a later task (see the
 plan's file-ownership table) -- it does not touch ``gen_catalog.py`` or

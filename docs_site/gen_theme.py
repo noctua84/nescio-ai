@@ -51,6 +51,7 @@ used here.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 
 from catalog_core import CatalogError, REPO_DIR
 
@@ -67,6 +68,23 @@ except ImportError as exc:  # pragma: no cover - only on a partial checkout
         f"({exc}). The philosopher theme table needs scripts/_crew_common.py "
         "on the repo root; is this a partial checkout missing scripts/?"
     ) from exc
+
+
+# Spelled-out counts for small numbers so the prose reads naturally ("two
+# builder cost tiers") without hardcoding the figure itself -- add a tier and
+# this still agrees with len(tiered) because the lookup key is derived, not
+# the sentence.
+_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+def _and_join(items: Iterable[str]) -> str:
+    """Join with commas and a final "and", Oxford-safe past two entries."""
+    names = list(items)
+    if len(names) <= 1:
+        return "".join(names)
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + f", and {names[-1]}"
 
 
 def render_theme_section() -> str:
@@ -87,14 +105,15 @@ def render_theme_section() -> str:
     ]
     renamed_total = len(pairs) + len(tiered)
     invariant_names = ", ".join(f"`{name}`" for name in invariant)
-    tiered_names = " and ".join(f"`{name}`" for name in tiered)
+    tiered_names = _and_join(f"`{name}`" for name in tiered)
+    tier_count = _NUMBER_WORDS.get(len(tiered), str(len(tiered)))
 
     lines = [
         "## The philosopher theme",
         "",
         "The agent names used throughout this site are functional on purpose. If "
         "you'd like personality, an optional theme renames the thinker, builder "
-        "and craft agents after Graeco-Roman philosophers -- the same renaming "
+        "and craft agents after Graeco-Roman philosophers — the same renaming "
         "`scripts/apply_theme.py` applies to the agent files, their `name:` "
         "frontmatter, and every cross-reference in the crew.",
         "",
@@ -102,11 +121,11 @@ def render_theme_section() -> str:
         "| --- | --- | --- |",
         *rows,
         "",
-        f"The two builder cost tiers ({tiered_names}) follow `builder`, so "
+        f"The {tier_count} builder cost tiers ({tiered_names}) follow `builder`, so "
         f"{renamed_total} files are renamed in all: the {len(pairs)} pairs above "
-        f"plus the two builder tiers.",
+        f"plus the {tier_count} builder tiers.",
         "",
-        f"The remaining agents -- {invariant_names} -- keep their functional "
+        f"The remaining agents — {invariant_names} — keep their functional "
         "names under both themes.",
         "",
         "Apply it with `python scripts/apply_theme.py philosophers` (and "

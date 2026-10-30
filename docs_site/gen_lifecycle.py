@@ -26,8 +26,10 @@ Agent names are written in the **functional** theme (``builder``,
 ``builder-standard``, ``builder-simple``), because the committed tree is the
 functional theme; the Agents page carries the philosopher mapping.
 
-Stdlib only, like the rest of ``docs_site/``: the docs build must work with
-nothing from ``scripts/`` on ``PYTHONPATH``.
+Stdlib only -- this module's own constraint, not a claim about the rest of
+``docs_site/``: ``gen_theme.py`` reads ``scripts/_crew_common`` through a
+top-level, repo-root ``sys.path`` insert, so the docs build does require
+``scripts/`` to be present in the tree (but never on ``PYTHONPATH``).
 """
 
 from __future__ import annotations

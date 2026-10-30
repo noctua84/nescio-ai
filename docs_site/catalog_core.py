@@ -16,7 +16,8 @@ tripwire, and the new Commands/Theme/Lifecycle renderers (``gen_commands.py``,
 ``gen_theme.py``, ``gen_lifecycle.py``) all need these primitives while
 ``gen_catalog.build_pages`` needs to call back into *them* -- importing in
 both directions would be a cycle. Pulling the shared primitives one module
-lower breaks the cycle and brings ``gen_catalog.py`` back under the gate.
+lower breaks the cycle and shrinks ``gen_catalog.py`` (732 -> 672 lines); it
+remains over the 400-line tripwire and carries a ``Module-check:`` verdict.
 
 Stdlib only. This is *this module's own* constraint, not a claim about the
 rest of ``docs_site/`` -- ``gen_theme.py`` now reads ``scripts/_crew_common``
@@ -60,9 +61,10 @@ GENERATED_BANNER = (
 def generated_banner(source: str) -> str:
     """Generated-file banner naming ``source`` as this page's actual input.
 
-    ``GENERATED_BANNER`` above is a literal, kept verbatim for ``agents.md``/
-    ``skills.md`` so neither page's committed banner line churns for no
-    reason. It is wrong for any other generated page, though -- ``commands.md``
+    ``GENERATED_BANNER`` above is a literal, kept verbatim for ``skills.md``
+    so that page's committed banner line does not churn for no reason. It is wrong
+    for any other generated page, though -- ``agents.md`` now also names
+    ``scripts/_crew_common.py`` as a source (the theme table), ``commands.md``
     is built from ``commands/*.md``, not from agent/skill frontmatter, and
     ``lifecycle.md`` is parsed out of ``agents/orchestrator.md``. Rather than
     hardcode a second (or third) literal that drifts the same way, this takes
