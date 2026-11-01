@@ -1,5 +1,7 @@
 # tests/test_wiki_common.py
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,11 +39,6 @@ class TestSplitFrontmatter(unittest.TestCase):
 
     def test_unclosed_frontmatter(self):
         self.assertEqual(wc.split_frontmatter("---\nname: x\n"), ({}, "---\nname: x\n"))
-
-
-import json
-import tempfile
-from pathlib import Path
 
 
 class TestIterNotes(unittest.TestCase):

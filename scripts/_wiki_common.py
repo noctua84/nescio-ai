@@ -8,6 +8,7 @@ and extracts [[wikilinks]]. Path-parameterized for tests.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections.abc import Iterator
@@ -86,3 +87,19 @@ def load_stores(repo_dir: Path = REPO_DIR) -> dict[str, dict]:
     if isinstance(data, dict) and "stores" in data:
         return data["stores"]
     return data if isinstance(data, dict) else {}
+
+
+def resolve_dir(args: argparse.Namespace) -> Path | None:
+    """Resolve the folder a CLI run targets: `--dir` wins, else `--store`'s path.
+
+    Returns None when the store is absent from stores.json, or when its entry
+    has no "path". Shared by wiki_index and wiki_lint.
+    """
+    if args.dir:
+        return (REPO_DIR / args.dir).resolve()
+    stores = load_stores()
+    store = stores.get(args.store)
+    if not store:
+        return None
+    path = store.get("path")
+    return (REPO_DIR / path).resolve() if path else None

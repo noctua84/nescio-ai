@@ -71,8 +71,8 @@ The entries below are **re-scoped, not rewritten.** #11 and #41 are largely answ
 or made moot — ingest and query are what the service provides, and an Obsidian view
 over `memory/` assumes the files stay the record. #10 and #34 keep their intent but
 change shape against a service. #35, #36, #38, #40 and #70 are unaffected, because
-they sit on the capture and readiness side rather than on storage. #2, and the
-unmilestoned wiki-engine work, hardens the `MEMORY.md` generator that a database
+they sit on the capture and readiness side rather than on storage. The
+unmilestoned wiki-engine work hardens the `MEMORY.md` generator that a database
 replaces — worth holding rather than extending.
 
 What the move costs is the part worth reading. Four properties are free while memory
@@ -89,7 +89,6 @@ transfer. See #160.
 - `parked` [#38](https://github.com/noctua84/nescio-ai/issues/38) — consolidation cadence: scheduled "sleep" reflection over memory
 - `readiness` [#40](https://github.com/noctua84/nescio-ai/issues/40) — orchestrator PR-observation retro + automatic harvest
 - `readiness` [#70](https://github.com/noctua84/nescio-ai/issues/70) — derive a clean-vs-flagged session verdict from the transcript, replacing `readiness.md`'s insufficient-data state
-- `loop` [#2](https://github.com/noctua84/nescio-ai/issues/2) — wiki-engine lint hygiene follow-ups
 
 ## Earned autonomy — [Epic #33](https://github.com/noctua84/nescio-ai/issues/33)
 
