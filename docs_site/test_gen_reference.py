@@ -76,6 +76,7 @@ _ENV_VAR_UNDER_TEST = "CLAUDE_HARVEST_NUDGE_THRESHOLD"
 _saved_override = os.environ.pop(_ENV_VAR_UNDER_TEST, None)
 try:
     import harvest_nudge as hn  # noqa: E402
+    import memory_trigger_nudge as mtn  # noqa: E402
     import record_stop as rs  # noqa: E402
 finally:
     if _saved_override is not None:
@@ -312,12 +313,12 @@ class ConstantsTest(unittest.TestCase):
             )
 
     def test_names_the_trigger_script_it_shells_out_to(self):
-        src = Path(hn.__file__).read_text(encoding="utf-8")
+        src = Path(mtn.__file__).read_text(encoding="utf-8")
         m = re.search(r"[\"'](scripts/check_memory_triggers\.py)[\"']", src) or re.search(
             r"[\"'](check_memory_triggers\.py)[\"']", src
         )
         self.assertIsNotNone(
-            m, "harvest_nudge no longer references check_memory_triggers.py"
+            m, "memory_trigger_nudge no longer references check_memory_triggers.py"
         )
         self.assertIn(
             "check_memory_triggers.py",
