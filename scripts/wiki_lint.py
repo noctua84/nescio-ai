@@ -20,7 +20,7 @@ import argparse
 import re
 from pathlib import Path
 
-from _wiki_common import REPO_DIR, extract_wikilinks, iter_notes, load_stores
+from _wiki_common import extract_wikilinks, iter_notes, resolve_dir
 
 _MDLINK_RE = re.compile(r"\]\(([^)]+\.md)\)")
 _REQUIRED_FIELDS = ("name", "description", "type")
@@ -77,14 +77,6 @@ def lint(dir_path: Path, *, recursive: bool = True) -> list[str]:
     return findings
 
 
-def _resolve_dir(args: argparse.Namespace) -> Path | None:
-    if args.dir:
-        return (REPO_DIR / args.dir).resolve()
-    store = load_stores().get(args.store)
-    path = store.get("path") if store else None
-    return (REPO_DIR / path).resolve() if path else None
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description="Lint a markdown knowledge store.")
     g = ap.add_mutually_exclusive_group(required=True)
@@ -94,7 +86,7 @@ def main() -> int:
     ap.add_argument("--no-recursive", action="store_true", help="lint only the top folder")
     args = ap.parse_args()
 
-    dir_path = _resolve_dir(args)
+    dir_path = resolve_dir(args)
     if dir_path is None or not dir_path.is_dir():
         print(f"error: could not resolve a directory (dir={args.dir!r} store={args.store!r})")
         return 1

@@ -57,7 +57,7 @@ import sys
 from pathlib import Path
 
 from _marker_block import MarkerBlock, fenced_line_indices, split_lines
-from _wiki_common import REPO_DIR, iter_notes, load_stores
+from _wiki_common import iter_notes, resolve_dir
 
 # Markers delimiting the block this script OWNS. Everything between them is
 # rewritten on each run; everything outside is left byte-for-byte alone.
@@ -381,21 +381,10 @@ def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
     return 0, summary
 
 
-def _resolve_dir(args: argparse.Namespace) -> Path | None:
-    if args.dir:
-        return (REPO_DIR / args.dir).resolve()
-    stores = load_stores()
-    store = stores.get(args.store)
-    if not store:
-        return None
-    path = store.get("path")
-    return (REPO_DIR / path).resolve() if path else None
-
-
 def main() -> int:
     # Summary lines carry — and ⚠; a legacy Windows console defaults to cp1252 and
     # would raise UnicodeEncodeError. Guarded — a redirected StringIO in tests has
-    # no reconfigure. Placed ahead of _resolve_dir so it also covers the error
+    # no reconfigure. Placed ahead of resolve_dir so it also covers the error
     # print on the resolve-failure path.
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
@@ -409,7 +398,7 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="exit 1 if stale; write nothing")
     args = ap.parse_args()
 
-    dir_path = _resolve_dir(args)
+    dir_path = resolve_dir(args)
     if dir_path is None or not dir_path.is_dir():
         print(f"error: could not resolve a directory (dir={args.dir!r} store={args.store!r})")
         return 1

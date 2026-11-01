@@ -109,13 +109,13 @@ class TestResolveDirRobustness(unittest.TestCase):
     def test_wiki_lint_resolve_dir_missing_path(self):
         # A truthy store entry that lacks "path" must not raise KeyError.
         args = argparse.Namespace(dir=None, store="x")
-        with mock.patch.object(wiki_lint, "load_stores", return_value={"x": {"name": "y"}}):
-            self.assertIsNone(wiki_lint._resolve_dir(args))
+        with mock.patch("_wiki_common.load_stores", return_value={"x": {"name": "y"}}):
+            self.assertIsNone(wiki_lint.resolve_dir(args))
 
     def test_wiki_index_resolve_dir_missing_path(self):
         args = argparse.Namespace(dir=None, store="x")
-        with mock.patch.object(wiki_index, "load_stores", return_value={"x": {"name": "y"}}):
-            self.assertIsNone(wiki_index._resolve_dir(args))
+        with mock.patch("_wiki_common.load_stores", return_value={"x": {"name": "y"}}):
+            self.assertIsNone(wiki_index.resolve_dir(args))
 
 
 if __name__ == "__main__":
