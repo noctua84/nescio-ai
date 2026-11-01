@@ -8,12 +8,18 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from hooks import harvest_nudge, record_stop as rs  # noqa: E402
+from hooks import harvest_nudge  # noqa: E402
 
-# Bare name, not `hooks.memory_trigger_nudge`: harvest_nudge binds its sibling by
-# bare name, so patching the `hooks.`-qualified module would patch a different
-# module object and leave main()'s trigger path untouched.
+# Bare names, never `hooks.`-qualified: harvest_nudge binds both siblings by bare
+# name, and `hooks/__init__.py` puts this directory on sys.path, so
+# `record_stop` and `hooks.record_stop` are two separate entries in sys.modules
+# built from one file. Patching the `hooks.`-qualified module therefore patches
+# an object the hook never consults, leaving the code under test untouched — and
+# because the fault is simply never injected, the test goes on passing. The
+# `from hooks import` above must stay first: it is what runs `hooks/__init__.py`
+# and so puts this directory on sys.path for the two imports below.
 import memory_trigger_nudge  # noqa: E402
+import record_stop as rs  # noqa: E402
 
 
 class HarvestNudgeTest(unittest.TestCase):
@@ -764,12 +770,23 @@ class TriggerNudgeMainTest(unittest.TestCase):
         # git_roots() falls back to cwd rather than raising, so this is the
         # pathological case. Whatever the reason, a hook that raises breaks
         # session start for every repo on the machine.
+        calls = []
+
         def explode(cwd):
+            calls.append(cwd)
             raise OSError("cannot resolve repo root")
 
         with self._session() as work:
             with _patched(rs, "git_roots", explode):
                 rc, out = self._run_main(work)
+        # Assert the fault was actually injected, first. An empty session returns
+        # rc 0 and no output on its own, so the two assertions below hold whether
+        # nudge() survived `explode` or never called it — they cannot tell the
+        # difference. While this patched the `hooks.`-qualified `record_stop`
+        # (see the import note at the top of this file) that difference was the
+        # whole bug: `explode` was never reached, and the test passed even
+        # against a main() that had stopped catching the error.
+        self.assertEqual(len(calls), 1)
         self.assertEqual(rc, 0)
         self.assertEqual(out, "")
 
