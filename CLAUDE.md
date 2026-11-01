@@ -42,6 +42,10 @@ crew imposes nothing.
 - Branch for changes; don't commit straight to the default branch.
 - Use conventional commit messages (`feat` / `fix` / `chore` / `docs` / `refactor`).
 - Keep PR descriptions matter-of-fact: scope, what changed, how to test.
+- Never write a bare `#N` in a commit message or PR body unless you mean to
+  close that issue — GitHub's closing keywords bind to whatever number follows
+  them, and alert numbers, line numbers and versions all parse as issue
+  references. Write `alert 2` or `line 2`; `Refs #2` references without closing.
 
 ## Secrets
 
