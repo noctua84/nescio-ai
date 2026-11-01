@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hooks import memory_trigger_nudge  # noqa: E402
+from hooks import harvest_nudge, memory_trigger_nudge  # noqa: E402
 
 
 # ---- the ADR 0002 memory-trigger reminder ------------------------------
@@ -600,6 +600,17 @@ class TriggerEndToEndTest(unittest.TestCase):
     def test_a_small_real_tree_says_nothing(self):
         with self._fixture_tree(3) as work:
             self.assertEqual(memory_trigger_nudge.trigger_message(work), "")
+
+
+class NudgeSourcesParityTest(unittest.TestCase):
+    def test_nudge_sources_match_harvest_nudge(self):
+        # memory_trigger_nudge duplicates NUDGE_SOURCES instead of importing it:
+        # harvest_nudge imports this module for main(), so importing back would
+        # be a cycle. Pin the copy so the two reminders cannot be gated on
+        # different SessionStart sources.
+        self.assertEqual(
+            memory_trigger_nudge.NUDGE_SOURCES, harvest_nudge.NUDGE_SOURCES
+        )
 
 
 if __name__ == "__main__":
