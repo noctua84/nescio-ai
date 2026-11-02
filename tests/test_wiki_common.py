@@ -1,9 +1,11 @@
 # tests/test_wiki_common.py
+import argparse
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -65,6 +67,55 @@ class TestLoadStores(unittest.TestCase):
                 json.dumps({"stores": {"vault": {"path": "vault"}}}), encoding="utf-8"
             )
             self.assertEqual(wc.load_stores(root), {"vault": {"path": "vault"}})
+
+
+class TestResolveDir(unittest.TestCase):
+    """What ``resolve_dir`` returns, against the contract in its docstring.
+
+    The two tests in ``tests/test_wiki_lint.py`` pin a different claim — that
+    both CLI modules re-export this function — and between them reach only the
+    "store entry exists but has no path" branch. Tracing the suite showed the
+    three branches below were never executed at all: the ``--dir`` arm, the
+    store-absent arm, and the arm that actually resolves a store's path. They
+    had been verified by hand only.
+
+    ``REPO_DIR`` and ``load_stores`` are patched on ``_wiki_common`` because
+    that is where ``resolve_dir``'s body looks both up at call time — the same
+    object ``wiki_index`` and ``wiki_lint`` re-export.
+    """
+
+    def test_dir_resolves_against_the_repo_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            args = argparse.Namespace(dir="vault", store=None)
+            with mock.patch.object(wc, "REPO_DIR", root):
+                self.assertEqual(wc.resolve_dir(args), root / "vault")
+
+    def test_dir_wins_over_store_without_reading_stores_json(self):
+        """The docstring's first clause. stores.json must not even be consulted."""
+
+        def boom(*a, **k):
+            raise AssertionError("load_stores called despite --dir")
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            args = argparse.Namespace(dir="from-dir", store="from-store")
+            with mock.patch.object(wc, "REPO_DIR", root),                     mock.patch.object(wc, "load_stores", boom):
+                self.assertEqual(wc.resolve_dir(args), root / "from-dir")
+
+    def test_store_path_resolves_against_the_repo_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            args = argparse.Namespace(dir=None, store="vault")
+            with mock.patch.object(wc, "REPO_DIR", root),                     mock.patch.object(
+                        wc, "load_stores", lambda *a, **k: {"vault": {"path": "vault/notes"}}
+                    ):
+                self.assertEqual(wc.resolve_dir(args), root / "vault" / "notes")
+
+    def test_store_absent_from_stores_json_returns_none(self):
+        args = argparse.Namespace(dir=None, store="nope")
+        with mock.patch.object(wc, "load_stores", lambda *a, **k: {}):
+            self.assertIsNone(wc.resolve_dir(args))
 
 
 if __name__ == "__main__":
