@@ -303,26 +303,77 @@ def _split_raw_frontmatter(text: str) -> tuple[str, str]:
     return text[: end + 5], text[end + 5:]
 
 
+MANAGED_KEYS = ("name", "description", "type")
+
+
+def _top_level_key(ln: str) -> str | None:
+    """The frontmatter key ``ln`` opens, or ``None`` if it opens none.
+
+    Only column 0 counts. An indented ``name:`` is not a key at all — it is
+    *inside* the preceding key's block scalar, where YAML reads it as literal
+    text. Rewriting it as a key is what emptied the enclosing block and left a
+    duplicate ``name`` behind.
+    """
+    if not ln or ln[0].isspace():
+        return None
+    stripped = ln.strip()
+    if stripped == "---" or stripped.startswith("- ") or ":" not in ln:
+        return None
+    return ln.split(":", 1)[0].strip()
+
+
+def _value_span_end(lines: list[str], i: int) -> int:
+    """Index of the first line past the value opened at ``lines[i]``.
+
+    A key's value can run on past its own line — a ``|``/``>`` block scalar, a
+    quoted scalar wrapped over several lines, a nested list — and every such
+    continuation is indented. Replacing only the ``key:`` line therefore
+    orphans the rest of the old value, which YAML then folds into the new one
+    (silently wrong) or, once the new value is quoted, refuses to parse at all.
+
+    Interior blank lines belong to a block scalar, so a blank run is consumed
+    only when a more-indented line follows it; a blank line that merely
+    precedes the next key is left where the author put it.
+    """
+    j = end = i + 1
+    while j < len(lines):
+        if not lines[j].strip():
+            j += 1
+        elif lines[j][0].isspace():
+            j += 1
+            end = j
+        else:
+            break
+    return end
+
+
 def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     """Update name/description/type in ``fm_raw``, preserving every other line.
 
     Extra keys, ordering, and formatting are kept; managed keys absent from the
     block are inserted before the closing ``---``.
+
+    A managed key is replaced *with its whole value* — see `_value_span_end`
+    for why its continuation lines have to go too, and `_top_level_key` for why
+    an indented one is not a managed key in the first place. Together they also
+    make the function idempotent for free: what it writes is one column-0 line
+    per managed key, which a second pass rewrites to the same bytes.
     """
-    managed = {"name": nom["name"], "description": nom["description"], "type": nom["type"]}
+    managed = {k: nom[k] for k in MANAGED_KEYS}
     lines = fm_raw.splitlines()
     seen: set[str] = set()
     out: list[str] = []
-    for ln in lines:
-        stripped = ln.strip()
-        if ":" in ln and not stripped.startswith("- ") and stripped != "---":
-            key = ln.split(":", 1)[0].strip()
-            if key in managed:
-                out.append(f"{key}: {managed[key]}")
-                seen.add(key)
-                continue
-        out.append(ln)
-    missing = [k for k in ("name", "description", "type") if k not in seen]
+    i = 0
+    while i < len(lines):
+        key = _top_level_key(lines[i])
+        if key in managed:
+            out.append(f"{key}: {managed[key]}")
+            seen.add(key)
+            i = _value_span_end(lines, i)
+            continue
+        out.append(lines[i])
+        i += 1
+    missing = [k for k in MANAGED_KEYS if k not in seen]
     if missing and out and out[-1].strip() == "---":
         insert_at = len(out) - 1
         for k in missing:
