@@ -34,6 +34,7 @@ from pathlib import Path
 
 from _learning_common import content_hash12, priority
 from _marker_block import MarkerBlock, fenced_line_indices, split_lines
+from _wiki_common import yaml_scalar
 
 # Matches the provenance line this script writes (now inside the managed block),
 # so an existing note's recorded source/date can be read back for the
@@ -84,12 +85,16 @@ _UNIT_ANCHOR_RE = re.compile(
 
 
 def render_frontmatter(nom: dict) -> str:
-    """The YAML frontmatter block promote manages (name/description/type)."""
+    """The YAML frontmatter block promote manages (name/description/type).
+
+    Values go through `yaml_scalar`: plain when safe, double-quoted when a bare
+    value would not parse (`name: a: b`) or would be retyped (`description: no`).
+    """
     return (
         "---\n"
-        f"name: {nom['name']}\n"
-        f"description: {nom['description']}\n"
-        f"type: {nom['type']}\n"
+        f"name: {yaml_scalar(nom['name'])}\n"
+        f"description: {yaml_scalar(nom['description'])}\n"
+        f"type: {yaml_scalar(nom['type'])}\n"
         "---\n"
     )
 
@@ -318,7 +323,7 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
         if ":" in ln and not stripped.startswith("- ") and stripped != "---":
             key = ln.split(":", 1)[0].strip()
             if key in managed:
-                out.append(f"{key}: {managed[key]}")
+                out.append(f"{key}: {yaml_scalar(managed[key])}")
                 seen.add(key)
                 continue
         out.append(ln)
@@ -326,7 +331,7 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     if missing and out and out[-1].strip() == "---":
         insert_at = len(out) - 1
         for k in missing:
-            out.insert(insert_at, f"{k}: {managed[k]}")
+            out.insert(insert_at, f"{k}: {yaml_scalar(managed[k])}")
             insert_at += 1
     return "\n".join(out) + "\n"
 

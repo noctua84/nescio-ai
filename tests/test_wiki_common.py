@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import _wiki_common as wc  # noqa: E402
+import yaml  # noqa: E402
 
 
 class TestExtractWikilinks(unittest.TestCase):
@@ -116,6 +117,58 @@ class TestResolveDir(unittest.TestCase):
         args = argparse.Namespace(dir=None, store="nope")
         with mock.patch.object(wc, "load_stores", lambda *a, **k: {}):
             self.assertIsNone(wc.resolve_dir(args))
+
+
+class TestYamlScalar(unittest.TestCase):
+    """`yaml_scalar` is the writer half of `split_frontmatter`'s reader."""
+
+    MUST_QUOTE = [
+        "a: b", "ends with:", "has #hash", "- dash", "? q", ": c", ", c", "[x]", "{x}",
+        "# c", "&a", "*a", "!t", "| p", "> g", "'s", '"d', "%p", "@a", "`b", " lead",
+        "trail ", "", "yes", "No", "TRUE", "false", "null", "~", "On", "OFF", "y", "N",
+        "1", "-1", "+1", "1.5", ".5", "1e3", "1_000", "0x1F", "0o17", "1:30", ".inf",
+        "-.INF", ".nan", "2026-07-12", "=", "<<", "multi\nline", "tab\there", 'q: "x" \\ y',
+        "nul\x00", "bell\x07",
+    ]
+    STAY_PLAIN = [
+        "feedback-sample-learning", "A one-line description.", "uses a:no space",
+        "path/to/x.md", "mid#no-space", "see [[link]] here", "a-b", "1password",
+        "naive — em dash", "nescio-ai", 'say "hi"', "a\\b", "e.g. a, b, and c",
+    ]
+
+    def test_must_quote_values_round_trip_through_yaml_and_split_frontmatter(self):
+        for v in self.MUST_QUOTE:
+            with self.subTest(v=v):
+                out = wc.yaml_scalar(v)
+                self.assertTrue(out.startswith('"') and out.endswith('"'), out)
+                self.assertEqual(yaml.safe_load(f"k: {out}\n"), {"k": v})
+                fm, _ = wc.split_frontmatter(f"---\nk: {out}\n---\nbody\n")
+                self.assertEqual(fm["k"], v)
+
+    def test_safe_values_are_emitted_verbatim_and_still_parse(self):
+        for v in self.STAY_PLAIN:
+            with self.subTest(v=v):
+                self.assertEqual(wc.yaml_scalar(v), v)
+                self.assertEqual(yaml.safe_load(f"k: {v}\n"), {"k": v})
+
+    def test_split_frontmatter_leaves_plain_values_untouched(self):
+        fm, _ = wc.split_frontmatter(
+            "---\nname: it's fine\ndescription: a \"x\" y\n---\nb\n"
+        )
+        self.assertEqual(fm["name"], "it's fine")
+        self.assertEqual(fm["description"], 'a "x" y')
+
+    def test_split_frontmatter_unescapes_double_quoted(self):
+        fm, _ = wc.split_frontmatter('---\nk: "a \\"q\\" \\\\ b"\n---\n')
+        self.assertEqual(fm["k"], 'a "q" \\ b')
+
+    def test_split_frontmatter_unescapes_single_quoted(self):
+        fm, _ = wc.split_frontmatter("---\nk: 'it''s: ok'\n---\n")
+        self.assertEqual(fm["k"], "it's: ok")
+
+    def test_quoted_empty_string_is_a_string_not_an_empty_list(self):
+        fm, _ = wc.split_frontmatter('---\nk: ""\n---\n')
+        self.assertEqual(fm["k"], "")
 
 
 if __name__ == "__main__":
