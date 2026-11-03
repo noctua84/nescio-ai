@@ -55,6 +55,23 @@ class TestIterNotes(unittest.TestCase):
             names = sorted(p.name for p, _, _ in wc.iter_notes(root))
             self.assertEqual(names, ["a.md"])
 
+    def test_unreadable_escape_in_one_note_does_not_hide_the_good_ones(self):
+        # The blast radius of a bad `\U` escape: iter_notes is what wiki_index,
+        # wiki_lint and the nudge hook walk the whole store with, so one
+        # hand-written note must not stop them reaching the rest.
+        bad = chr(92) + "U00110000"
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.md").write_text("---\nname: a\n---\nbody\n", encoding="utf-8")
+            (root / "b.md").write_text(
+                f'---\nname: b\ndescription: "{bad}"\n---\nbody\n', encoding="utf-8"
+            )
+            (root / "c.md").write_text("---\nname: c\n---\nbody\n", encoding="utf-8")
+            notes = {p.name: fm for p, fm, _ in wc.iter_notes(root)}
+            self.assertEqual(sorted(notes), ["a.md", "b.md", "c.md"])
+            self.assertEqual(notes["a.md"]["name"], "a")
+            self.assertEqual(notes["b.md"]["description"], bad)
+
 
 class TestLoadStores(unittest.TestCase):
     def test_absent_returns_empty(self):
@@ -165,6 +182,43 @@ class TestYamlScalar(unittest.TestCase):
     def test_split_frontmatter_unescapes_single_quoted(self):
         fm, _ = wc.split_frontmatter("---\nk: 'it''s: ok'\n---\n")
         self.assertEqual(fm["k"], "it's: ok")
+
+    def test_undecodable_escapes_come_back_verbatim_instead_of_raising(self):
+        # `yaml_scalar` never emits these, so they are hand-written / third-party
+        # content. Not decoding them is the pre-quoting behaviour; raising is not.
+        bs = chr(92)
+        for esc in (
+            bs + "U00110000",  # above U+10FFFF
+            bs + "UFFFFFFFF",
+            bs + "ud800",  # surrogate range: chr() accepts it, the result is unusable
+            bs + "udfff",
+            bs + "uDBFF",
+            bs + "U0000d800",
+        ):
+            with self.subTest(esc=esc):
+                fm, _ = wc.split_frontmatter(f'---\nk: "{esc}"\n---\n')
+                self.assertEqual(fm["k"], esc)
+                # ...and next to a decodable escape only the bad one stays raw.
+                fm, _ = wc.split_frontmatter(f'---\nk: "a{bs}u00e9{esc}b"\n---\n')
+                self.assertEqual(fm["k"], "aé" + esc + "b")
+
+    def test_yaml_scalar_rejects_a_lone_surrogate(self):
+        for cp in (0xD800, 0xDBFF, 0xDC00, 0xDFFF):
+            with self.subTest(cp=hex(cp)):
+                with self.assertRaises(ValueError) as cm:
+                    wc.yaml_scalar("x" + chr(cp) + "y")
+                self.assertIn("surrogate", str(cm.exception))
+
+    def test_yaml_scalar_still_emits_the_boundary_code_points(self):
+        for cp in (0xD7FF, 0xE000, 0x10FFFF):
+            with self.subTest(cp=hex(cp)):
+                v = "x" + chr(cp)
+                fm, _ = wc.split_frontmatter(f"---\nk: {wc.yaml_scalar(v)}\n---\n")
+                self.assertEqual(fm["k"], v)
+
+    def test_find_surrogate(self):
+        self.assertEqual(wc.find_surrogate("a" + chr(0xD800)), chr(0xD800))
+        self.assertIsNone(wc.find_surrogate("plain \U0001f600 text"))
 
     def test_quoted_empty_string_is_a_string_not_an_empty_list(self):
         fm, _ = wc.split_frontmatter('---\nk: ""\n---\n')

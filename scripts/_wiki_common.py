@@ -60,6 +60,20 @@ _UNESCAPES = {"\\": "\\", '"': '"', "n": "\n", "r": "\r", "t": "\t"}
 _ESCAPE_RE = re.compile(r'\\(["\\nrt]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})')
 
 
+# U+D800-U+DFFF are not characters: UTF-8 cannot encode them and YAML forbids
+# them, even as an escape. A string carrying one can only come from a lone
+# surrogate half (`json.loads` of a `\ud800` escape produces it). Escaping it
+# to ASCII would let it slip past the first `write_text` and fail in whichever
+# tool reads the note back, so the writer refuses it instead.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def find_surrogate(value: object) -> str | None:
+    """The first lone surrogate in ``str(value)``, or None when there is none."""
+    m = _SURROGATE_RE.search(str(value))
+    return m.group(0) if m else None
+
+
 def _needs_quoting(s: str) -> bool:
     if not s or s != s.strip() or not s.isprintable():
         return True
@@ -89,8 +103,18 @@ def yaml_scalar(value: object) -> str:
     Plain output is the value verbatim, so ordinary names and descriptions stay
     readable. The quoted form escapes `\\`, `"` and control characters; it is
     what `split_frontmatter` reads back to the exact original string.
+
+    Raises ``ValueError`` for a value holding a lone surrogate (U+D800-U+DFFF):
+    it has no valid YAML or UTF-8 form. `promote_learnings` rejects such a
+    nomination in its validation phase; this is the backstop for any other caller.
     """
     s = str(value)
+    bad = find_surrogate(s)
+    if bad is not None:
+        raise ValueError(
+            f"cannot emit a lone surrogate (U+{ord(bad):04X}) as a YAML scalar: "
+            f"it has no valid UTF-8 or YAML form"
+        )
     if not _needs_quoting(s):
         return s
     return '"' + "".join(_escape_char(c) for c in s) + '"'
@@ -98,7 +122,16 @@ def yaml_scalar(value: object) -> str:
 
 def _unescape(m: re.Match) -> str:
     esc = m.group(1)
-    return _UNESCAPES[esc] if esc in _UNESCAPES else chr(int(esc[1:], 16))
+    if esc in _UNESCAPES:
+        return _UNESCAPES[esc]
+    cp = int(esc[1:], 16)
+    # `yaml_scalar` never emits an escape outside the scalar-value range, so one
+    # here is hand-written or third-party. Hand it back verbatim, as the reader
+    # did before it unescaped anything, rather than raise out of `iter_notes`
+    # and take every consumer of the store down with one bad note.
+    if cp > 0x10FFFF or 0xD800 <= cp <= 0xDFFF:
+        return m.group(0)
+    return chr(cp)
 
 
 def _unquote_scalar(v: str) -> str:

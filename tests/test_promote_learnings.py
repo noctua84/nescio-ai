@@ -1096,5 +1096,87 @@ class FrontmatterYamlSafetyTest(unittest.TestCase):
             self.assertNotIn('"', text.split(pl.PROMOTED_BEGIN)[0])
 
 
+class LoneSurrogateRejectedTest(unittest.TestCase):
+    """A lone surrogate in a frontmatter value fails promote, not wiki_index.
+
+    `json.loads` turns a lone JSON surrogate escape in a manifest into a real
+    lone surrogate. UTF-8 cannot encode it, so promote's own write used to
+    raise. Escaping it to ASCII in `yaml_scalar` would let the note write and
+    then crash `wiki_index` instead; it has to stop here, as an rc-1 bad
+    nomination with nothing written (the convention every other malformed
+    nomination uses).
+    """
+
+    def _rejected(self, repo: Path, records: list[dict]):
+        ledger = repo / "memory" / "learning-log.md"
+        ledger_before = ledger.read_text(encoding="utf-8")
+        rc, summary = pl.promote(records, repo_dir=repo)
+        self.assertEqual(rc, 1, summary)
+        # Phase 1 failure: no note of any nomination, no index, ledger untouched.
+        self.assertEqual(
+            sorted(p.name for p in (repo / "memory").rglob("*.md")), ["learning-log.md"]
+        )
+        self.assertEqual(ledger.read_text(encoding="utf-8"), ledger_before)
+        return summary
+
+    def test_each_frontmatter_field_is_rejected_with_a_clear_message(self):
+        for field in pl.FRONTMATTER_FIELDS:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as d:
+                    repo = Path(d)
+                    _seed_repo(repo)
+                    summary = self._rejected(
+                        repo, [_nom(**{field: "x" + chr(0xD800) + "y"})]
+                    )
+                    self.assertEqual(len(summary), 1)
+                    self.assertIn(f"'{field}'", summary[0])
+                    self.assertIn("lone surrogate", summary[0])
+                    self.assertIn("U+D800", summary[0])
+                    # Printable on any console: main() print()s this line.
+                    summary[0].encode("ascii")
+
+    def test_json_manifest_escape_is_rejected_end_to_end(self):
+        manifest = json.dumps(_nom()).replace(
+            '"feedback-sample-learning"', '"x' + chr(92) + 'ud800y"'
+        )
+        nom = json.loads(manifest)
+        self.assertEqual(nom["name"], "x" + chr(0xD800) + "y")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            self._rejected(repo, [nom])
+
+    def test_a_bad_nomination_after_good_ones_writes_none_of_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            good = _nom(target="feedback/good.md", name="good")
+            bad = _nom(target="feedback/bad.md", name="bad" + chr(0xDC00))
+            self._rejected(repo, [good, bad])
+
+    def test_refreshing_an_existing_note_is_rejected_and_leaves_it_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            note = repo / "memory" / "feedback" / "sample-learning.md"
+            note.parent.mkdir(parents=True)
+            original = "---\nname: old\ndescription: old\ntype: feedback\n---\nProse.\n"
+            note.write_text(original, encoding="utf-8")
+            rc, summary = pl.promote(
+                [_nom(description="d" + chr(0xD800))], repo_dir=repo
+            )
+            self.assertEqual(rc, 1, summary)
+            self.assertEqual(note.read_text(encoding="utf-8"), original)
+
+    def test_astral_characters_are_not_surrogates(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            rc, summary = pl.promote(
+                [_nom(description="smile \U0001f600 ok")], repo_dir=repo
+            )
+            self.assertEqual(rc, 0, summary)
+
+
 if __name__ == "__main__":
     unittest.main()
