@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -978,6 +979,220 @@ class StampCommandTest(unittest.TestCase):
             self.assertEqual(len(nxt), 1, summary)
             self.assertIn("--read", nxt[0])
             self.assertNotIn("--receipt", nxt[0])
+
+
+class FrontmatterRefreshTest(unittest.TestCase):
+    """A managed key is replaced with its WHOLE value, not just its first line.
+
+    `_refresh_frontmatter` rewrites name/description/type in place and keeps
+    every other line verbatim. It used to do that one line at a time, which
+    left the *continuation* lines of the old value behind: a `|`/`>` block
+    scalar's body, the tail of a quoted scalar wrapped over several lines, a
+    nested list's items. YAML then folds those orphans into the new value
+    (silently wrong), and would reject the file outright once the new value is
+    emitted quoted. The mirror-image bug: an indented `name:`/`type:` inside
+    *another* key's block scalar was treated as a managed key and hoisted to
+    column 0, emptying the block it was quoted inside.
+
+    `memory/repo/EXAMPLE/overview.md` carries that second shape today
+    (`metadata:` with a nested `type: reference`), so this is a live bug on a
+    tracked note, not only a hypothetical one.
+    """
+
+    def _reshaped_note(self, repo, target, fm):
+        """Promote once, then replace the note's frontmatter with ``fm``.
+
+        Leaves the managed block untouched, so the second promotion takes the
+        `spliced` path and refreshes the hand-written frontmatter.
+        """
+        rc, summary = pl.promote(
+            [_nom(target=target, source="empirical", date="2026-07-10",
+                  body="First body.")],
+            repo_dir=repo,
+        )
+        self.assertEqual(rc, 0, summary)
+        note = repo / "memory" / target
+        _, rest = pl._split_raw_frontmatter(note.read_text(encoding="utf-8"))
+        note.write_text(fm + rest, encoding="utf-8")
+        return note
+
+    def _repromote(self, repo, note, target, description):
+        """Re-promote over ``note`` and return (frontmatter dict, raw text)."""
+        rc, summary = pl.promote(
+            [_nom(target=target, source="user override", date="2026-07-12",
+                  description=description, body="Second body.")],
+            repo_dir=repo,
+        )
+        self.assertEqual(rc, 0, summary)
+        out = note.read_text(encoding="utf-8")
+        match = re.match(r"\A---\n(.*?)\n---\n", out, re.S)
+        self.assertTrue(match, f"frontmatter block missing:\n{out}")
+        try:
+            fm = yaml.safe_load(match.group(1))
+        except yaml.YAMLError as exc:  # pragma: no cover - the regression itself
+            self.fail(f"refreshed frontmatter does not parse: {exc}\n{out}")
+        self.assertIsInstance(fm, dict, out)
+        return fm, out
+
+    def test_block_scalar_under_managed_key_is_replaced_whole(self):
+        # Shape 1: `description: >` plus an indented body. The folded lines
+        # belong to the OLD description and must leave with it.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/folded.md"
+            note = self._reshaped_note(
+                repo, target,
+                "---\nname: old\ndescription: >\n  folded text\n  more folded text\n"
+                "type: feedback\nkeep: me\n---\n",
+            )
+
+            fm, out = self._repromote(repo, note, target, "A fresh description.")
+
+            self.assertEqual(fm["description"], "A fresh description.")
+            self.assertNotIn("folded text", out)
+            self.assertEqual(fm["keep"], "me")
+
+    def test_multiline_quoted_managed_value_is_replaced_whole(self):
+        # Shape 1, second form: a double-quoted scalar wrapped over two lines.
+        # The orphaned tail used to be folded into the new value, trailing
+        # quote and all.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/wrapped.md"
+            note = self._reshaped_note(
+                repo, target,
+                '---\nname: old\ndescription: "line one\n  line two"\n'
+                "type: feedback\nkeep: me\n---\n",
+            )
+
+            fm, out = self._repromote(repo, note, target, "A fresh description.")
+
+            self.assertEqual(fm["description"], "A fresh description.")
+            self.assertNotIn("line two", out)
+            self.assertEqual(fm["keep"], "me")
+
+    def test_managed_key_inside_another_keys_block_is_not_rewritten(self):
+        # Shape 2: an indented `name:` inside `summary: |` is literal text, not
+        # a key. Hoisting it to column 0 emptied `summary` and left a second
+        # `name`.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/nested.md"
+            note = self._reshaped_note(
+                repo, target,
+                "---\nname: old\ndescription: old\ntype: feedback\n"
+                "summary: |\n  name: inside block\n  second line\n---\n",
+            )
+
+            fm, out = self._repromote(repo, note, target, "A fresh description.")
+
+            self.assertEqual(fm["name"], _nom()["name"])
+            self.assertEqual(fm["summary"], "name: inside block\nsecond line")
+            # Exactly one column-0 `name:` line, i.e. no duplicate key.
+            self.assertEqual(
+                [ln for ln in out.splitlines() if ln.startswith("name:")],
+                [f"name: {_nom()['name']}"],
+            )
+
+    def test_nested_key_under_unmanaged_parent_survives(self):
+        # The shape `memory/repo/EXAMPLE/overview.md` already has: a nested
+        # `type:` under an unmanaged parent. It must stay nested, and the
+        # managed `type` must still be written at column 0.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/metadata.md"
+            note = self._reshaped_note(
+                repo, target,
+                "---\nname: old\ndescription: old\nmetadata:\n  type: reference\n---\n",
+            )
+
+            fm, _ = self._repromote(repo, note, target, "A fresh description.")
+
+            self.assertEqual(fm["metadata"], {"type": "reference"})
+            self.assertEqual(fm["type"], _nom()["type"])
+
+    def test_quoted_new_value_does_not_orphan_a_block_scalar_line(self):
+        # The shape that only became reachable once the write path quotes:
+        # `description: "no"` followed by the old block scalar's indented line
+        # is not wrong YAML, it is *invalid* YAML, and the note stops parsing.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/quoted-over-folded.md"
+            note = self._reshaped_note(
+                repo, target,
+                "---\nname: old\ndescription: >\n  folded text\n"
+                "type: feedback\n---\n",
+            )
+
+            fm, out = self._repromote(repo, note, target, "no")
+
+            # Quoted by `yaml_scalar`, so it reads back as the string "no" and
+            # not the boolean False -- and nothing trails it.
+            self.assertEqual(fm["description"], "no")
+            self.assertIn('description: "no"', out)
+            self.assertNotIn("folded text", out)
+
+    def test_refresh_is_idempotent(self):
+        # Refreshing twice must give identical bytes, for every shape above.
+        shapes = (
+            "---\nname: old\ndescription: >\n  folded\n  text\ntype: feedback\n---\n",
+            '---\nname: old\ndescription: "line one\n  line two"\ntype: t\n---\n',
+            "---\nname: old\ndescription: old\ntype: t\nsummary: |\n  name: in block\n---\n",
+            "---\nname: old\ndescription:\n  - one\n  - two\ntype: t\n---\n",
+            "---\nname: old\ndescription: old\ntype: t\n---\n",
+            "---\nkeep: me\n---\n",
+        )
+        # Once with a plain-safe value, once with one `yaml_scalar` must quote:
+        # a quoted value is still one column-0 line, so it re-reads as itself.
+        for description in ("A one-line description.", "no"):
+            for fm_raw in shapes:
+                with self.subTest(description=description, fm_raw=fm_raw):
+                    nom = _nom(description=description)
+                    once = pl._refresh_frontmatter(fm_raw, nom)
+                    self.assertEqual(pl._refresh_frontmatter(once, nom), once)
+
+    def test_blank_line_before_the_next_key_is_preserved(self):
+        # A blank line inside a block scalar belongs to it; one that merely
+        # separates two keys is the author's formatting and stays put.
+        nom = _nom(description="fresh")
+        out = pl._refresh_frontmatter(
+            "---\nname: old\ndescription: >\n  folded\n\n  still folded\n"
+            "\ntype: feedback\n---\n",
+            nom,
+        )
+        self.assertEqual(
+            out,
+            "---\nname: feedback-sample-learning\ndescription: fresh\n"
+            "\ntype: feedback\n---\n",
+        )
+
+    def test_unmanaged_keys_keep_their_order_and_formatting(self):
+        nom = _nom(description="fresh")
+        out = pl._refresh_frontmatter(
+            "---\nzeta:   spaced out\nname: old\nalpha: 1\n"
+            "description: old\nlist:\n  - a\n  - b\ntype: old\n---\n",
+            nom,
+        )
+        self.assertEqual(
+            out.splitlines(),
+            [
+                "---",
+                "zeta:   spaced out",
+                "name: feedback-sample-learning",
+                "alpha: 1",
+                "description: fresh",
+                "list:",
+                "  - a",
+                "  - b",
+                "type: feedback",
+                "---",
+            ],
+        )
 
 
 class FrontmatterYamlSafetyTest(unittest.TestCase):
