@@ -333,8 +333,10 @@ def _value_span_end(lines: list[str], i: int) -> int:
     A key's value can run on past its own line — a ``|``/``>`` block scalar, a
     quoted scalar wrapped over several lines, a nested list — and every such
     continuation is indented. Replacing only the ``key:`` line therefore
-    orphans the rest of the old value, which YAML then folds into the new one
-    (silently wrong) or, once the new value is quoted, refuses to parse at all.
+    orphans the rest of the old value. Since `render_frontmatter` and this
+    function emit the new value through `yaml_scalar`, an orphan left under a
+    quoted value does not parse at all; under a plain one YAML folds it into
+    the new value instead, which is worse, because that exits 0.
 
     Interior blank lines belong to a block scalar, so a blank run is consumed
     only when a more-indented line follows it; a blank line that merely

@@ -1115,9 +1115,30 @@ class FrontmatterRefreshTest(unittest.TestCase):
             self.assertEqual(fm["metadata"], {"type": "reference"})
             self.assertEqual(fm["type"], _nom()["type"])
 
+    def test_quoted_new_value_does_not_orphan_a_block_scalar_line(self):
+        # The shape that only became reachable once the write path quotes:
+        # `description: "no"` followed by the old block scalar's indented line
+        # is not wrong YAML, it is *invalid* YAML, and the note stops parsing.
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/quoted-over-folded.md"
+            note = self._reshaped_note(
+                repo, target,
+                "---\nname: old\ndescription: >\n  folded text\n"
+                "type: feedback\n---\n",
+            )
+
+            fm, out = self._repromote(repo, note, target, "no")
+
+            # Quoted by `yaml_scalar`, so it reads back as the string "no" and
+            # not the boolean False -- and nothing trails it.
+            self.assertEqual(fm["description"], "no")
+            self.assertIn('description: "no"', out)
+            self.assertNotIn("folded text", out)
+
     def test_refresh_is_idempotent(self):
         # Refreshing twice must give identical bytes, for every shape above.
-        nom = _nom()
         shapes = (
             "---\nname: old\ndescription: >\n  folded\n  text\ntype: feedback\n---\n",
             '---\nname: old\ndescription: "line one\n  line two"\ntype: t\n---\n',
@@ -1126,10 +1147,14 @@ class FrontmatterRefreshTest(unittest.TestCase):
             "---\nname: old\ndescription: old\ntype: t\n---\n",
             "---\nkeep: me\n---\n",
         )
-        for fm_raw in shapes:
-            with self.subTest(fm_raw=fm_raw):
-                once = pl._refresh_frontmatter(fm_raw, nom)
-                self.assertEqual(pl._refresh_frontmatter(once, nom), once)
+        # Once with a plain-safe value, once with one `yaml_scalar` must quote:
+        # a quoted value is still one column-0 line, so it re-reads as itself.
+        for description in ("A one-line description.", "no"):
+            for fm_raw in shapes:
+                with self.subTest(description=description, fm_raw=fm_raw):
+                    nom = _nom(description=description)
+                    once = pl._refresh_frontmatter(fm_raw, nom)
+                    self.assertEqual(pl._refresh_frontmatter(once, nom), once)
 
     def test_blank_line_before_the_next_key_is_preserved(self):
         # A blank line inside a block scalar belongs to it; one that merely
