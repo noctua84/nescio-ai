@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import promote_learnings as pl  # noqa: E402
 import _learning_common as lc  # noqa: E402
 import wiki_index  # noqa: E402
+import _wiki_common as wc  # noqa: E402
+import yaml  # noqa: E402
 
 
 LEDGER_SEED = (
@@ -976,6 +978,204 @@ class StampCommandTest(unittest.TestCase):
             self.assertEqual(len(nxt), 1, summary)
             self.assertIn("--read", nxt[0])
             self.assertNotIn("--receipt", nxt[0])
+
+
+class FrontmatterYamlSafetyTest(unittest.TestCase):
+    """A frontmatter value holding a YAML metacharacter must still parse.
+
+    `render_frontmatter` / `_refresh_frontmatter` used to interpolate values
+    raw, so `name: readiness is uncomputable here: memory/...` wrote a note
+    `yaml.safe_load` rejects. Both halves are pinned: the file parses as real
+    YAML back to the exact submitted value, AND the repo's own stdlib reader
+    (`_wiki_common.split_frontmatter`, what `wiki_index` builds MEMORY.md from)
+    returns that same value rather than its quoted form.
+    """
+
+    # (field, submitted value) — each one YAML would mis-read if left bare.
+    CASES = [
+        ("name", "readiness is uncomputable here: memory/repo/nescio vs trail key nescio-ai"),
+        ("name", "- leading dash"),
+        ("description", "no"),
+        ("description", 'says "hi" and a back\\slash'),
+        ("description", 'a: "quoted" \\ mix'),
+        ("description", "trailing colon:"),
+        ("description", "has a #comment"),
+        ("description", "2026-07-12"),
+    ]
+
+    def _promote_note(self, repo: Path, **over) -> str:
+        nom = _nom(**over)
+        rc, summary = pl.promote([nom], repo_dir=repo)
+        self.assertEqual(rc, 0, summary)
+        return (repo / "memory" / nom["target"]).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _yaml_frontmatter(text: str) -> dict:
+        return yaml.safe_load(text.split("---\n")[1])
+
+    def test_fresh_note_round_trips_through_yaml(self):
+        for field, value in self.CASES:
+            with self.subTest(field=field, value=value):
+                with tempfile.TemporaryDirectory() as d:
+                    repo = Path(d)
+                    _seed_repo(repo)
+                    text = self._promote_note(repo, **{field: value})
+                    fm = self._yaml_frontmatter(text)
+                    self.assertEqual(fm[field], value)
+                    self.assertEqual(fm["type"], "feedback")
+
+    def test_stdlib_reader_returns_the_submitted_value_not_a_quoted_form(self):
+        for field, value in self.CASES:
+            with self.subTest(field=field, value=value):
+                with tempfile.TemporaryDirectory() as d:
+                    repo = Path(d)
+                    _seed_repo(repo)
+                    text = self._promote_note(repo, **{field: value})
+                    fm, _ = wc.split_frontmatter(text)
+                    self.assertEqual(fm[field], value)
+
+    def test_memory_index_does_not_leak_quote_characters(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            self._promote_note(
+                repo, target="feedback/a.md", name="a: b", description="no"
+            )
+            index = wiki_index.build_index(repo / "memory" / "feedback")
+            self.assertEqual(index, "- [a: b](a.md) — no\n")
+
+    def test_refresh_over_an_existing_note_stays_valid_and_keeps_unmanaged_keys(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/refresh.md"
+            note = repo / "memory" / target
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text(
+                "---\nname: old\nkeep: me\ndescription: old\nextra:\n  - x\n"
+                "type: feedback\n---\nHuman prose.\n",
+                encoding="utf-8",
+            )
+            text = self._promote_note(
+                repo, target=target, name="new: name", description="no"
+            )
+            fm = self._yaml_frontmatter(text)
+            self.assertEqual(fm["name"], "new: name")
+            self.assertEqual(fm["description"], "no")
+            self.assertEqual(fm["keep"], "me")
+            self.assertEqual(fm["extra"], ["x"])
+            # Unmanaged keys keep their place between the managed ones.
+            keys = [ln.split(":")[0] for ln in text.split("---\n")[1].splitlines()
+                    if not ln.startswith(" ")]
+            self.assertEqual(keys, ["name", "keep", "description", "extra", "type"])
+            self.assertIn("Human prose.", text)
+
+    def test_refresh_inserts_a_missing_managed_key_safely(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            target = "feedback/missing.md"
+            note = repo / "memory" / target
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text("---\nname: old\nkeep: me\n---\nProse.\n", encoding="utf-8")
+            text = self._promote_note(
+                repo, target=target, name="old", description="why: because"
+            )
+            fm = self._yaml_frontmatter(text)
+            self.assertEqual(fm["description"], "why: because")
+            self.assertEqual(fm["keep"], "me")
+
+    def test_plain_safe_values_are_still_emitted_unquoted(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            nom = _nom()
+            text = self._promote_note(repo)
+            self.assertIn(f"\nname: {nom['name']}\n", text)
+            self.assertIn(f"\ndescription: {nom['description']}\n", text)
+            self.assertNotIn('"', text.split(pl.PROMOTED_BEGIN)[0])
+
+
+class LoneSurrogateRejectedTest(unittest.TestCase):
+    """A lone surrogate in a frontmatter value fails promote, not wiki_index.
+
+    `json.loads` turns a lone JSON surrogate escape in a manifest into a real
+    lone surrogate. UTF-8 cannot encode it, so promote's own write used to
+    raise. Escaping it to ASCII in `yaml_scalar` would let the note write and
+    then crash `wiki_index` instead; it has to stop here, as an rc-1 bad
+    nomination with nothing written (the convention every other malformed
+    nomination uses).
+    """
+
+    def _rejected(self, repo: Path, records: list[dict]):
+        ledger = repo / "memory" / "learning-log.md"
+        ledger_before = ledger.read_text(encoding="utf-8")
+        rc, summary = pl.promote(records, repo_dir=repo)
+        self.assertEqual(rc, 1, summary)
+        # Phase 1 failure: no note of any nomination, no index, ledger untouched.
+        self.assertEqual(
+            sorted(p.name for p in (repo / "memory").rglob("*.md")), ["learning-log.md"]
+        )
+        self.assertEqual(ledger.read_text(encoding="utf-8"), ledger_before)
+        return summary
+
+    def test_each_frontmatter_field_is_rejected_with_a_clear_message(self):
+        for field in pl.FRONTMATTER_FIELDS:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as d:
+                    repo = Path(d)
+                    _seed_repo(repo)
+                    summary = self._rejected(
+                        repo, [_nom(**{field: "x" + chr(0xD800) + "y"})]
+                    )
+                    self.assertEqual(len(summary), 1)
+                    self.assertIn(f"'{field}'", summary[0])
+                    self.assertIn("lone surrogate", summary[0])
+                    self.assertIn("U+D800", summary[0])
+                    # Printable on any console: main() print()s this line.
+                    summary[0].encode("ascii")
+
+    def test_json_manifest_escape_is_rejected_end_to_end(self):
+        manifest = json.dumps(_nom()).replace(
+            '"feedback-sample-learning"', '"x' + chr(92) + 'ud800y"'
+        )
+        nom = json.loads(manifest)
+        self.assertEqual(nom["name"], "x" + chr(0xD800) + "y")
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            self._rejected(repo, [nom])
+
+    def test_a_bad_nomination_after_good_ones_writes_none_of_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            good = _nom(target="feedback/good.md", name="good")
+            bad = _nom(target="feedback/bad.md", name="bad" + chr(0xDC00))
+            self._rejected(repo, [good, bad])
+
+    def test_refreshing_an_existing_note_is_rejected_and_leaves_it_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            note = repo / "memory" / "feedback" / "sample-learning.md"
+            note.parent.mkdir(parents=True)
+            original = "---\nname: old\ndescription: old\ntype: feedback\n---\nProse.\n"
+            note.write_text(original, encoding="utf-8")
+            rc, summary = pl.promote(
+                [_nom(description="d" + chr(0xD800))], repo_dir=repo
+            )
+            self.assertEqual(rc, 1, summary)
+            self.assertEqual(note.read_text(encoding="utf-8"), original)
+
+    def test_astral_characters_are_not_surrogates(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            _seed_repo(repo)
+            rc, summary = pl.promote(
+                [_nom(description="smile \U0001f600 ok")], repo_dir=repo
+            )
+            self.assertEqual(rc, 0, summary)
 
 
 if __name__ == "__main__":
