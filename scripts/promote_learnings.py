@@ -212,6 +212,10 @@ from _learning_common import (
 # promote cannot drift from the filename the read manifest actually has.
 from begin_harvest import READ_NAME  # noqa: E402
 
+# `find_surrogate` backs `validate_frontmatter_values`; it lives beside
+# `yaml_scalar`, which refuses the same input as a backstop.
+from _wiki_common import find_surrogate
+
 # The managed block's format, parsing and composition — a second, independent
 # reason to change from the nomination validation / ledger / receipt / CLI
 # this file keeps (#208 split). Re-exported wholesale (`noqa: F401` on the
@@ -422,6 +426,34 @@ def validate_unrouted(nom: dict, label: str) -> str | None:
             f"error: {label}: invalid source {nom['source']!r} "
             f"(expected one of {sorted(VALID_SOURCES)})"
         )
+    return None
+
+
+# The nomination fields `render_frontmatter` / `_refresh_frontmatter` emit as
+# YAML scalars. A lone surrogate in any of them has no UTF-8 or YAML form.
+FRONTMATTER_FIELDS = ("name", "description", "type")
+
+
+def validate_frontmatter_values(nom: dict, label: str) -> str | None:
+    """Error message for a frontmatter value that cannot be written, or None.
+
+    A lone surrogate (what `json.loads` returns for a lone JSON surrogate
+    escape) cannot be encoded as UTF-8, so promote used to fail on it at write
+    time. `yaml_scalar`
+    would now escape it to ASCII and let it through, moving the failure into
+    `wiki_index`, which reads the note back. Rejecting it here, in phase 1,
+    keeps the failure with the tool that owns the input and writes nothing.
+    The label is shown with ``!r`` because it may itself carry the surrogate,
+    and printing a raw one would raise.
+    """
+    for field in FRONTMATTER_FIELDS:
+        bad = find_surrogate(nom[field])
+        if bad is not None:
+            return (
+                f"error: {label!r}: '{field}' contains a lone surrogate "
+                f"(U+{ord(bad):04X}), which cannot be written to a note. "
+                f"Remove it or replace it with the intended character."
+            )
     return None
 
 
@@ -697,6 +729,10 @@ def promote(
             problem = validate_units(nom, label)
             if problem is not None:
                 return 1, [problem]
+
+        problem = validate_frontmatter_values(nom, label)
+        if problem is not None:
+            return 1, [problem]
 
         source = nom["source"]
         if source not in VALID_SOURCES:
