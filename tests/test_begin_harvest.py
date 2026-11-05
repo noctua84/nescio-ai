@@ -46,9 +46,19 @@ class BeginHarvestTest(unittest.TestCase):
         return json.dumps({"ts": ts, "git_root": repo_root, "repo_root": repo_root})
 
     def _run(self, argv):
-        """Run main() capturing stdout; return (rc, stdout)."""
+        """Run main() capturing stdout; return (rc, stdout).
+
+        stderr is captured too, and dropped. main() now runs the brain guard
+        first, and every fixture here points CLAUDE_CONFIG_DIR at an empty temp
+        dir with no `memory` entry — the deliberate state for a test fixture.
+        That is the guard's "unknown" verdict: one `warning:` line on *stderr*,
+        rc 0, nothing else changed. The warning is expected, not a symptom, so
+        it is swallowed rather than left to litter the suite's console and CI
+        output; the return value is unchanged so no call site cares.
+        """
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = begin_harvest.main(argv)
         return rc, out.getvalue()
 

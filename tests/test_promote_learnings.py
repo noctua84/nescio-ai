@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -885,7 +886,26 @@ class ConsoleEncodingTest(unittest.TestCase):
         """
         stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
         argv = ["promote_learnings.py", str(manifest)]
-        with mock.patch.object(sys, "stdout", stream), \
+        # main() now runs the brain guard, which compares this checkout
+        # against whatever <config>/memory resolves into. A test about
+        # console encoding must not depend on where the developer's ambient
+        # brain symlink happens to point, so CLAUDE_CONFIG_DIR is aimed at
+        # an empty temp dir: with no `memory` entry the verdict is
+        # "unknown", which warns on *stderr* and returns 0, leaving both the
+        # rc and the cp1252 stdout stream asserted on below untouched.
+        # patch.dict restores the previous value -- including the "was
+        # unset" case -- even if main() raises, so the override cannot leak
+        # into the rest of the suite.
+        #
+        # sys.stderr is swapped for a throwaway StringIO for the duration of
+        # the call purely to keep that expected "unknown" warning out of the
+        # suite's console and CI output. It is captured-because-expected, not
+        # suppressed-because-broken: tests/test_brain_guard.py owns asserting
+        # on the line's content and stream, and nothing here reads it.
+        with tempfile.TemporaryDirectory() as cfg, \
+                mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg}), \
+                mock.patch.object(sys, "stdout", stream), \
+                mock.patch.object(sys, "stderr", io.StringIO()), \
                 mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(
                     pl, "promote",
