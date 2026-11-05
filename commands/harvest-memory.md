@@ -17,8 +17,9 @@ Two memory stores coexist:
 - `~/.claude/projects/<path-slug>/memory/` — where session-captured memory lands
   automatically. Keyed by the absolute clone path → **machine-local, not synced,
   not portable**.
-- repo `memory/` (symlinked to `~/.claude/memory` by `install.py`) —
-  **version-controlled and synced** across machines.
+- the brain's `memory/` (symlinked to `~/.claude/memory` by `install.py`; see
+  [Run it in the brain](#run-it-in-the-brain)) — **version-controlled and
+  synced** across machines.
 
 This command curates the former into the latter. Nothing here is automatic;
 you review each item before it's committed to the repo.
@@ -51,10 +52,38 @@ durable repo memory:
 - `memory/glossary.md`, `memory/people/`, `memory/context/` — cross-cutting
   global facts.
 
+## Run it in the brain
+
+Every step below writes into one specific tree, and it is not necessarily the
+repository you are standing in. The **brain** is whichever repository
+`~/.claude/memory` resolves to — nothing else:
+
+```bash
+readlink -f ~/.claude/memory    # the repository containing this directory is the brain
+```
+
+- **Having a `memory/` tree does not make a checkout the brain.** A framework or
+  template checkout ships an example tree for consumers to copy. Promoting into
+  it misfiles the note *and* pollutes the template.
+- **Run every script in this flow from the brain.** `_learning_common.py`
+  derives `REPO_DIR` from the script file's own location, not from your working
+  directory. A sibling checkout's copy of `promote_learnings.py` therefore
+  writes into the sibling's tree — silently, exit 0, with a success summary.
+- **A wrong destination falsifies content, not just placement.** The promoter
+  reads the destination tree to deduplicate and to resolve contradictions, so
+  against the wrong tree every conclusion the pass draws about memory (this note
+  is new, no ledger exists, nothing contradicts it) comes out wrong in the same
+  direction.
+- **"The `--dry-run` paths sit under my worktree" is not a sufficient check.** In
+  the cross-repo case they do: a legitimate repo root, just not the brain's.
+  Resolving the symlink is the check that discriminates. Do it before step 1,
+  and confirm the directory you run from is the repository it names.
+
 ## Steps
 
 1. **Open the harvest, then read the sources.** Before reading anything, declare
-   what this pass is about to read:
+   what this pass is about to read (from the brain — see
+   [Run it in the brain](#run-it-in-the-brain)):
 
    ```bash
    python scripts/begin_harvest.py
@@ -101,7 +130,8 @@ durable repo memory:
    - Spans multiple repos in an initiative → `memory/projects/<project-name>/`
    - Global (glossary term, person, standing preference) → the matching
      top-level `memory/` file.
-3. **Deduplicate.** Check the destination first. Update an existing note in
+3. **Deduplicate.** Check the destination first — the brain's `memory/`, not
+   whichever tree is nearest. Update an existing note in
    place rather than creating a near-duplicate; drop anything already captured
    or since proven wrong. (The promote tool also skips anything already in
    `memory/learning-log.md` by body hash — this step is the human pass that
@@ -200,8 +230,9 @@ durable repo memory:
    python scripts/promote_learnings.py eval/learnings/<timestamp>/manifest.json
    ```
 
-   It writes each note under `memory/`, tags it with the provenance line,
-   resolves contradictions against any existing note, appends to
+   It writes each note under the `memory/` of the repository the script lives in
+   (the brain, provided you ran the brain's copy), tags it with the provenance
+   line, resolves contradictions against any existing note, appends to
    `memory/learning-log.md`, and prints one summary line per note it wrote or
    updated. It does **no git work at all** — nothing is staged, and freshly
    created notes are left untracked. Keep that summary: it is the list of paths
@@ -248,11 +279,13 @@ durable repo memory:
    derivable from the trail, so the script emits an explicit *insufficient
    data* note there instead of a number, and you write the real thing by hand.
 9. **Deliver via branch + PR — never commit the harvest on `main`.** The
-    harvest itself has to run in the **main checkout**, not a worktree:
-    `~/.claude/memory` symlinks to `<repo>/memory` and
-    `scripts/promote_learnings.py` writes relative to the repo root, so promoted
-    notes necessarily land in the shared clone's working tree. Deliver them from
-    a branch rather than committing where you happen to be standing:
+    harvest itself has to run in the **main checkout of the brain** (the
+    repository `readlink -f ~/.claude/memory` resolves into), not a worktree and
+    not some other repository that happens to have a `memory/` tree:
+    `scripts/promote_learnings.py` writes relative to the root of the repo its
+    own file sits in, so promoted notes necessarily land in that clone's working
+    tree. Deliver them from a branch rather than committing where you happen to
+    be standing:
 
     ```bash
     # staged changes travel with the switch
