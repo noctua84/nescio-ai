@@ -54,7 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
 import _trail_scope as scope  # noqa: E402
-from _learning_common import REPO_DIR  # noqa: E402
+from _learning_common import REPO_DIR, guard_brain  # noqa: E402
 
 # Bumped only on a breaking change to the read.json schema below. Consumers
 # (`mark_harvested.py`) refuse a version they do not understand rather than
@@ -213,7 +213,11 @@ def default_out_dir(read_at: datetime) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Declare the harvest's subject and stamp the read-time. Always returns 0.
+    """Declare the harvest's subject and stamp the read-time.
+
+    Returns 0 once past the brain guard at the top (see _learning_common); a
+    confirmed wrong-repo destination returns 2 instead, same as the other two
+    guarded entry points.
 
     A subject repo with no trails is reported, not refused: a repo may simply
     never have run a session on this machine. It is printed loudly all the same,
@@ -249,6 +253,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     # None (the CLI path) means "read sys.argv"; a list is what tests pass.
     args = ap.parse_args(argv)
+
+    # Refuse before declaring anything if this checkout is not the brain — see
+    # _learning_common's "brain guard" section. This is the earliest catch: a
+    # harvest opened in the wrong repo would otherwise print a `next:` line
+    # naming the promoter against a wrong-tree manifest. Deliberately *after*
+    # parse_args (matching promote_learnings.py and compute_readiness.py) so
+    # `--help` still prints and exits 0 instead of being refused first; nothing
+    # between parse_args and here reads or writes anything, so "refuse before
+    # any side effect" still holds.
+    rc = guard_brain()
+    if rc:
+        return rc
 
     repos = [scope.current_repo_root()] + [Path(r).resolve() for r in args.repo]
     roots, trails, claimed, clamps = collect(repos, read_at)
