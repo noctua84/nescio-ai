@@ -24,23 +24,25 @@ the evidence was wrong is a trap any future session will walk into again.
 
 ### The measurement error: the template is not the brain
 
-`~/.claude/memory` is a symlink to `PycharmProjects/ai-os/memory` — **not** to
-`nescio-ai/memory`. `nescio-ai` is the **template / upstream**; `ai-os` is the
-**live installed brain**. `memory/learning-log.md` is a per-instance runtime
-artifact, so its absence from `nescio-ai` is correct by design: the template
-ships only `.gitkeep`s and `EXAMPLE` files (`memory/repo/EXAMPLE/`), and a
-ledger of promotions performed on somebody's machine has no business being
-committed to it.
+`~/.claude/memory` is a symlink to the **installed brain** — a separate,
+private, per-operator repository — **not** to this repo's own `memory/`. This
+repo is the **template / upstream**; the brain is the **live installed
+instance**. `memory/learning-log.md` is a per-instance runtime artifact, so its
+absence from the template is correct by design: the template ships only
+`.gitkeep`s and `EXAMPLE` files (`memory/repo/EXAMPLE/`), and a ledger of
+promotions performed on somebody's machine has no business being committed to
+it.
 
 ADR 0002 measured the template and drew a conclusion about the instance. Its
 central factual claim — that `memory/learning-log.md` "does not exist, and never
-has on any branch" — is true of `nescio-ai` and irrelevant; the file it was
-reasoning about is `ai-os/memory/learning-log.md`, which exists and is long.
+has on any branch" — is true of the template and irrelevant; the file it was
+reasoning about is the brain's own `memory/learning-log.md`, which exists and is
+long.
 
 **This is the durable, reusable lesson and the headline of this ADR: when
 measuring the learning loop, measure the live brain, not the template.** Resolve
 `~/.claude/memory` before counting anything. Every empirical claim about corpus
-size, promotion history, or watermark state that is gathered from a `nescio-ai`
+size, promotion history, or watermark state that is gathered from a template
 checkout is a claim about a shipping skeleton.
 
 ### What the 2026-08-20 stamp actually was
@@ -53,7 +55,7 @@ real, successful harvest that promoted 3 notes.** Checkable at:
   `11:30:42` session accounting → `11:34:07` "Manifest staged … for your
   confirmation" → `22:48:14` "The harvest is complete… Promoted 3 durable notes
   to `memory/repo/holo-mind/`";
-- `ai-os/memory/learning-log.md` lines 227–229, dated 2026-08-20, naming exactly
+- the brain's `memory/learning-log.md` lines 227–229, dated 2026-08-20, naming exactly
   those three notes with their content hashes;
 - the note files themselves exist, committed 2026-08-21 as `3593404`;
 - `scripts/mark_harvested.py` was byte-identical to its 2026-07-15 scaffold
@@ -66,13 +68,14 @@ nothing" inverts what happened: a harvest promoted, and *then* over-stamped.
 
 ### The corpus is not empty
 
-| ADR 0002 states | Actual (`ai-os/memory`) |
+| ADR 0002 states | Actual (the installed brain's `memory/`) |
 |---|---|
 | "7 files, ~150 lines, ~6KB" | **296 notes, 1.21 MB** |
 | "the loop has never completed a promotion" | **212 promotions** in the ledger |
 
 ADR 0002's own reopen triggers are ~500 notes corpus-wide and ~100 notes in any
-single directory. Reality is **296** and **35** (largest: `memory/repo/soulsgate-ui`).
+single directory. Reality is **296** and **35** (largest: one project's
+`memory/repo/` directory).
 
 Stated precisely: **the decision survives, the evidence does not, and the
 posture is materially closer to reopening than the document believes.** The
@@ -227,8 +230,8 @@ recorded rather than left implicit.
   recommended follow-up is a `threat-model` / LINDDUN pass over
   `~/.claude/learning-trail`, which is out of scope for this ADR.
 - **To re-verify:** the corpus counts above are a 2026-08-26 snapshot of one
-  machine's `ai-os` brain, and the corpus is ~59% of ADR 0002's own reopen
+  machine's installed brain, and the corpus is ~59% of ADR 0002's own reopen
   threshold. Re-count before assuming ADR 0002's deferral still has headroom —
-  and re-count against `~/.claude/memory`, not against a `nescio-ai` checkout.
+  and re-count against `~/.claude/memory`, not against a template checkout.
 
 [Source: empirical — 2026-08-26]
