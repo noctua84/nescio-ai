@@ -200,9 +200,9 @@ body.
 >
 > median 1, mean 1.3, **max 4**. So **79.4% of promoted notes were written by a single
 > promotion and never touched again** — there was no merge to recover boundaries from.
-> The figure is a ceiling, not a floor: `--follow` counts the `repo/ui` to
-> `repo/soulsgate-ui` directory convergence as a touch, so true re-promotion is rarer
-> still.
+> The figure is a ceiling, not a floor: `--follow` counts a merge of two of the
+> brain's `memory/repo/` project directories as a touch, so true re-promotion is
+> rarer still.
 >
 > The *"six-paragraph merged body"* above measures **prose style, not accumulation**.
 > A single harvest natively writes several paragraphs. Boundary destruction is real for
