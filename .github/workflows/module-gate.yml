@@ -52,7 +52,7 @@ jobs:
       # passed. Excludes below are long-form prose records, not modules --
       # growing them is not the thing this gate is watching for.
       #
-      # `memory/**/*.md` is the brain's notes and ADRs. ADR 0005 crossed the
+      # `memory/*.md` is the brain's notes and ADRs. ADR 0005 crossed the
       # tripwire at 448 lines on #181 and the gate demanded a module verdict for
       # it, but the three tests the banner points at are meaningless for prose:
       # an ADR has no reasons-to-change in that sense, no shared mutable state
@@ -60,13 +60,34 @@ jobs:
       # sentence written to clear a gate, which is the exact failure ADR 0006
       # exists to prevent. Scoped to `*.md` on purpose, so a `.py` that ever
       # lands under memory/ is still gated.
+      #
+      # `docs/reports/*.md` is the same category: dated, append-only QA and
+      # audit records, every one of them already several times the tripwire. Any
+      # edit to one -- down to a single-word correction -- used to demand a
+      # module verdict for a document with no module shape to describe. It was
+      # reached the same way ADR 0005 reached it: a prose-only privacy fix had
+      # to carry two verdicts it could not honestly write.
+      #
+      # Both patterns are a single `*`, not `**`, and that is load-bearing.
+      # `module_scan.is_excluded` matches with `fnmatch`, whose `*` already
+      # crosses `/` -- so `memory/*.md` covers `memory/repo/.../0005-x.md` AND
+      # `memory/CONVENTIONS.md`, while `memory/**/*.md` translates to a pattern
+      # that requires a literal `/` after the wildcard and therefore silently
+      # misses every `.md` sitting directly in the directory. That is what the
+      # `memory/**/*.md` spelling here did: `memory/CONVENTIONS.md` was still
+      # gated, latent only because it is 126 lines. The first attempt at the
+      # `docs/reports` line was spelled `**/*.md` too and excluded none of the
+      # four real reports. `tests/test_module_gate_excludes.py` pins the actual
+      # tree against these patterns so the next such typo fails a test instead
+      # of quietly doing nothing.
       - run: |
           python scripts/module_gate.py \
             --head HEAD \
             --ack-file /tmp/pr-body.txt \
             --exclude 'docs/plans/**' \
             --exclude 'docs/specs/**' \
+            --exclude 'docs/reports/*.md' \
             --exclude '.sisyphus/**' \
-            --exclude 'memory/**/*.md' \
+            --exclude 'memory/*.md' \
             --exclude 'CHANGELOG.md' \
             --exclude 'docs/usage/data.json'
