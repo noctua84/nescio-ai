@@ -204,6 +204,7 @@ from _learning_common import (
     REPO_DIR,
     VALID_SOURCES,
     content_hash12,
+    guard_brain,
     parse_ledger,
 )
 
@@ -1057,6 +1058,14 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except (AttributeError, ValueError):
         pass
+
+    # Refuse before touching the manifest if this checkout is not the brain —
+    # see _learning_common's "brain guard" section. This is the write path the
+    # original incident went through, so it is the entry point this check
+    # matters most for.
+    rc = guard_brain()
+    if rc:
+        return rc
 
     manifest = Path(args.manifest)
     if not manifest.is_file():

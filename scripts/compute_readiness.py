@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -84,7 +85,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
 import _repo_registry as repo_registry  # noqa: E402
 import record_stop as rs  # noqa: E402
-from _learning_common import parse_ledger  # noqa: E402
+from _learning_common import guard_brain, parse_ledger  # noqa: E402
 from _marker_block import MarkerBlock  # noqa: E402
 
 # Path normalisation and repo attribution live in `_trail_scope`, so every tool
@@ -633,8 +634,12 @@ def main(argv=None) -> int:
     ap.add_argument("--trail-dir", default=None,
                     help="learning-trail dir (default: $CLAUDE_CONFIG_DIR/learning-trail "
                          "or ~/.claude/learning-trail)")
-    ap.add_argument("--memory-root", default=str(DEFAULT_MEMORY_ROOT),
-                    help="path to the brain's memory/ root (default: this repo's memory/)")
+    # default=None (not DEFAULT_MEMORY_ROOT) is an exact "was the flag given"
+    # sentinel for the guard below -- see its comment. The help text still
+    # names the effective default so --help output does not regress.
+    ap.add_argument("--memory-root", default=None,
+                    help="path to the brain's memory/ root "
+                         f"(default: {DEFAULT_MEMORY_ROOT})")
     ap.add_argument("--repo", default=None,
                     help="limit to a single repository name")
     ap.add_argument("--apply", action="store_true",
@@ -651,8 +656,50 @@ def main(argv=None) -> int:
     except (AttributeError, ValueError):
         pass
 
+    # Refuse before reading or writing anything if this checkout is not the
+    # brain — but only when the *effective* destination resolves to this
+    # checkout's own default tree, whether that is because --memory-root was
+    # left unset or because the operator spelled the default out explicitly,
+    # in any equivalent form. Skipped only when the resolved destination is
+    # genuinely a *different* tree.
+    #
+    # This is a deliberate narrowing of the earlier seam rule ("an operator
+    # who names the destination has stated it explicitly", the one that keeps
+    # the guard out of promote(repo_dir=...)). That reading had a one-flag
+    # bypass: `--memory-root memory`, run from a non-brain checkout, resolves
+    # relative to cwd to that wrong checkout's own memory/ tree -- the exact
+    # incident this guard exists to prevent -- yet the guard stayed silent
+    # because *a* flag was given, even though it did not name a different
+    # destination at all. "Named the destination" has to mean "named a
+    # destination that differs from the implicit default", not merely
+    # "supplied the flag"; otherwise restating the default by accident
+    # silently disables the guard that only the implicit default was meant to
+    # trigger.
+    #
+    # `args.memory_root is None` remains the right way to know whether the
+    # flag was given at all -- do not go back to comparing the raw argument
+    # string against str(DEFAULT_MEMORY_ROOT): a trailing separator, forward
+    # slashes, a lowercased drive letter or a dot-segment all resolve to the
+    # same tree but compare unequal as raw strings, which is the unsafe
+    # direction (the guard silently does not run). Instead, resolve the
+    # effective root -- the one `plan()` below will actually use -- via
+    # Path.resolve() (collapses dot-segments, relative paths and separator
+    # differences) and compare its os.path.normcase()'d string form against
+    # DEFAULT_MEMORY_ROOT's, normalised the same way (handles Windows case-
+    # and separator-insensitivity). Only a resolved mismatch skips the guard.
+    effective_memory_root = (
+        Path(args.memory_root) if args.memory_root else DEFAULT_MEMORY_ROOT
+    )
+    is_default_root = os.path.normcase(
+        str(effective_memory_root.resolve())
+    ) == os.path.normcase(str(DEFAULT_MEMORY_ROOT.resolve()))
+    if is_default_root:
+        rc = guard_brain(REPO_DIR)
+        if rc:
+            return rc
+
     trail_dir = Path(args.trail_dir) if args.trail_dir else rs.trail_dir()
-    memory_root = Path(args.memory_root)
+    memory_root = effective_memory_root
 
     entries = plan(trail_dir, memory_root, repo=args.repo)
     if args.apply:
