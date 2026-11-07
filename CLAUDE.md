@@ -52,6 +52,16 @@ crew imposes nothing.
 - Never commit credentials, tokens, or internal hostnames. Machine-local or
   private values go in `CLAUDE.local.md` (gitignored) or your OS keychain —
   never in tracked files.
+- **Never name a private repository in a tracked file** — not your installed
+  brain, not a client project. A bare directory name is itself the identifying
+  string, and the `scrub_check.py` baseline cannot recognise one: it WARNs on an
+  absolute home path but has no way to know a plain word names something
+  private. Write "the brain" in prose, `<brain>` in a path, and cite its issues
+  as `brain#N`.
+- Copy `scrub-terms.local.example` to `scrub-terms.local`, fill in your own
+  identifiers, and run `python scripts/scrub_check.py` before publishing. That
+  file is gitignored, so it does not exist in CI and each checkout — every
+  worktree included — needs its own copy, or `--terms <dir>` pointing at one.
 
 ---
 

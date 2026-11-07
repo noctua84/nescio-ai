@@ -84,8 +84,8 @@ fixing the source of truth instead. See D16.
   `scripts/sync_from_upstream.py` never touches `memory/` (`:7-8`, `:33`). The
   migration in this PR is the only thing that will ever touch a downstream
   instance's index files. The predicate must be right for *their* content.
-- The three folders damaged in `ai-os#138` all take the **append** path under the
-  new predicate — including `repo/soulsgate-payment`, which is pure bullets with
+- The three folders damaged in `brain#138` all take the **append** path under the
+  new predicate — including the bullets-only folder, which is pure bullets with
   no prose at all and is saved only because its bullets link `adr/….md` targets
   this run does not emit.
 
@@ -187,9 +187,9 @@ in generator order. This is documented in the function's docstring and in
 `memory/CONVENTIONS.md` (Task 8). Ordering is the only thing this predicate can
 lose, and only in a file that contains nothing but generated lines.
 
-Verified against the real downstream `ai-os` brain: all three damaged folders take
+Verified against the real downstream brain: all three damaged folders take
 the append path — `repo/ui` (blockquote prose), `repo/streaming` (prose plus
-`## Notes` / `## Incidents` / `## ADRs`), and `repo/soulsgate-payment`, which has
+`## Notes` / `## Incidents` / `## ADRs`), and the bullets-only folder, which has
 **no prose at all** and is saved only because its `adr/….md` bullets are not lines
 this run emits.
 
@@ -469,7 +469,7 @@ produce merge conflicts in one 120-line file. Wave 2 must be a single agent.
     The docstring must state, in this order: (a) why shape matching is
     insufficient, quoting the
     `- [START HERE — read before touching sessions](auth-model.md) — ask Markus first`
-    counter-example; (b) that `ai-os#138`'s `repo/soulsgate-payment` was pure
+    counter-example; (b) that `brain#138`'s bullets-only folder was pure
     bullets with no prose and is saved only by line identity; (c) that hand-curated
     ordering is **not** preserved and this is an accepted, stated loss.
     **This is the single most important comment in the PR.**
@@ -489,7 +489,7 @@ produce merge conflicts in one 120-line file. Wave 2 must be a single agent.
   **Acceptance criteria**:
   - The `START HERE` line makes a file non-replaceable.
   - A pure-bullet file whose bullets link `adr/0001-x.md` is non-replaceable
-    (the `soulsgate-payment` shape).
+    (the bullets-only shape).
   - A file whose lines are exactly the emitted lines, reordered, **is** replaceable.
   - Full overlap → block body is the "already linked above" placeholder.
   - Append then re-run → `read_bytes()` identical (D14; fails if de-dup is
@@ -567,7 +567,7 @@ produce merge conflicts in one 120-line file. Wave 2 must be a single agent.
 
   **What to do**: add to `tests/test_promote_learnings.py`: (a) a curated
   `MEMORY.md` with prose in the target directory survives a real promote — the
-  end-to-end reproduction of `ai-os#138` **through the actual unattended call
+  end-to-end reproduction of `brain#138` **through the actual unattended call
   site** at `promote_learnings.py:479`, which is where the damage happened; (b) a
   target directory with malformed markers is left byte-identical, the `⚠ malformed`
   line appears in the promote summary, and the promote's own rc stays 0.
@@ -633,7 +633,7 @@ parent chain, droppable non-note) move to the follow-up issue with D2/D3/D5/D8/D
 | 3 | Marker-less, line-identical → migrates | exactly `build_index()`'s output | becomes block only; **no `⚠`** in summary |
 | 4 | Marker-less, reordered generated lines → migrates | same lines, shuffled | replaced in generator order; documents the accepted ordering loss |
 | 5 | **`START HERE` annotation** | `- [START HERE — read before touching sessions](auth-model.md) — ask Markus first` where `auth-model.md` is a real note | **not** replaceable → appended. The hole shape+containment missed. |
-| 6 | **`soulsgate-payment` shape** | pure bullets, no prose, targets `adr/0001-x.md` | **not** replaceable → appended. A genuine `ai-os#138` regression guard — but it does **not** make the case for line identity: mutation testing showed the rejected shape+containment predicate rejects it too, because containment catches `adr/0001-x.md` unaided. Row 5 is the only row that discriminates between the two predicates. |
+| 6 | **bullets-only shape** | pure bullets, no prose, targets `adr/0001-x.md` | **not** replaceable → appended. A genuine `brain#138` regression guard — but it does **not** make the case for line identity: mutation testing showed the rejected shape+containment predicate rejects it too, because containment catches `adr/0001-x.md` unaided. Row 5 is the only row that discriminates between the two predicates. |
 | 7 | Marker-less, curated prose → appends + warns | `# Index\n\nHand-written orientation.\n\n- [a](a.md) — d\n` | original text is a byte-exact **prefix** of the result; summary contains `⚠ appended` |
 | 8 | **Append, full overlap** | curated file links every note in the folder | block body is the "already linked above" placeholder; no bullet duplicated |
 | 9 | **Append, partial overlap** | curated file links 1 of 3 notes | block lists exactly the other 2 |
@@ -649,7 +649,7 @@ parent chain, droppable non-note) move to the follow-up issue with D2/D3/D5/D8/D
 | 19 | CRLF input | pure-generated file written `\r\n`; and a marked file with CRLF prose above the block | run 1 migrates/splices without raising; run 2 `--check` rc 0; the CRLF prose keeps its `\r\n` bytes |
 | 20 | `--check` never writes | every case 1–17 under `check=True` | `read_bytes()` unchanged in **all** of them, malformed included |
 | 21 | cp1252 stdout *(`test_console_encoding_guard.py`)* | `main()` on an unresolvable `--dir` | rc 1; encoding utf-8; `⚠` writable |
-| 22 | Prose survives a real promote *(`test_promote_learnings.py`)* | curated `MEMORY.md`, then a real promote | prose survives — the unattended path that caused `ai-os#138` |
+| 22 | Prose survives a real promote *(`test_promote_learnings.py`)* | curated `MEMORY.md`, then a real promote | prose survives — the unattended path that caused `brain#138` |
 | 23 | Malformed survives a real promote *(`test_promote_learnings.py`)* | malformed markers, then a real promote | file byte-identical; `⚠ malformed` in summary; promote rc 0 |
 
 ---

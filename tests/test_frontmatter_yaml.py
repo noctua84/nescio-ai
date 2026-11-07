@@ -7,7 +7,7 @@ detect YAML syntax errors (e.g., unquoted colons in scalar values).
 This test parses frontmatter with a strict YAML parser to catch the bug
 class: description: values with unquoted ": " patterns that break yaml.safe_load.
 
-See ai-os#230.
+See brain#230.
 """
 
 import re
@@ -122,7 +122,7 @@ class TestFrontmatterYAML(unittest.TestCase):
 
     def test_yaml_error_on_unquoted_colon_in_scalar(self):
         """Regression test: unquoted colons in scalars break yaml.safe_load."""
-        # This is the bug class from ai-os#230:
+        # This is the bug class from brain#230:
         # an unquoted ":" in a scalar value breaks YAML parsing.
         problematic_yaml = "name: x\ndescription: Tier — design judgment: architectural\n"
 
