@@ -22,9 +22,9 @@
 ### The repository
 
 Work happens **only** in the worktree
-`C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\vigilant-bouman-c0d77c`.
+`<worktree>`.
 Branch `fix/theme-aware-sync-plan` is already cut from `origin/main` (6566dbd). Do **not** `cd`
-to the main checkout at `C:\Users\marku\PycharmProjects\nescio-ai`.
+to the main checkout at `<repo-root>`.
 
 Tracking issue: <https://github.com/noctua84/nescio-ai/issues/133>
 (`gh issue view 133 --repo noctua84/nescio-ai`).

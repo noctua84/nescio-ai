@@ -460,7 +460,7 @@ class ReindexTest(unittest.TestCase):
 
 
 class UnattendedReindexTest(unittest.TestCase):
-    """Issue #102 / `ai-os#138`: the unattended reindex must not destroy a
+    """Issue #102 / `brain#138`: the unattended reindex must not destroy a
     hand-curated MEMORY.md.
 
     ``promote()`` reindexes every touched directory at
@@ -472,7 +472,7 @@ class UnattendedReindexTest(unittest.TestCase):
     these two drive the real unattended path, end to end.
     """
 
-    # The `ai-os#138` shape: orientation prose plus links into an `adr/`
+    # The `brain#138` shape: orientation prose plus links into an `adr/`
     # subdirectory, none of which a non-recursive walk of this folder emits.
     CURATED = (
         "# Feedback index\n"
@@ -496,7 +496,7 @@ class UnattendedReindexTest(unittest.TestCase):
         return index
 
     def test_curated_index_survives_a_real_promote(self):
-        # (g) The `ai-os#138` reproduction, through promote_learnings.py:479.
+        # (g) The `brain#138` reproduction, through promote_learnings.py:479.
         with tempfile.TemporaryDirectory() as d:
             repo = Path(d)
             _seed_repo(repo)

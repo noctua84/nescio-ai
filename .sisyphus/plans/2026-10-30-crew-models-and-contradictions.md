@@ -75,4 +75,4 @@ Installed agent names are themed: builder-simple→archimedes-simple, builder-st
 `qa-guard` CI gate + CI Gate Audit; `reviewer` audit against this plan.
 
 ## Out of scope (carried)
-Remaining capability gaps (bug-fix diagnosis step, skill routing from critic/reviewer, refactor triage class, vision/app verification, PR-comment handling, create-adr wiring in orchestrator); prompt de-shouting; orchestrator trim; validator/planner/doc-researcher contradictions; ai-os themed copy sync and its `[1m]` suffix; effort shown in generated catalog.
+Remaining capability gaps (bug-fix diagnosis step, skill routing from critic/reviewer, refactor triage class, vision/app verification, PR-comment handling, create-adr wiring in orchestrator); prompt de-shouting; orchestrator trim; validator/planner/doc-researcher contradictions; themed downstream copy sync and its `[1m]` suffix; effort shown in generated catalog.

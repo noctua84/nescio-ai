@@ -91,9 +91,9 @@ class UnmarkHarvestedTest(unittest.TestCase):
                 # unresolved temp path (Windows can hand out an 8.3 short form)
                 # would make the fixture disagree with both.
                 base = Path(d).resolve()
-                kept = base / "holo-mind"
+                kept = base / "kept-repo"
                 kept_wt = kept / ".claude" / "worktrees" / "feature"
-                victim = base / "soulsgate-ui"
+                victim = base / "victim-repo"
                 stranger = base / "elsewhere"
                 for p in (kept, kept_wt, victim, stranger):
                     p.mkdir(parents=True)
