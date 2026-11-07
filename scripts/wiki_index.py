@@ -181,7 +181,7 @@ def _is_safely_replaceable(existing_text: str, emitted_lines: set[str]) -> bool:
     it is "is this **the** line I would generate". Hence set membership against
     the emitted lines, byte-for-byte.
 
-    `ai-os#138`'s `repo/soulsgate-payment/MEMORY.md` is a genuine regression
+    `brain#138`'s bullets-only `MEMORY.md` is a genuine regression
     guard, and line identity does reject it. It was pure bullets — no headings,
     no orientation text, nothing a *prose* check could catch — and it survives
     here because its bullets link `adr/….md` targets that a non-recursive walk
@@ -194,7 +194,7 @@ def _is_safely_replaceable(existing_text: str, emitted_lines: set[str]) -> bool:
     The `START HERE` line above is the one shape that actually discriminates
     between the two predicates — there the target *is* emitted, so containment
     passes and only byte-identity notices the human's annotation. Keep both
-    cases covered, but do not cite `soulsgate-payment` as the argument for line
+    cases covered, but do not cite the bullets-only folder as the argument for line
     identity over containment; it does not distinguish them.
 
     **Accepted, stated loss: hand-curated ordering is not preserved.** This is a

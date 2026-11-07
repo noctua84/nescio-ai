@@ -14,7 +14,7 @@ HEAD_SHA `60daf43a568a30bb9c506e0c6f1d6611ea09055a`, BASE_SHA
 The fix is sound in its core claim: the line-identity migration predicate, the
 malformed-marker refusal and the two-path de-duplication all hold up under
 adversarial probing and under mutation testing, and every plan success criterion
-(1–8) verifies green on this worktree. The `ai-os#138` shapes are genuinely
+(1–8) verifies green on this worktree. The `brain#138` shapes are genuinely
 saved.
 
 The TL;DR's stronger claim — "make `wiki_index.py` incapable of losing a byte" —
@@ -123,7 +123,7 @@ the output.
 **Impact:**
 Silent, unattended, unwarned deletion of hand-written content from a curated
 `MEMORY.md` — the exact failure class this PR exists to eliminate, on the exact
-call site (`scripts/promote_learnings.py:484`) where `ai-os#138` happened.
+call site (`scripts/promote_learnings.py:484`) where `brain#138` happened.
 `memory/` is symlinked into every installed brain by `install.py:54` and
 `scripts/` is in `FRAMEWORK_PATHS`, so downstream instances receive this
 verbatim and cannot patch it. The `--check` path gives no warning either: it
@@ -584,7 +584,7 @@ safely. Recorded so the next auditor does not repeat the work.
 | Criterion 8 — `regenerate()` keeps `(int, list[str])`; malformed warns, never raises/duplicates/loses | **Pass** | Verified by `tests/test_promote_learnings.py:534-575` and by direct three-run probes. |
 | D7 refusal table — all 5 malformed rows reach rc 2 | **Pass** | 1/0, 0/1, reversed, ≥2 begin, ≥2 end all → rc 2, byte-identical file, in both write and `--check` mode. Mutation M5b (classifier never reports malformed) is caught. |
 | D14 — de-duplication on the splice path | **Pass** | Mutation M1 (splice-path dedupe removed) is caught by 3 tests. |
-| D6 — line-identity predicate | **Pass** | Mutations M3 (always replaceable) and M4 (never replaceable) both caught. `START HERE` and `soulsgate-payment` shapes both take the append path. |
+| D6 — line-identity predicate | **Pass** | Mutations M3 (always replaceable) and M4 (never replaceable) both caught. `START HERE` and bullets-only shapes both take the append path. |
 | D10 — `newline=""` both ends | **Pass** | Mutation M9 (write) caught by 17 tests; M10 (read) caught by 1. |
 | D15 — empty / emptied folder | **Pass** | Mutations M14 and M24 both caught. |
 | Idempotency (append → splice → append) | **Pass** | Converges after run 1 in every probed shape, including CRLF, lone-CR, BOM, no-trailing-newline, and the fenced-marker case. No shape required N>2 runs. |
@@ -594,7 +594,7 @@ safely. Recorded so the next auditor does not repeat the work.
 Plan-alignment note (not a finding): commit `60daf43` (Wave 4 / Task 8) also
 touched `scripts/wiki_index.py` (+15/−6), which the plan's Task 8 file list did
 not name. The change is confined to `_is_safely_replaceable`'s docstring
-(correcting the `soulsgate-payment` claim) and has no behavioural effect.
+(correcting the bullets-only-folder claim) and has no behavioural effect.
 
 ## Recommendations
 
@@ -627,21 +627,21 @@ is a one-line judgement the plan already framed for the reviewer.
 
 ## Files Reviewed
 
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\scripts\wiki_index.py` (HEAD and BASE)
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\scripts\_wiki_common.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\scripts\wiki_lint.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\scripts\promote_learnings.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\scripts\mark_harvested.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\tests\test_wiki_index.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\tests\test_promote_learnings.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\tests\test_console_encoding_guard.py`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\memory\CONVENTIONS.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\memory\concepts\MEMORY.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\memory\repo\EXAMPLE\MEMORY.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\memory\repo\EXAMPLE\readiness.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\memory\repo\nescio\adr\MEMORY.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\tests\fixtures\example_readiness.md`
-- `C:\Users\marku\PycharmProjects\nescio-ai\.claude\worktrees\modest-taussig-4a19e0\.sisyphus\plans\wiki-index-marker-preservation.md`
+- `<worktree>\scripts\wiki_index.py` (HEAD and BASE)
+- `<worktree>\scripts\_wiki_common.py`
+- `<worktree>\scripts\wiki_lint.py`
+- `<worktree>\scripts\promote_learnings.py`
+- `<worktree>\scripts\mark_harvested.py`
+- `<worktree>\tests\test_wiki_index.py`
+- `<worktree>\tests\test_promote_learnings.py`
+- `<worktree>\tests\test_console_encoding_guard.py`
+- `<worktree>\memory\CONVENTIONS.md`
+- `<worktree>\memory\concepts\MEMORY.md`
+- `<worktree>\memory\repo\EXAMPLE\MEMORY.md`
+- `<worktree>\memory\repo\EXAMPLE\readiness.md`
+- `<worktree>\memory\repo\nescio\adr\MEMORY.md`
+- `<worktree>\tests\fixtures\example_readiness.md`
+- `<worktree>\.sisyphus\plans\wiki-index-marker-preservation.md`
 
 **Method note:** all probing was done against copies in the session scratchpad
 and against `tempfile.TemporaryDirectory()` fixtures. No file under audit was
