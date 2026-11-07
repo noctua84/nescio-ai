@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.11.0](https://github.com/noctua84/nescio-ai/compare/v1.10.0...v1.11.0) (2026-11-07)
+
+
+### Features
+
+* refuse a learning promotion into a non-brain repository ([#234](https://github.com/noctua84/nescio-ai/issues/234)) ([a56ebb7](https://github.com/noctua84/nescio-ai/commit/a56ebb7a57737ce21c3fed2265d454f097b556f3))
+
+
+### Bug Fixes
+
+* [fix] emit YAML-safe frontmatter from the promote write path ([#230](https://github.com/noctua84/nescio-ai/issues/230)) ([ae5213e](https://github.com/noctua84/nescio-ai/commit/ae5213edb42f3f405f4fab6c990cedfacc252dcc))
+* replace a managed frontmatter key with its whole value ([#231](https://github.com/noctua84/nescio-ai/issues/231)) ([d9e223b](https://github.com/noctua84/nescio-ai/commit/d9e223bdcbb8bc4b13f4bbdc4f827a8da7eff834))
+
+
+### Documentation
+
+* [docs] make running /harvest-memory in the brain an explicit precondition ([#233](https://github.com/noctua84/nescio-ai/issues/233)) ([f08e24d](https://github.com/noctua84/nescio-ai/commit/f08e24de77740d06147b8cd7674f684a8ca590e9))
+
 ## [1.10.0](https://github.com/noctua84/nescio-ai/compare/v1.9.1...v1.10.0) (2026-11-02)
 
 
