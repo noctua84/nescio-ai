@@ -119,7 +119,7 @@ commit — including this audit's own environment — the path resolves to nothi
 Observed on the audit host:
 ```
 $ ls -ld ~/.claude/scripts
-/usr/bin/ls: cannot access 'C:/Users/marku/.claude/scripts': No such file or directory
+/usr/bin/ls: cannot access '<home>/.claude/scripts': No such file or directory
 ```
 (`~/.claude/agents`, `commands`, `hooks` are present as symlinks, so the install
 is otherwise live — only `scripts` is missing.)
@@ -151,7 +151,7 @@ Either (a) have the charters state the precondition and a fallback — "if
 `~/.claude/scripts` is missing, re-run `python install.py` from the brain checkout;
 in the brain checkout itself `python scripts/<name>.py` also works" — or (b) add a
 `--check`-style warning to `install.py` and a line to the release notes /
-CHANGELOG telling existing users to re-link. Note the themed downstream (`ai-os`,
+CHANGELOG telling existing users to re-link. Note the themed downstream (the brain,
 which is what `~/.claude` points at on this host) is carried out of scope, so for
 that deployment the path stays broken until the sync lands.
 

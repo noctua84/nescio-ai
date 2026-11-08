@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- **This plan covers `nescio-ai` only.** The `ai-os` counterpart is a separate delivery boundary and is spawned as its own task in Task 4 — this is the design's own Delivery Boundary Check applied to itself.
-- **Public vocabulary by default.** This repo ships the functional names — `builder`, `advisor`, `planner`, `critic`, `reviewer` — and files authored here should use them. The philosopher names (`aristotle`, `plato`, `socrates`, `pyrrho`, `archimedes`) are a documented feature of *this* repo, applied on demand by `scripts/apply_theme.py` (README: "Optional: the philosopher theme"), so anything asserting on agent names must be theme-aware rather than hardcoding either set. `archimedes` is also the `ai-os` name for `builder`; here it's produced by the theme script (`PAIRS` includes `builder`↔`archimedes`), not hand-authored.
+- **This plan covers `nescio-ai` only.** The brain's counterpart is a separate delivery boundary and is spawned as its own task in Task 4 — this is the design's own Delivery Boundary Check applied to itself.
+- **Public vocabulary by default.** This repo ships the functional names — `builder`, `advisor`, `planner`, `critic`, `reviewer` — and files authored here should use them. The philosopher names (`aristotle`, `plato`, `socrates`, `pyrrho`, `archimedes`) are a documented feature of *this* repo, applied on demand by `scripts/apply_theme.py` (README: "Optional: the philosopher theme"), so anything asserting on agent names must be theme-aware rather than hardcoding either set. `archimedes` is also the brain's name for `builder`; here it's produced by the theme script (`PAIRS` includes `builder`↔`archimedes`), not hand-authored.
 - **Do not touch the `model:` frontmatter line of `agents/orchestrator.md`.** A separate in-flight task (`chore/bump-crew-opus-5`) owns that line. Editing it here causes a merge conflict.
 - **New agent model is exactly `claude-opus-5`.** Verified same price as `claude-opus-4-8` ($5.00/1M in, $25.00/1M out).
 - **Branch:** `feat/implementer-agent` (already created; the spec is committed at `9b28db3`).
@@ -499,7 +499,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Spawn the `ai-os` counterpart
+### Task 4: Spawn the brain's counterpart
 
 **Files:** none in this repo — this task creates a task chip.
 
@@ -507,24 +507,24 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: the finished `agents/builder.md` from Task 1 as the source to substitute
 - Produces: nothing
 
-This is the design's own Delivery Boundary Check applied to itself: `ai-os` is a
+This is the design's own Delivery Boundary Check applied to itself: the brain is a
 separate repo, separate branch, separately shippable. Its result does not need to
 re-enter this conversation.
 
 - [ ] **Step 1: Confirm the prerequisite has landed**
 
-Run: `git -C <ai-os-checkout> log --oneline -3`
+Run: `git -C <brain-checkout> log --oneline -3`
 
 Check whether `chore/bump-crew-opus-5` has merged. If it has not, the chip brief
 must still say **do not touch `orchestrator.md`'s `model:` line**.
 
 - [ ] **Step 2: Spawn the task**
 
-Use `spawn_task` with title **"Mirror the builder agent into ai-os as archimedes"** and this brief:
+Use `spawn_task` with title **"Mirror the builder agent into the brain as archimedes"** and this brief:
 
 ```
 Mirror a change that has landed in the public nescio-ai framework into the
-private ai-os clone, translating the naming.
+private brain clone, translating the naming.
 
 ## Source of truth
 `<nescio-ai-checkout>` branch `feat/implementer-agent`:
@@ -534,13 +534,13 @@ private ai-os clone, translating the naming.
 - `docs/plans/2026-08-22-implementer-agent.md`
 
 Read those first. Reproduce the same change in
-`<ai-os-checkout>`.
+`<brain-checkout>`.
 
 ## Name substitution — REQUIRED
-ai-os uses Greek-figure names. Substitute throughout, including inside the
+The brain uses Greek-figure names. Substitute throughout, including inside the
 agent's own `description` where it names its siblings:
 
-| nescio-ai | ai-os |
+| nescio-ai | the brain |
 |---|---|
 | builder | archimedes |
 | advisor | aristotle |
@@ -555,11 +555,11 @@ specifically.
 
 Note: nescio-ai's `scripts/apply_theme.py` now carries `builder`↔`archimedes`
 in its `PAIRS` list, so this substitution no longer has to be done by hand —
-copy `agents/builder.md` into the ai-os checkout unchanged, then run
-`python scripts/apply_theme.py --agents-dir <ai-os-checkout>/agents philosophers`
+copy `agents/builder.md` into the brain checkout unchanged, then run
+`python scripts/apply_theme.py --agents-dir <brain-checkout>/agents philosophers`
 from the nescio-ai side to rename the file and rewrite its cross-references.
-Verify the result against ai-os's existing philosopher-named files before
-committing, since ai-os's own crew may not mirror nescio-ai's roster exactly.
+Verify the result against the brain's existing philosopher-named files before
+committing, since the brain's own crew may not mirror nescio-ai's roster exactly.
 
 ## Deliverables
 - `agents/archimedes.md` — new, `model: claude-opus-5`, NO `disallowedTools`
@@ -567,18 +567,18 @@ committing, since ai-os's own crew may not mirror nescio-ai's roster exactly.
 - `agents/orchestrator.md` — three routing references to `general-purpose`
   repointed to `archimedes`; add the Delivery Boundary Check gate at the end of
   PHASE 3 (PLAN); qualify the PHASE 4 parallelism rule
-- README crew-roster row, if ai-os has one
+- README crew-roster row, if the brain has one
 
 ## Constraints
-- Branch in ai-os; do not commit to the default branch. Conventional commits.
-- ai-os is the LIVE crew — `~/.claude/agents` symlinks to `ai-os/agents`. A
+- Branch in the brain; do not commit to the default branch. Conventional commits.
+- The brain is the LIVE crew — `~/.claude/agents` symlinks to `<brain>/agents`. A
   broken frontmatter line here breaks the running system, so verify the file
   parses before committing.
-- If `chore/bump-crew-opus-5` has not yet merged in ai-os, do NOT touch
+- If `chore/bump-crew-opus-5` has not yet merged in the brain, do NOT touch
   `orchestrator.md`'s `model:` frontmatter line — that task owns it.
 
 ## Context
-nescio-ai is the public framework extracted from private ai-os; the agents are
+nescio-ai is the public framework extracted from the private brain; the agents are
 deliberate parallel copies under different names, not accidental duplicates.
 The crew previously had no agent that writes production code — every
 implementation task went to the built-in general-purpose agent.
@@ -587,7 +587,7 @@ implementation task went to the built-in general-purpose agent.
 - [ ] **Step 3: Note the verification dependency**
 
 The spec's behavioural tests (routing, verification discipline, BLOCKED path,
-scope fence, findings channel) can only be exercised once **ai-os** has the agent,
+scope fence, findings channel) can only be exercised once **the brain** has the agent,
 because `~/.claude/agents` symlinks there. Changes in this repo alone do not
 affect the running system. Record this in the PR description.
 
@@ -605,7 +605,7 @@ Reported, not acted on — per the contract this plan introduces:
 - `agents/validator.md` and `agents/scout.md` run on Opus for bounded triage
   work that Sonnet fits better. Deliberately excluded from this change · trivial.
 
-## Manual verification (post-merge, requires ai-os)
+## Manual verification (post-merge, requires the brain)
 
 From the spec's Testing section — none of these are automatable:
 

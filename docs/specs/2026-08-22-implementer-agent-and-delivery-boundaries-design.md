@@ -12,7 +12,7 @@ Status: shipped — implemented on `feat/implementer-agent` (see
 
 Two changes to how EXECUTE dispatches work.
 
-1. **Add a dedicated implementer** — `archimedes` (ai-os) / `builder` (nescio-ai).
+1. **Add a dedicated implementer** — `archimedes` (the brain) / `builder` (nescio-ai).
    Today every implementation task goes to the built-in `general-purpose` agent,
    which has no opinion about patterns, tests, verification, or scope. It is 60%
    of all subagent calls (1,111 of 1,863).
@@ -57,11 +57,11 @@ Two changes to how EXECUTE dispatches work.
 
 Four edits, mirrored across both repos.
 
-**Every reference below is written in the ai-os (private) vocabulary.** The
+**Every reference below is written in the brain's (private) vocabulary.** The
 nescio-ai variant substitutes throughout — in the filename, the frontmatter
 `name`, the `description`'s sibling references, and the orchestrator routing:
 
-| ai-os (private) | nescio-ai (public) |
+| the brain (private) | nescio-ai (public) |
 |---|---|
 | `archimedes` | `builder` |
 | `aristotle` | `advisor` |
@@ -73,7 +73,7 @@ nescio-ai variant substitutes throughout — in the filename, the frontmatter
 same name in both. Copying the agent body verbatim into `builder.md` without
 substituting the sibling names is the most likely mistake in this change.
 
-Note the philosopher names are not exclusive to ai-os: nescio-ai ships them as an
+Note the philosopher names are not exclusive to the brain: nescio-ai ships them as an
 opt-in theme via `scripts/apply_theme.py` (README: "Optional: the philosopher
 theme"), which renames `planner`/`advisor`/`reviewer`/`critic`/`builder` and
 rewrites their cross-references. The public repo *defaults* to functional names
@@ -298,10 +298,10 @@ Agent definitions are prompts, not code, so verification is behavioural:
 
 - `nescio-ai/agents/builder.md` (new)
 - `nescio-ai/agents/orchestrator.md` (routing ×3, boundary gate, parallelism line)
-- `ai-os/agents/archimedes.md` (new)
-- `ai-os/agents/orchestrator.md` (same four edits)
+- `<brain>/agents/archimedes.md` (new)
+- `<brain>/agents/orchestrator.md` (same four edits)
 - `nescio-ai/README.md` — one row added to the crew roster table (currently
-  ~line 104), and the equivalent roster table in `ai-os`'s README if it has one
+  ~line 104), and the equivalent roster table in the brain's README if it has one
 
 **Verified as needing no change:** `install.py` copies the directory wholesale
 (`("agents", "agents")`, install.py:56), so there is no per-agent manifest to

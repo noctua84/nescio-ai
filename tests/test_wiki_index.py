@@ -72,7 +72,7 @@ def _setup_start_here_annotation(root):
 
 
 def _setup_adr_bullets_only(root):
-    """The `ai-os#138` `repo/soulsgate-payment` shape: bullets, zero prose."""
+    """The `brain#138` bullets-only shape: bullets, zero prose."""
     _note(root, "a.md", "alpha", "first")
     (root / "adr").mkdir(exist_ok=True)
     _note(root / "adr", "0001-x.md", "0001 x", "a decision")
@@ -481,7 +481,7 @@ class TestMarkerlessMigration(unittest.TestCase):
             self.assertTrue([line for line in summary if "⚠ appended" in line], summary)
 
     def test_adr_bullets_without_prose_are_not_replaceable(self):
-        # The real `ai-os#138` `repo/soulsgate-payment` shape: no prose at all.
+        # The real `brain#138` bullets-only shape: no prose at all.
         # It survives only because `adr/0001-x.md` is a target a non-recursive
         # walk never emits, so one line fails membership.
         with tempfile.TemporaryDirectory() as d:
