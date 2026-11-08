@@ -38,12 +38,12 @@ every row scoped by `client_name`. The stated intent is that it **replaces
 
 ADR 0002 rejected exactly this — *"Vector DB now | Rejected — nothing to embed;
 weaker matcher; first runtime dependency"* — and named four revisit triggers.
-Measured against the live `ai-os` brain on 2026-10-02, two are measurable and
+Measured against the live installed brain on 2026-10-02, two are measurable and
 neither has fired:
 
 | Trigger | Measured | Fired |
 |---|---|---|
-| any single `memory/` directory > ~100 notes | 65 (`repo/soulsgate-payment`) | no |
+| any single `memory/` directory > ~100 notes | 65 (then-largest project directory) | no |
 | corpus > ~500 notes | **424** | no — 85% of the way |
 | a harvest cannot determine where to file a learning | not instrumented | unknowable |
 | agents observed grepping past the index | not instrumented | unknowable |
@@ -57,7 +57,7 @@ neither has fired:
 >
 > | Trigger | Verdict | Measured |
 > |---|---|---|
-> | directory > ~100 notes | clear | **80** (`repo/soulsgate-ui`) — **80%** of the trigger |
+> | directory > ~100 notes | clear | **80** (a different project directory) — **80%** of the trigger |
 > | corpus > ~500 notes | clear | **427** — **85%** |
 > | harvest cannot route a learning | **unknown** | no tally yet — absence is not zero |
 > | agents grepping past the index | **unknown** | measured, but uncalibrated, so it cannot fire |
@@ -65,9 +65,9 @@ neither has fired:
 > Three corrections to what this ADR originally recorded:
 >
 > 1. **The directory figure was stale, not wrong.** Commit `4fa3aee` (2026-10-02)
->    converged `memory/repo/ui/` into `memory/repo/soulsgate-ui/` after the original
->    measurement, taking it from 49 to 80 and moving the lead off
->    `soulsgate-payment`. The count was correct when taken.
+>    merged two of the brain's project directories under `memory/repo/` after the
+>    original measurement, taking the combined directory from 49 to 80 and moving
+>    the lead off the previous holder. The count was correct when taken.
 > 2. **The distribution matters more than the leader.** Three directories now sit
 >    near the line — 80, 73 and 68 — so this is a corpus-wide trend rather than one
 >    outlier, which is a stronger signal than the single figure above suggests.
