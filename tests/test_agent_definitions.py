@@ -1837,6 +1837,244 @@ class TestBuilderTierParity(TestFrontmatterMixin, unittest.TestCase):
                 )
 
 
+def _flat(text):
+    """`text` with all whitespace runs collapsed to one space.
+
+    Charter prose is hard-wrapped, so a phrase assertion against the raw text
+    passes or fails on where the wrap falls rather than on what the rule says.
+    """
+    return " ".join(text.split())
+
+
+def _heading_section(text, heading):
+    """From the line `heading` up to the next heading of the same or higher level.
+
+    Fence-aware: a fenced block inside the section may carry lines that look
+    like headings, and cutting there would end the section at the first line
+    of the thing being asserted about.
+    """
+    level = len(heading) - len(heading.lstrip("#"))
+    lines = text.splitlines()
+    try:
+        start = lines.index(heading)
+    except ValueError:
+        return None
+    out, fenced = [lines[start]], False
+    for line in lines[start + 1 :]:
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("#"):
+            hashes = len(line) - len(line.lstrip("#"))
+            if line[hashes : hashes + 1] == " " and hashes <= level:
+                break
+        out.append(line)
+    return "\n".join(out)
+
+
+class TestBuilderOwnsTheTestsItTurnsRed(unittest.TestCase):
+    """Every builder tier maps its blast radius and owns the red it leaves behind.
+
+    Two failure modes, both seen in a replay of real past tasks through the
+    builder tiers:
+
+    - A builder reported `COMPLETE` while a test it had turned red stayed red —
+      and that test pinned the very bug the task introduced. The builder had
+      filed it as "expected red". Nothing in the charter said a red test the
+      change caused was the builder's to resolve, so "expected" read as a
+      legitimate disposition rather than a failed verification.
+    - A change rewired one reader of a piece of state and missed a second
+      reader elsewhere in the repo. A run that mapped readers and writers before
+      its first edit caught it; a run that did not, shipped it.
+
+    The rules that answer these are prose and cannot be executed. What can be
+    pinned is that they are *there*, in each tier, in the place the agent reads
+    them: a mapping step ahead of the first edit, a `<blast-radius>` slot in
+    the report so the map has to be shown, a Verify rule that makes a newly red
+    test the builder's problem (checked against the base in a worktree — never
+    a shared stash), the exact `Inverted pin:` label the orchestrator scans
+    for, and a `COMPLETE` definition that a left-red test cannot satisfy.
+
+    Asserted per tier rather than only on `builder`: `TestBuilderTierParity`
+    proves the tiers are byte-identical below `## Your Purpose`, but parity is
+    satisfied just as well by all three losing a rule together. These tests are
+    what make the rule itself load-bearing.
+    """
+
+    OUTPUT_CONTRACT_HEADING = "## Output Contract"
+    METHOD_HEADING = "## Method"
+    VERDICTS_HEADING = "### Verdicts"
+
+    def _text(self, functional_name):
+        return (AGENTS_DIR / f"{_themed(functional_name)}.md").read_text(encoding="utf-8")
+
+    def _section(self, functional_name, heading):
+        section = _heading_section(self._text(functional_name), heading)
+        self.assertIsNotNone(
+            section,
+            f"{functional_name}: no `{heading}` heading — the assertions below have "
+            f"no anchor to cut on",
+        )
+        return section
+
+    def _output_contract(self, functional_name):
+        """The first fenced block under `## Output Contract`, fences excluded."""
+        lines = self._section(functional_name, self.OUTPUT_CONTRACT_HEADING).splitlines()
+        fences = [i for i, line in enumerate(lines) if line.startswith("```")]
+        self.assertGreaterEqual(
+            len(fences),
+            2,
+            f"{functional_name}: `{self.OUTPUT_CONTRACT_HEADING}` has no fenced block — "
+            f"the contract the agent must emit is not stated",
+        )
+        return "\n".join(lines[fences[0] + 1 : fences[1]])
+
+    def _method_steps(self, functional_name):
+        """`(heading, body)` for each `### ` step under `## Method`, in order."""
+        method = self._section(functional_name, self.METHOD_HEADING)
+        headings = [line for line in method.splitlines() if line.startswith("### ")]
+        return [(h, _heading_section(method, h)) for h in headings]
+
+    def _step(self, functional_name, phrase):
+        """The single Method step whose heading contains `phrase`, and its index."""
+        steps = self._method_steps(functional_name)
+        found = [(i, body) for i, (h, body) in enumerate(steps) if phrase in h]
+        self.assertEqual(
+            len(found),
+            1,
+            f"{functional_name}: expected exactly one `## Method` step headed with "
+            f"{phrase!r}, found {[h for h, _ in steps]}",
+        )
+        return found[0]
+
+    def test_the_output_contract_reports_the_blast_radius_after_changed(self):
+        """The map has to be shown, or it was not made.
+
+        A mapping step with no slot in the report is a step the agent can skip
+        with nothing visible to anyone. After `<changed>` because it is read
+        against it: the files touched first, then what else those touches reach.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                contract = self._output_contract(name)
+                for tag in ("<changed>", "<blast-radius>", "</blast-radius>"):
+                    self.assertIn(
+                        tag,
+                        contract,
+                        f"{name}: its output contract has no `{tag}` — the pre-edit map "
+                        f"never reaches the reader of the report",
+                    )
+                self.assertLess(
+                    contract.index("</changed>"),
+                    contract.index("<blast-radius>"),
+                    f"{name}: `<blast-radius>` must follow `<changed>` — it is read as "
+                    f"what the listed changes reach",
+                )
+
+    def test_the_method_maps_what_the_change_touches_before_test_first(self):
+        """The mapping step precedes the first edit, and the first edit is a test.
+
+        Mapping after implementation is a rationalisation of what was already
+        written; the missed second reader in the replay was exactly the kind of
+        thing a post-hoc map does not look for. The step must also name the
+        three things it maps — readers, writers of relied-on state, and input
+        from a new source — since a heading alone pins a title, not a method.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                map_index, map_body = self._step(name, "Map what your change touches")
+                self.assertIn(
+                    "before the first edit",
+                    map_body.splitlines()[0],
+                    f"{name}: the mapping step's heading does not say it comes before "
+                    f"the first edit",
+                )
+                test_index, _ = self._step(name, "Test first")
+                self.assertLess(
+                    map_index,
+                    test_index,
+                    f"{name}: the mapping step must come before `Test first` — the "
+                    f"failing test is the first edit",
+                )
+                flat = _flat(map_body)
+                for phrase in ("Readers and callers", "Writers of relied-on state",
+                               "Input from a new source", "<blast-radius>"):
+                    self.assertIn(
+                        phrase,
+                        flat,
+                        f"{name}: the mapping step does not name {phrase!r}",
+                    )
+
+    def test_the_verify_step_makes_a_newly_red_test_the_builders(self):
+        """No "expected red", base-checked in a worktree, never via the stash.
+
+        `never "expected"` is the direct answer to the replay: the disposition
+        the builder reached for is named and refused. The base check is how a
+        builder tells its own red from pre-existing red, and it must go through
+        `git worktree add` — the stash stack is shared across worktrees and
+        concurrent sessions, so a `git stash pop` can apply someone else's work.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                _, verify = self._step(name, "Verify")
+                flat = _flat(verify)
+                for phrase in ("A test you turned red is yours",
+                               'never "expected"',
+                               "git worktree add",
+                               "**Never `git stash`**"):
+                    self.assertIn(
+                        phrase,
+                        flat,
+                        f"{name}: the Verify step does not carry {phrase!r}",
+                    )
+
+    def test_the_verify_step_requires_the_exact_inverted_pin_label(self):
+        """The label is a machine-matched token, so its spelling is the contract.
+
+        The orchestrator confirms every inverted pin with the user before it
+        accepts a wave, and it finds them by the literal `Inverted pin:`. A
+        builder that writes "flipped assertion" or "updated expectation" has
+        reported the same thing in a form the receiver does not look for, and a
+        brief that prescribed a faulty change then goes through unconfirmed.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                _, verify = self._step(name, "Verify")
+                flat = _flat(verify)
+                self.assertIn(
+                    "exact label `Inverted pin:`",
+                    flat,
+                    f"{name}: the Verify step does not require the exact `Inverted pin:` "
+                    f"label the orchestrator scans `<deviations>` for",
+                )
+                self.assertIn(
+                    "<deviations>",
+                    flat,
+                    f"{name}: the pin rule does not say where inverted pins are listed",
+                )
+
+    def test_complete_is_unreachable_with_a_test_left_red(self):
+        """The verdict definition is where "expected red" would otherwise hide.
+
+        An agent decides its verdict by reading `### Verdicts`, not by
+        re-reading the Method. If `COMPLETE` only requires that verification
+        ran and passed, a builder that waved a red test through as expected
+        still finds a definition it meets.
+        """
+        for name in BUILDER_TIERS:
+            with self.subTest(agent=name):
+                verdicts = _flat(self._section(name, self.VERDICTS_HEADING))
+                start = verdicts.find("**COMPLETE**")
+                self.assertNotEqual(start, -1, f"{name}: `COMPLETE` is not defined")
+                end = verdicts.find("- **", start)
+                complete = verdicts[start : end if end != -1 else len(verdicts)]
+                self.assertIn(
+                    "no test your change turned red is left red",
+                    complete,
+                    f"{name}: the `COMPLETE` definition does not exclude a test the "
+                    f"change turned red — got {complete!r}",
+                )
+
+
 class TestToolTokenParsing(unittest.TestCase):
     """Unit cover for `_tool_tokens`, which the allowlist assertions all route through.
 
@@ -2105,6 +2343,66 @@ class TestOrchestratorWiring(unittest.TestCase):
         self.assertIn("Escalate one tier at a time", text)
         self.assertIn("escalate one tier", text)
         self.assertIn("never loop", text)
+
+    AFTER_EACH_TASK_HEADING = "### After Each Task (or Wave)"
+
+    def _after_each_task_step(self, number):
+        """Numbered step `number` of `### After Each Task (or Wave)`, flattened.
+
+        Located by heading and by the step's own number, never by line: the
+        steps are hard-wrapped and re-wrap whenever one is edited.
+        """
+        section = _heading_section(self._text(), self.AFTER_EACH_TASK_HEADING)
+        self.assertIsNotNone(section, f"no `{self.AFTER_EACH_TASK_HEADING}` section")
+        match = re.search(
+            rf"^{number}\. (.*?)(?=^\d+\. |\Z)", section, flags=re.MULTILINE | re.DOTALL
+        )
+        self.assertIsNotNone(
+            match, f"`{self.AFTER_EACH_TASK_HEADING}` has no step {number}"
+        )
+        return _flat(match.group(1))
+
+    def test_orchestrator_compares_red_tests_against_the_base(self):
+        """The controller's own base comparison is the verdict, not the builder's.
+
+        A builder labels each red test pre-existing, unattributed or its own,
+        and the replay showed a builder labelling its own red as expected. If the
+        orchestrator merely re-runs the suite, it inherits those labels. Checking
+        each red test at the wave's base — in a worktree, never via the shared
+        stash — is what turns a builder's attribution into evidence.
+        """
+        step = self._after_each_task_step(2)
+        for phrase in ("Re-run the tests yourself and compare against the base",
+                       "git worktree add",
+                       "never `git stash`",
+                       "input, not the verdict"):
+            self.assertIn(phrase, step, f"After Each Task step 2 does not carry {phrase!r}")
+
+    def test_orchestrator_confirms_inverted_pins_before_accepting_complete(self):
+        """`COMPLETE` with an inverted pin is accepted only once someone confirms it.
+
+        A brief can prescribe a faulty change, and a builder that obeys it is
+        behaving correctly — so the builder's compliance is no check on the
+        brief. The orchestrator finds those cases by the literal `Inverted pin:`
+        label the builder charters require; the two spellings must match, and
+        the accept rule must also refuse a `COMPLETE` that left newly red tests.
+        """
+        step = self._after_each_task_step(4)
+        start = step.find("`COMPLETE` →")
+        self.assertNotEqual(start, -1, "After Each Task step 4 has no `COMPLETE` route")
+        end = step.find("- `PARTIAL`", start)
+        complete = step[start : end if end != -1 else len(step)]
+        self.assertIn(
+            "`Inverted pin:`",
+            complete,
+            "the `COMPLETE` route does not name the `Inverted pin:` label the builder "
+            "tiers are required to use",
+        )
+        self.assertIn(
+            "attributed no newly red test",
+            complete,
+            "the `COMPLETE` route accepts without checking step 2's attribution",
+        )
 
 
 ADR_SKILL_DIR = ROOT / "skills" / "create-adr"
