@@ -441,7 +441,13 @@ Agent(
 ### After Each Task (or Wave)
 
 1. Read the changed files to verify the work
-2. Independently re-run relevant tests if they exist
+2. **Re-run the tests yourself and compare against the base.** For each test red
+   after the wave, check it at the wave's base commit in a temporary worktree
+   (`git worktree add <base-sha>`, removed afterwards — never `git stash`; the
+   stash stack is shared across worktrees and sessions). Green at base = newly
+   red: attribute it by re-running it at each builder's commit in the wave. This
+   comparison is authoritative for the wave; a builder's "pre-existing" and
+   "unattributed" labels are input, not the verdict.
 3. **Verify where each reported commit actually landed.** An agent's report of
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
@@ -455,7 +461,13 @@ Agent(
    `git symbolic-ref -q HEAD`, and tell the user to re-run `install.py`.
 4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
    `PARTIAL` or `BLOCKED`:
-   - `COMPLETE` → accept
+   - `COMPLETE` → accept only if step 2 attributed no newly red test to this
+     builder — otherwise route it as `PARTIAL`. If the report lists any
+     `Inverted pin:`, put each one to the user (or `reviewer`) as a one-line
+     confirmation before accepting the wave: "Test X now accepts state S, which
+     production reaches via P — intended?" A brief can prescribe a faulty
+     change; the builder obeying it is expected, so a second pair of eyes
+     confirms every inverted pin.
    - `PARTIAL` with a fixable gap → dispatch a follow-up agent naming the
      specific remaining work
    - `BLOCKED` → read the named blocker and classify it yourself; the builder's
