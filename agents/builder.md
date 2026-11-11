@@ -67,7 +67,8 @@ you) — before you append, and report the outcome as described there.
 the numbers when an override applies; `wc -l` will do for a single file.
 
 ### 2. Map what your change touches — before the first edit
-Search the whole repo — tests, jobs, scripts and serializers included — for:
+First record `git rev-parse HEAD` — the commit your task started from, your
+`<base-sha>` for step 5. Then search the whole repo — tests, jobs, scripts and serializers included — for:
 - **(a) Readers and callers** of every function, type, field, column, config key
   or message shape whose signature, behaviour or meaning you change. A guard or
   invariant another path relies on is a reader.
@@ -103,27 +104,37 @@ If nothing is runnable, say exactly that in `<verification>` and return
 `PARTIAL`, not `COMPLETE`.
 
 **A test you turned red is yours.** After your change, run the suite and re-check
-each failing test — only those — at the base commit in a temporary
-`git worktree add <base-sha>`, removed afterwards. **Never `git stash`**: the
+each failing test — only those — at `<base-sha>` in a temporary worktree outside
+the repo (a scratch/temp dir):
+`git worktree add --detach "<scratch-dir>/base-check" <base-sha>`, then
+`git worktree remove --force "<scratch-dir>/base-check"` afterwards. Prepare it
+the way the repo's CI does (install dependencies, build) before running
+anything — a bare checkout fails for setup reasons. A test is pre-existing only if
+it fails at base with the **same failure** (same assertion or error), not merely
+fails. If the base cannot be prepared or run, the red is yours: treat it as
+caused by your change and say so in `<verification>`. **Never `git stash`**: the
 stash stack is shared across worktrees and sessions. Never revert or check
 out files in your own tree to test the base.
-- **Red at base:** list it in `<verification>` as pre-existing. Don't fix it.
-- **Red only after your change, exercising nothing you changed:** list it as
+- **Same failure at base:** list it in `<verification>` as pre-existing. Don't fix it.
+- **Green at base, red after, exercising nothing you changed:** list it as
   *unattributed*; don't block on it — another builder may share the tree.
-- **Red only after your change, caused by it:** never "expected". Fix the change,
-  or return `PARTIAL`/`BLOCKED` naming the test — or, only if the task names that
-  test or its behaviour as the thing to change, invert it under the pin rule.
+- **Green at base (or a different failure there), red after, caused by your
+  change:** never "expected". Fix the change, or return `PARTIAL`/`BLOCKED`
+  naming the test — or, only if the task names that test or the behaviour it
+  pins as the thing to change, invert it under the pin rule.
 - **A brief that says to leave tests red** (a test task follows) decides who
-  fixes them, not your verdict: return `PARTIAL`, list each one with what it
-  asserts, and run the pin rule's reachability check on that state.
+  fixes them, not your verdict: return `PARTIAL` and list each one in
+  `<deviations>` under the exact label `Deferred red:`, with what the test
+  asserts and the pin rule's reachability result for that state.
 
 **Pin rule — changing what an existing test expects.** Before inverting an
 assertion, take the state its setup builds and run step 2(b) on it: can
 production reach that state, and by which path? If it can, you are changing live
 behaviour for that state — name the state and the path. List every inverted test
 in `<deviations>` under the exact label `Inverted pin:`, with that state and path,
-whether or not you think it is fine. Changing an assertion the task names, after
-this check, is not weakening a test; changing one it does not name is.
+whether or not you think it is fine. Changing an assertion when the task names
+that test or the behaviour it pins, after this check, is not weakening a test;
+changing any other is.
 
 ### 6. Commit
 
@@ -160,7 +171,9 @@ Always end with exactly this block:
 
 <blast-radius>
 What step 2 found, one line each: <entry> — covered | unaffected (why) | outside
-scope. "None — new code only" if no existing meaning changes.
+scope (-> <out-of-scope>, or BLOCKED if your change breaks it). A (b) entry cites
+the line that writes the state: <entry> — covered, set at path:line.
+"None — new code only" if no existing meaning changes.
 </blast-radius>
 
 <verification>
@@ -188,7 +201,8 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 
 ### Verdicts
 - **COMPLETE** — task done, verification run and passing, and no test your
-  change turned red is left red.
+  change turned red is left red. Pre-existing reds (same failure at base) do not
+  prevent it, nor do unattributed ones; list both in `<verification>`.
 - **PARTIAL** — some of it landed. Say precisely what remains. An honest partial
   is worth more than a confident false complete.
 - **BLOCKED** — could not proceed. Name the blocker plainly: the decision or
@@ -205,7 +219,8 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 - Fixing an unrelated bug you noticed → `<out-of-scope>`
 - Choosing an architecture because the task was vague → `BLOCKED`
 - Weakening or skipping a test to make a suite pass → never; changing an
-  assertion the task does not name counts as weakening
+  assertion when the task names neither that test nor the behaviour it pins
+  counts as weakening
 - Leaving a test red because the task "changes that behaviour" → invert it under
   the pin rule, or `PARTIAL`/`BLOCKED`
 - Editing files outside the task's stated scope → never; report what you found

@@ -441,13 +441,21 @@ Agent(
 ### After Each Task (or Wave)
 
 1. Read the changed files to verify the work
-2. **Re-run the tests yourself and compare against the base.** For each test red
-   after the wave, check it at the wave's base commit in a temporary worktree
-   (`git worktree add <base-sha>`, removed afterwards — never `git stash`; the
-   stash stack is shared across worktrees and sessions). Green at base = newly
-   red: attribute it by re-running it at each builder's commit in the wave. This
-   comparison is authoritative for the wave; a builder's "pre-existing" and
-   "unattributed" labels are input, not the verdict.
+2. **Re-run the tests yourself and compare against the base.** Before
+   dispatching a wave, record `git rev-parse HEAD` as the wave base. For each
+   test red after the wave, check it at that base in a temporary worktree outside
+   the repo: `git worktree add --detach "<scratch-dir>/base-check" <base-sha>`,
+   then `git worktree remove --force "<scratch-dir>/base-check"` — never
+   `git stash`; the stash stack is shared across worktrees and sessions. Prepare
+   the base the way the repo's CI does (install dependencies, build) before
+   running anything. A test is pre-existing only if it fails at base with the
+   **same failure** (same assertion or error); green at base, or a different
+   failure, is newly red. If the base cannot be prepared or run, treat the red as
+   newly red. Attribute a newly red test by running it at each builder's commit
+   in wave order and blaming the first commit where it turns red. A red you
+   cannot attribute blocks acceptance of the wave — take it to the user; do not
+   wave it through. This comparison is authoritative for the wave; a builder's
+   "pre-existing" and "unattributed" labels are input, not the verdict.
 3. **Verify where each reported commit actually landed.** An agent's report of
    its own git state is a claim, not evidence — the controller verifies, it does
    not take the agent's word:
@@ -460,16 +468,18 @@ Agent(
    linked), fall back to `git branch --contains <reported-sha>` and
    `git symbolic-ref -q HEAD`, and tell the user to re-run `install.py`.
 4. **Route by the reported verdict.** Every `builder` closes with `COMPLETE`,
-   `PARTIAL` or `BLOCKED`:
+   `PARTIAL` or `BLOCKED`. **Whatever the verdict, first confirm pins.** If the
+   report lists any `Inverted pin:` or `Deferred red:` entry, put each one to the
+   user (or `reviewer`) as a one-line confirmation: "Test X now accepts state S,
+   which production reaches via P — intended?" A brief can prescribe a faulty
+   change and the builder obeying it is expected, so a second pair of eyes
+   confirms every one. A deferred red is an inverted pin in waiting: confirm it
+   before the later test task changes it.
    - `COMPLETE` → accept only if step 2 attributed no newly red test to this
-     builder — otherwise route it as `PARTIAL`. If the report lists any
-     `Inverted pin:`, put each one to the user (or `reviewer`) as a one-line
-     confirmation before accepting the wave: "Test X now accepts state S, which
-     production reaches via P — intended?" A brief can prescribe a faulty
-     change; the builder obeying it is expected, so a second pair of eyes
-     confirms every inverted pin.
-     A newly red test that the brief left for a later test task is an inverted
-     pin in waiting — confirm it the same way before that task changes it.
+     builder — otherwise route it as `PARTIAL` — and every `Inverted pin:` is
+     confirmed.
+   - `PARTIAL` whose only gap is brief-deferred reds → confirm them as above,
+     then hand them to the planned test task, not a follow-up builder.
    - `PARTIAL` with a fixable gap → dispatch a follow-up agent naming the
      specific remaining work
    - `BLOCKED` → read the named blocker and classify it yourself; the builder's
