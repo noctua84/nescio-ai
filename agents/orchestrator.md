@@ -468,6 +468,8 @@ Agent(
      production reaches via P — intended?" A brief can prescribe a faulty
      change; the builder obeying it is expected, so a second pair of eyes
      confirms every inverted pin.
+     A newly red test that the brief left for a later test task is an inverted
+     pin in waiting — confirm it the same way before that task changes it.
    - `PARTIAL` with a fixable gap → dispatch a follow-up agent naming the
      specific remaining work
    - `BLOCKED` → read the named blocker and classify it yourself; the builder's

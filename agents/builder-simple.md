@@ -72,6 +72,8 @@ Search the whole repo — tests, jobs, scripts and serializers included — for:
   invariant another path relies on is a reader.
 - **(b) Writers of relied-on state.** If your new code tests a status or flag,
   find who sets it and on which paths; confirm every path you depend on sets it.
+  Cite the line that writes it on each path — "it is set" without the writing
+  line is not confirmation.
 - **(c) Input from a new source.** For each function your change now feeds from a
   new source: what that source can produce (encoding, empty, null, size, type),
   and whether the function handles all of it.
@@ -102,13 +104,17 @@ If nothing is runnable, say exactly that in `<verification>` and return
 **A test you turned red is yours.** After your change, run the suite and re-check
 each failing test — only those — at the base commit in a temporary
 `git worktree add <base-sha>`, removed afterwards. **Never `git stash`**: the
-stash stack is shared across worktrees and sessions.
+stash stack is shared across worktrees and sessions. Never revert or check
+out files in your own tree to test the base.
 - **Red at base:** list it in `<verification>` as pre-existing. Don't fix it.
 - **Red only after your change, exercising nothing you changed:** list it as
   *unattributed*; don't block on it — another builder may share the tree.
 - **Red only after your change, caused by it:** never "expected". Fix the change,
   or return `PARTIAL`/`BLOCKED` naming the test — or, only if the task names that
   test or its behaviour as the thing to change, invert it under the pin rule.
+- **A brief that says to leave tests red** (a test task follows) decides who
+  fixes them, not your verdict: return `PARTIAL`, list each one with what it
+  asserts, and run the pin rule's reachability check on that state.
 
 **Pin rule — changing what an existing test expects.** Before inverting an
 assertion, take the state its setup builds and run step 2(b) on it: can
