@@ -25,8 +25,12 @@ from _crew_common import (  # noqa: E402
     BOUNDARY_SCOPE_TERMS,
     BOUNDED_WRITERS,
     CODE_WRITERS,
+    FUNCTIONAL_ROSTER,
     NEGATION_MARKERS,
     SHAPE_EXCLUSION,
+    SHELL_BOUNDARY_PHRASE,
+    SHELL_BOUNDARY_TERMS,
+    SHELL_BOUNDED,
     TIERED_AGENTS,
     WRITE_ACCESS_AFFIRMATIONS,
     WRITE_ACCESS_DECLARERS,
@@ -2239,6 +2243,77 @@ class TestAdrOptionsConsidered(unittest.TestCase):
         self.assertIn(self.HEADING, skill)
         self.assertIn("Required for `proposed` and `accepted` ADRs", skill)
         self.assertIn("as-built", skill)
+
+
+def _shell_boundary_paragraph(body):
+    """The paragraph carrying SHELL_BOUNDARY_PHRASE, whitespace-collapsed, or None.
+
+    Runs from the phrase to the first blank line. The rule is a bold lead
+    sentence followed by the command list and the `mktemp -d` clause, so the
+    whole paragraph — not the first sentence — is what has to carry the terms.
+    """
+    start = body.find(SHELL_BOUNDARY_PHRASE)
+    if start == -1:
+        return None
+    end = body.find("\n\n", start)
+    paragraph = body[start:] if end == -1 else body[start:end]
+    return " ".join(paragraph.split())
+
+
+class TestShellBoundary(TestFrontmatterMixin, unittest.TestCase):
+    """Read-only agents that hold Bash must forbid destructive shell commands.
+
+    A doc-lint, like the file boundary: frontmatter cannot express it (a
+    `disallowedTools: Bash(rm *)` entry drops all of Bash), so the charter
+    sentence is the only control. See SHELL_BOUNDED for the incident.
+    """
+
+    def _body(self, name):
+        text = (AGENTS_DIR / f"{_themed(name)}.md").read_text(encoding="utf-8")
+        return FRONTMATTER_RE.sub("", text, count=1)
+
+    def test_every_read_only_shell_holder_is_shell_bounded(self):
+        derived = set()
+        for name in FUNCTIONAL_ROSTER:
+            fields = self._frontmatter(AGENTS_DIR / f"{_themed(name)}.md")
+            tools = _tool_tokens(fields.get("tools", ""))
+            if "Bash" in tools and "Edit" not in tools:
+                derived.add(name)
+        self.assertEqual(
+            derived, SHELL_BOUNDED,
+            "an agent gained Bash without Edit (or lost it) — a read-only agent "
+            "with a shell needs the shell boundary in its charter",
+        )
+
+    def test_shell_bounded_agents_declare_the_boundary(self):
+        self.assertTrue(SHELL_BOUNDED, "no shell-bounded agents — nothing asserted")
+        for name in sorted(SHELL_BOUNDED):
+            with self.subTest(agent=_themed(name)):
+                paragraph = _shell_boundary_paragraph(self._body(name))
+                self.assertIsNotNone(
+                    paragraph, f"{_themed(name)}: no {SHELL_BOUNDARY_PHRASE!r} in the body",
+                )
+                missing = [t for t in SHELL_BOUNDARY_TERMS if t not in paragraph.lower()]
+                self.assertEqual(
+                    missing, [],
+                    f"{_themed(name)}: shell boundary paragraph lacks {missing}",
+                )
+
+    def test_the_rule_names_the_incident_command(self):
+        """`rm` was the command that destroyed a live worktree; it stays named."""
+        for name in sorted(SHELL_BOUNDED):
+            with self.subTest(agent=_themed(name)):
+                self.assertIn("`rm`", _shell_boundary_paragraph(self._body(name)))
+
+    def test_a_revoked_shell_boundary_does_not_satisfy_the_lint(self):
+        """The phrase alone is not the rule: `none` carries it and revokes it."""
+        paragraph = _shell_boundary_paragraph(
+            "Hard shell boundary: none — clean up whatever you like.\n"
+        )
+        self.assertTrue(
+            [t for t in SHELL_BOUNDARY_TERMS if t not in paragraph.lower()],
+            "a revoked shell boundary passed the term check",
+        )
 
 
 if __name__ == "__main__":
