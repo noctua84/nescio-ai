@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.11.0](https://github.com/noctua84/nescio-ai/compare/v1.10.0...v1.11.0) (2026-11-11)
+
+
+### Features
+
+* refuse a learning promotion into a non-brain repository ([#234](https://github.com/noctua84/nescio-ai/issues/234)) ([a56ebb7](https://github.com/noctua84/nescio-ai/commit/a56ebb7a57737ce21c3fed2265d454f097b556f3))
+
+
+### Bug Fixes
+
+* [fix] builders own the tests they turn red; orchestrator checks the base and confirms pins ([#241](https://github.com/noctua84/nescio-ai/issues/241)) ([6b202c7](https://github.com/noctua84/nescio-ai/commit/6b202c7378c4867e32ee67534b83c8d3fbdd79a8))
+* [fix] emit YAML-safe frontmatter from the promote write path ([#230](https://github.com/noctua84/nescio-ai/issues/230)) ([ae5213e](https://github.com/noctua84/nescio-ai/commit/ae5213edb42f3f405f4fab6c990cedfacc252dcc))
+* [fix] exclude docs/reports from the module gate, and repair memory's pattern ([#238](https://github.com/noctua84/nescio-ai/issues/238)) ([065da5c](https://github.com/noctua84/nescio-ai/commit/065da5c6766535482e5ca88b588239372f45b8b9))
+* [fix] forbid destructive shell commands in read-only agents ([#240](https://github.com/noctua84/nescio-ai/issues/240)) ([ca908c4](https://github.com/noctua84/nescio-ai/commit/ca908c4577ac4cc92609fce5b20f1ec425a73fda))
+* [fix] move the module-gate exclude assertions out of tests/ ([#239](https://github.com/noctua84/nescio-ai/issues/239)) ([b72d11a](https://github.com/noctua84/nescio-ai/commit/b72d11ae47e6f1268467fb11c729f15a319b3391))
+* replace a managed frontmatter key with its whole value ([#231](https://github.com/noctua84/nescio-ai/issues/231)) ([d9e223b](https://github.com/noctua84/nescio-ai/commit/d9e223bdcbb8bc4b13f4bbdc4f827a8da7eff834))
+
+
+### Documentation
+
+* [docs] make running /harvest-memory in the brain an explicit precondition ([#233](https://github.com/noctua84/nescio-ai/issues/233)) ([f08e24d](https://github.com/noctua84/nescio-ai/commit/f08e24de77740d06147b8cd7674f684a8ca590e9))
+* [docs] stop naming the installed brain's repository in published ADRs ([#236](https://github.com/noctua84/nescio-ai/issues/236)) ([6384eda](https://github.com/noctua84/nescio-ai/commit/6384eda8b3c7da5a5ec84c706c23f25592852cf6))
+
 ## [1.10.0](https://github.com/noctua84/nescio-ai/compare/v1.9.1...v1.10.0) (2026-11-02)
 
 
