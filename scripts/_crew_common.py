@@ -302,6 +302,48 @@ WRITE_ACCESS_DECLARERS = {"builder", "builder-standard", "builder-simple"}
 # silencing it, which is the property the keyed form was there to protect.
 WRITE_ACCESS_AFFIRMATIONS = ("you are one of", "you hold")
 
+# Agents that hold `Bash` but not `Edit`, by functional name: every read-only
+# (or Write-bounded) agent that can still run a shell.
+#
+# `Bash` is a write capability in everything but name: `rm -rf`, `git clean`,
+# `sed -i` and a `>` redirect all mutate the tree without passing through Edit
+# or Write, so a file boundary pinned on those tools says nothing about it. A
+# read-only auditor once ran `rm -rf` on a session scratchpad folder while
+# "testing a worktree command" and destroyed another process's live worktree.
+#
+# Frontmatter cannot narrow this. Per the Claude Code subagent docs, a
+# `disallowedTools` entry with a specifier such as `Bash(rm *)` removes the
+# whole tool, not the matching commands, and there is no per-agent
+# `permissions.deny`. These agents need Bash to run tests and git, so the
+# charter sentence pinned by SHELL_BOUNDARY_PHRASE is the control surface — the
+# same position the file boundary is in.
+#
+# Derived from frontmatter in the tests and asserted equal to this set, so a new
+# read-only agent granted Bash cannot ship without the rule. `orchestrator` is
+# absent: it declares no `tools:` allowlist (it holds everything except Edit)
+# and its job includes committing.
+SHELL_BOUNDED = {
+    "advisor",
+    "critic",
+    "doc-researcher",
+    "explore",
+    "librarian",
+    "planner",
+    "reviewer",
+    "scout",
+    "validator",
+}
+
+# The phrase a SHELL_BOUNDED charter must carry to declare its shell boundary.
+SHELL_BOUNDARY_PHRASE = "Hard shell boundary:"
+
+# What the paragraph carrying that phrase must say — every term, not any. The
+# phrase alone is satisfied by `Hard shell boundary: none.`; these pin the two
+# halves of the rule: destructive commands are forbidden (`never`, `delet`), and
+# the one sanctioned scratch area is a fresh `mktemp -d` directory removed by
+# the exact path it printed.
+SHELL_BOUNDARY_TERMS = ("never", "delet", "mktemp -d", "exact path")
+
 _FUNCTIONAL_TO_PHILOSOPHER = dict(PAIRS)
 
 # Every agent, by functional name. The single source the roster derives from.
