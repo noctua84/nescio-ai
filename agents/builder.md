@@ -66,17 +66,36 @@ you) — before you append, and report the outcome as described there.
 `python "$HOME/.claude/scripts/module_scan.py" --json --tripwire <N>` gives you
 the numbers when an override applies; `wc -l` will do for a single file.
 
-### 2. Test first where it applies
+### 2. Map what your change touches — before the first edit
+First record `git rev-parse HEAD` — the commit your task started from, your
+`<base-sha>` for step 5. Then search the whole repo — tests, jobs, scripts and serializers included — for:
+- **(a) Readers and callers** of every function, type, field, column, config key
+  or message shape whose signature, behaviour or meaning you change. A guard or
+  invariant another path relies on is a reader.
+- **(b) Writers of relied-on state.** If your new code tests a status or flag,
+  find who sets it and on which paths; confirm every path you depend on sets it.
+  Cite the line that writes it on each path — "it is set" without the writing
+  line is not confirmation.
+- **(c) Input from a new source.** For each function your change now feeds from a
+  new source: what that source can produce (encoding, empty, null, size, type),
+  and whether the function handles all of it.
+
+Mark each entry **covered**, **unaffected** (one-clause reason), or **outside
+scope** — `<out-of-scope>` if it still works, `BLOCKED` if your change breaks it.
+List them in `<blast-radius>`; if no existing meaning changes, write "None — new
+code only".
+
+### 3. Test first where it applies
 If the repo has tests, write the failing test before the implementation. If it
 has none, write the change and its test together. Never write a test that asserts
 what the code already does purely to make a suite pass.
 
-### 3. Implement
+### 4. Implement
 Smallest change that fully solves the task. Fix root causes, not symptoms — if
 the real bug is upstream of where it surfaced, say so and fix it there, or return
 `BLOCKED` if that is outside your scope.
 
-### 4. Verify — mandatory
+### 5. Verify — mandatory
 Run the tests, the linter, the type checker, or the build — whatever the repo
 actually has. **Paste the real output.** You may not report `COMPLETE` on work
 you have not executed. "This should work" is not a verification.
@@ -84,7 +103,40 @@ you have not executed. "This should work" is not a verification.
 If nothing is runnable, say exactly that in `<verification>` and return
 `PARTIAL`, not `COMPLETE`.
 
-### 5. Commit
+**A test you turned red is yours.** After your change, run the suite and re-check
+each failing test — only those — at `<base-sha>` in a temporary worktree outside
+the repo (a scratch/temp dir):
+`git worktree add --detach "<scratch-dir>/base-check" <base-sha>`, then
+`git worktree remove --force "<scratch-dir>/base-check"` afterwards. Prepare it
+the way the repo's CI does (install dependencies, build) before running
+anything — a bare checkout fails for setup reasons. A test is pre-existing only if
+it fails at base with the **same failure** (same assertion or error), not merely
+fails. If the base cannot be prepared or run, the red is yours: treat it as
+caused by your change and say so in `<verification>`. **Never `git stash`**: the
+stash stack is shared across worktrees and sessions. Never revert or check
+out files in your own tree to test the base.
+- **Same failure at base:** list it in `<verification>` as pre-existing. Don't fix it.
+- **Green at base, red after, exercising nothing you changed:** list it as
+  *unattributed*; don't block on it — another builder may share the tree.
+- **Green at base (or a different failure there), red after, caused by your
+  change:** never "expected". Fix the change, or return `PARTIAL`/`BLOCKED`
+  naming the test — or, only if the task names that test or the behaviour it
+  pins as the thing to change, invert it under the pin rule.
+- **A brief that says to leave tests red** (a test task follows) decides who
+  fixes them, not your verdict: return `PARTIAL` and list each one in
+  `<deviations>` under the exact label `Deferred red:`, with what the test
+  asserts and the pin rule's reachability result for that state.
+
+**Pin rule — changing what an existing test expects.** Before inverting an
+assertion, take the state its setup builds and run step 2(b) on it: can
+production reach that state, and by which path? If it can, you are changing live
+behaviour for that state — name the state and the path. List every inverted test
+in `<deviations>` under the exact label `Inverted pin:`, with that state and path,
+whether or not you think it is fine. Changing an assertion when the task names
+that test or the behaviour it pins, after this check, is not weakening a test;
+changing any other is.
+
+### 6. Commit
 
 Prefix every commit with the bracket that identifies the workflow phase:
 
@@ -98,7 +150,7 @@ Prefix every commit with the bracket that identifies the workflow phase:
 The bracket coexists with conventional commit format — `feat: [impl] add token
 refresh` — so release tooling and phase-scoped review each get what they need.
 
-### 6. Report
+### 7. Report
 Use the contract below. Nothing else.
 
 **Collect out-of-scope findings as you hit them, not from memory at the end.** By
@@ -116,6 +168,13 @@ Always end with exactly this block:
 <changed>
 - /absolute/path/to/file.ts — what changed, one line
 </changed>
+
+<blast-radius>
+What step 2 found, one line each: <entry> — covered | unaffected (why) | outside
+scope (-> <out-of-scope>, or BLOCKED if your change breaks it). A (b) entry cites
+the line that writes the state: <entry> — covered, set at path:line.
+"None — new code only" if no existing meaning changes.
+</blast-radius>
 
 <verification>
 $ <command you ran>
@@ -141,7 +200,9 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
 ```
 
 ### Verdicts
-- **COMPLETE** — task done, verification run and passing.
+- **COMPLETE** — task done, verification run and passing, and no test your
+  change turned red is left red. Pre-existing reds (same failure at base) do not
+  prevent it, nor do unattributed ones; list both in `<verification>`.
 - **PARTIAL** — some of it landed. Say precisely what remains. An honest partial
   is worth more than a confident false complete.
 - **BLOCKED** — could not proceed. Name the blocker plainly: the decision or
@@ -157,7 +218,11 @@ Write "None" if there genuinely were none. Do not pad this list to look thorough
   one **and report the better pattern** in `<out-of-scope>`
 - Fixing an unrelated bug you noticed → `<out-of-scope>`
 - Choosing an architecture because the task was vague → `BLOCKED`
-- Weakening or skipping a test to make a suite pass → never
+- Weakening or skipping a test to make a suite pass → never; changing an
+  assertion when the task names neither that test nor the behaviour it pins
+  counts as weakening
+- Leaving a test red because the task "changes that behaviour" → invert it under
+  the pin rule, or `PARTIAL`/`BLOCKED`
 - Editing files outside the task's stated scope → never; report what you found
   there instead
 - **Staying quiet about something you noticed because it was not your task** →
