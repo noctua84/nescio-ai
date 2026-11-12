@@ -55,15 +55,15 @@ def _write(path: Path, text: str) -> None:
 
 PLANNER_V1 = (
     "---\nname: planner\n---\n"
-    "You are the planner. Draft the plan before work begins.\n"
+    "You are the `planner`. Draft the plan before work begins.\n"
 )
 ORCHESTRATOR_V1 = (
     "---\nname: orchestrator\n---\n"
-    "Dispatch tasks. Consult the advisor before finalizing scope.\n"
+    "Dispatch tasks. Consult the `advisor` before finalizing scope.\n"
 )
 SCOUT_V1 = (
     "---\nname: scout\n---\n"
-    "Scout the request. Flag risks for the planner.\n"
+    "Scout the request. Flag risks for the `planner`.\n"
 )
 VALIDATOR_V1 = (
     "---\nname: validator\n---\n"
@@ -184,7 +184,7 @@ class RealChangesSurviveThemeRenderTest(unittest.TestCase):
         vocabulary."""
         new_orchestrator = (
             "---\nname: orchestrator\n---\n"
-            "Dispatch tasks. Consult the critic before finalizing scope.\n"
+            "Dispatch tasks. Consult the `critic` before finalizing scope.\n"
         )
         _write(self.up / "agents" / "orchestrator.md", new_orchestrator)
 
@@ -260,7 +260,7 @@ class RealChangesSurviveThemeRenderTest(unittest.TestCase):
         """
         new_planner = (
             "---\nname: planner\n---\n"
-            "You are the plato. Draft the plan before work begins.\n"
+            "You are the `plato`. Draft the plan before work begins.\n"
         )
         _write(self.up / "agents" / "planner.md", new_planner)
 

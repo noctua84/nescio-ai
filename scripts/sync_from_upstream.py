@@ -130,9 +130,9 @@ self-consistent.
 False negatives: a chosen property (the mapping is many-to-one)
 ----------------------------------------------------------------
 
-`planner`, `Planner` and `PLANNER` all render to `plato`/`Plato`/`PLATO` — and
-so does a literal upstream `plato`. An upstream edit that changes exactly the
-word `planner` to the word `plato` therefore renders identically before and
+A backticked `planner` renders to `plato` — and so does a literal upstream
+`plato`. An upstream edit that changes exactly the identifier `planner` to
+`plato` therefore renders identically before and
 after, and a themed instance's sync sees no change at all. Practical impact is
 nil (the instance's own rendering genuinely did not change), but it is recorded
 here so a future reader meets it as a property of a many-to-one rename rather
