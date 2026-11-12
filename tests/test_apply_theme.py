@@ -372,6 +372,46 @@ class ApplyThemeRoundTripTest(unittest.TestCase):
         self.assertIn(f"already on the '{self.start}' theme", out.getvalue())
         self.assertEqual(_tree_snapshot(self.agents_dir), self.original)
 
+    def _switch(self, theme: str):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(apply_theme.apply_theme(self.agents_dir, theme), 0)
+
+    def test_a_tree_over_themed_by_the_old_build_repairs_via_functional_then_philosophers(self):
+        """The reverse direction stays blanket precisely so this works.
+
+        An older build of the script rewrote every `\\bword\\b`, leaving prose
+        like "Work plan pyrrho" and "YOU ARE A PLATO" in themed trees. Forward
+        is identifier-only now, so it would never *undo* that; reverse renames
+        every philosopher name in every casing, which does. So the documented
+        repair is `functional` then `philosophers`, and it must end with the
+        prose restored to the functional nouns and the identifiers themed.
+
+        The corruption is planted in `validator.md` (a theme-invariant file,
+        present under both themes) on top of a cleanly themed tree.
+        """
+        self._switch("philosophers")
+        validator = self.agents_dir / "validator.md"
+        self.assertTrue(validator.exists(), "precondition: validator.md is in the crew")
+        clean = validator.read_text(encoding="utf-8", newline="")
+        validator.write_text(
+            clean + "\nWork plan pyrrho. YOU ARE A PLATO. Plato asks the aristotle.\n"
+                    "Dispatch `archimedes-simple`.\n",
+            encoding="utf-8", newline="")
+
+        self._switch("functional")
+        repaired = validator.read_text(encoding="utf-8", newline="")
+        self.assertIn("Work plan reviewer. YOU ARE A PLANNER. Planner asks the advisor.",
+                      repaired)
+        self.assertIn("`builder-simple`", repaired)
+        self.assertNotRegex(repaired, r"\b(?i:pyrrho|plato|aristotle|archimedes)\b")
+
+        self._switch("philosophers")
+        final = validator.read_text(encoding="utf-8", newline="")
+        # Prose nouns stay functional; the identifier is themed.
+        self.assertIn("Work plan reviewer. YOU ARE A PLANNER. Planner asks the advisor.", final)
+        self.assertIn("`archimedes-simple`", final)
+        self.assertEqual(apply_theme.desynced_agents(self.agents_dir), [])
+
     def test_dry_run_reports_without_writing(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             rc = apply_theme.apply_theme(self.agents_dir, self.other, dry_run=True)
@@ -467,63 +507,251 @@ class ThemeMappingSafetyTest(unittest.TestCase):
                     )
 
 
+def _uncovered_identifier_casings(text: str, terms: set[str], covered: set[str]) -> list[tuple[int, str]]:
+    """(line, spelling) of every mapped term, inside an identifier region of
+    `text`, written in a casing no `_mappings` rule rewrites.
+
+    Regions come from the script's own `_identifier_regions`, so this scan and
+    the forward transform cannot disagree about what counts as an identifier.
+    """
+    found: list[tuple[int, str]] = []
+    for start, end in apply_theme._identifier_regions(text):
+        span = text[start:end]
+        for term in sorted(terms):
+            for match in re.finditer(rf"\b{re.escape(term)}\b", span, re.IGNORECASE):
+                if match.group(0) not in covered:
+                    found.append((text.count("\n", 0, start + match.start()) + 1, match.group(0)))
+    return found
+
+
 class ThemeCasingCoverageTest(unittest.TestCase):
-    """The rename table must cover every casing the real charters actually use."""
+    """The rename table must cover every casing the real charters write an *identifier* in."""
 
-    def test_no_agent_file_writes_a_mapped_term_in_an_uncovered_casing(self):
-        """Every `\\b<term>\\b` in `agents/` must be a casing `_mappings` rewrites.
-
-        Motivating finding: ``agents/planner.md`` shouts its role in two places
-        — ``**YOU ARE A PLANNER. YOU ARE NOT AN IMPLEMENTER...**`` (:12) and
-        ``You are a CONSULTANT first, PLANNER second`` (:24). ``_mappings``
-        emitted only ``planner`` and ``Planner``, so ``\\bPLANNER\\b`` had no
-        rule and applying the philosopher theme produced a ``plato.md`` still
-        calling itself a PLANNER — the functional name leaking into the
-        philosopher tree.
-
-        The round-trip test cannot see this, and stays green while it happens:
-        the leak is **symmetric**. A word neither leg rewrites is restored by
-        doing nothing to it, so "start == end" holds over a broken middle. Same
-        blindness class as the builder-tier corruption above.
-
-        The oracle is the *real* ``agents/`` tree, not a fixture, and the
-        covered set is read out of ``_mappings`` rather than restated here — so
-        this fails if a charter grows a new casing **or** if a casing rule is
-        removed from the script.
-
-        Live hazard, caught here rather than prevented: **intercaps**
-        (``QA-guard``, ``Doc-Writer``, ``docWriter``). ``_mappings`` emits only
-        lower / ``.capitalize()`` / ``.upper()``, and ``.capitalize()``
-        lowercases the tail — so ``qa-guard`` yields ``Qa-guard`` and never
-        ``QA-guard``. Four hyphenated names are mapped terms now
-        (``test-writer``, ``qa-guard``, ``doc-researcher``, ``doc-writer``) and
-        every one of them has an intercaps spelling a human would plausibly
-        reach for. None appears in ``agents/`` today, which is a fact about the
-        charters and not a property of the script — so this scan is what keeps
-        it true. A red here means a charter grew such a spelling: the fix is a
-        fourth variant rule in ``_mappings``, not a reword of the charter.
-        """
-        terms = {name for pair in apply_theme.PAIRS for name in pair}
+    def _covered(self) -> set[str]:
         covered = {frm for theme in apply_theme.THEMES
                    for frm, _ in apply_theme._mappings(theme)}
         self.assertTrue(covered, "no mappings — nothing asserted")
+        return covered
+
+    def test_no_agent_file_writes_a_mapped_identifier_in_an_uncovered_casing(self):
+        """Every `\\b<term>\\b` inside an identifier context of `agents/` must be a casing `_mappings` rewrites.
+
+        Scope, since the forward transform became identifier-only: a mapped
+        word in *prose* ("the planner", "YOU ARE A PLANNER") is intentionally
+        not renamed, so scanning every `\\b<term>\\b` in the tree — what this
+        test used to do — would now flag exactly the words the script is
+        supposed to leave alone. The scan is restricted to the regions the
+        script itself renames inside (`apply_theme._identifier_regions`: code
+        spans, name-ish quoted strings, the frontmatter `name:`), via the
+        script's own extractor rather than a re-derived one.
+
+        The oracle is still the *real* ``agents/`` tree, and the covered set is
+        still read out of ``_mappings`` rather than restated here — so this
+        fails if a charter grows a new identifier casing **or** if a casing
+        rule is removed from the script. It stays blind-spot-prone in the same
+        way the round trip is (a word neither leg rewrites survives both legs),
+        which is why it is a scan of the tree and not a round-trip assertion.
+
+        Live hazard, caught here rather than prevented: **intercaps**
+        (``QA-guard``, ``Doc-Writer``, ``docWriter``) written as an identifier,
+        e.g. `` `QA-guard` ``. ``_mappings`` emits lower / ``.capitalize()`` /
+        ``.upper()`` for the reverse direction and only lower for the forward
+        one, and ``.capitalize()`` lowercases the tail — so ``qa-guard`` yields
+        ``Qa-guard`` and never ``QA-guard``. Four hyphenated names are mapped
+        terms (``test-writer``, ``qa-guard``, ``doc-researcher``,
+        ``doc-writer``) and each has an intercaps spelling a human would
+        plausibly reach for. None is written as an identifier in ``agents/``
+        today, which is a fact about the charters and not a property of the
+        script — this scan is what keeps it true. A red here means a charter
+        spells an identifier in a casing the script cannot rename: write the
+        identifier lowercase, or add a variant rule to ``_mappings``.
+        """
+        terms = {name for pair in apply_theme.PAIRS for name in pair}
+        covered = self._covered()
 
         offenders = []
+        scanned = 0
         for md in sorted(AGENTS_DIR.glob("*.md")):
             text = md.read_text(encoding="utf-8", newline="")
-            for term in sorted(terms):
-                for match in re.finditer(rf"\b{re.escape(term)}\b", text, re.IGNORECASE):
-                    found = match.group(0)
-                    if found not in covered:
-                        line = text.count("\n", 0, match.start()) + 1
-                        offenders.append(f"{md.name}:{line}: {found!r}")
+            scanned += len(apply_theme._identifier_regions(text))
+            for line, spelling in _uncovered_identifier_casings(text, terms, covered):
+                offenders.append(f"{md.name}:{line}: {spelling!r}")
 
+        # Anti-vacuity: the real tree has plenty of identifier regions (every
+        # charter has a `name:`). Zero means the extractor regressed.
+        self.assertGreater(scanned, 0, "no identifier regions found — the extractor regressed")
         self.assertEqual(
             offenders, [],
-            "these agent files spell a themed name in a casing `_mappings` has no "
-            "rule for, so the theme would leave the name behind on rename:\n  "
+            "these agent files write a themed name as an identifier (in backticks, a "
+            "name-ish quoted string, or `name:`) in a casing `_mappings` has no rule "
+            "for, so the theme would leave the name behind on rename:\n  "
             + "\n  ".join(offenders),
         )
+
+    def test_the_scan_flags_an_intercaps_identifier_and_ignores_prose(self):
+        """Pins the guard's intent on a literal, so the real-tree test cannot go vacuous.
+
+        An intercaps identifier is flagged; the same spelling as prose is not
+        (prose is never renamed forward, so it is not this scan's business).
+        """
+        terms = {name for pair in apply_theme.PAIRS for name in pair}
+        covered = self._covered()
+        self.assertEqual(
+            _uncovered_identifier_casings("Ask `QA-guard` now.\n", terms, covered),
+            [(1, "QA-guard")])
+        self.assertEqual(
+            _uncovered_identifier_casings('subagent_type: "Doc-Writer"\n', terms, covered),
+            [(1, "Doc-Writer")])
+        self.assertEqual(
+            _uncovered_identifier_casings("Ask QA-guard or the PLANNER now.\n", terms, covered),
+            [])
+        self.assertEqual(
+            _uncovered_identifier_casings("Ask `qa-guard` and \"planner\".\n", terms, covered),
+            [])
+
+
+class ForwardTransformIdentifiersOnlyTest(unittest.TestCase):
+    """`_transform(..., "philosophers")` renames identifiers, never prose nouns.
+
+    The motivating corruption: the functional names are also ordinary English
+    nouns, so the old blanket `\\bword\\b` rewrite turned "Read-only architecture
+    advisor" into "architecture aristotle" and "Work plan reviewer" into "Work
+    plan pyrrho" in routing descriptions — a themed tree naming the wrong agents.
+    """
+
+    def fwd(self, text: str) -> str:
+        return apply_theme._transform(text, "philosophers")
+
+    def rev(self, text: str) -> str:
+        return apply_theme._transform(text, "functional")
+
+    def test_prose_nouns_are_left_alone(self):
+        for prose in (
+            "Read-only architecture advisor",
+            "Work plan reviewer",
+            "Devil's-advocate reviewer",
+            "You are a planner, not an implementer",
+            "not the critic who",
+            "YOU ARE A PLANNER. YOU ARE NOT AN IMPLEMENTER.",
+            "The Planner interviews you; the Builder builds.",
+            "description: Strategic planning consultant for the planner role",
+            'prompt: "Ask the reviewer, then the critic: is it sound?"',
+            'description: "Read-only architecture advisor. Consult before building."',
+        ):
+            with self.subTest(prose=prose):
+                self.assertEqual(self.fwd(prose), prose)
+
+    def test_identifiers_are_renamed(self):
+        for text, expected in (
+            ("`planner`", "`plato`"),
+            ("`builder-simple`", "`archimedes-simple`"),
+            ("`agents/reviewer.md`", "`agents/pyrrho.md`"),
+            ('subagent_type: "advisor"', 'subagent_type: "aristotle"'),
+            ('`subagent_type: "planner"`', '`subagent_type: "plato"`'),
+            ('"builder | builder-standard | builder-simple"',
+             '"archimedes | archimedes-standard | archimedes-simple"'),
+            ("---\nname: reviewer\n---\nbody\n", "---\nname: pyrrho\n---\nbody\n"),
+            ("---\nname: doc-writer\n---\n", "---\nname: cicero\n---\n"),
+            # identifier amid prose: only the identifier moves
+            ("Ask the `critic` — the critic is a reviewer.",
+             "Ask the `socrates` — the critic is a reviewer."),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.fwd(text), expected)
+
+    def test_frontmatter_description_is_prose_but_name_is_an_identifier(self):
+        src = ("---\nname: advisor\n"
+               "description: Read-only architecture advisor. Not the reviewer.\n"
+               "---\nThe advisor advises.\n")
+        self.assertEqual(
+            self.fwd(src),
+            "---\nname: aristotle\n"
+            "description: Read-only architecture advisor. Not the reviewer.\n"
+            "---\nThe advisor advises.\n")
+
+    def test_name_outside_frontmatter_is_prose(self):
+        src = "intro\n---\nname: reviewer\n---\n"  # `---` is not on line 1
+        self.assertEqual(self.fwd(src), src)
+
+    def test_quoted_prose_is_not_renamed(self):
+        # Punctuation in the content disqualifies it as a name-ish string.
+        for text in (
+            'prompt: "Challenge the planner\'s approach."',
+            'prompt: "Create a plan: planner, reviewer."',
+            'description: "advisor. Read-only."',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.fwd(text), text)
+
+    def test_fences(self):
+        src = (
+            "Before `planner` and \"planner\".\n"
+            "```\n"
+            "`planner` is not a code span in here, but the planner is quoted:\n"
+            "Agent(subagent_type: \"planner\", prompt: \"Ask the planner.\")\n"
+            "subagent_type: \"builder | builder-standard | builder-simple\",\n"
+            "```\n"
+            "After `critic` and the critic.\n"
+        )
+        self.assertEqual(
+            self.fwd(src),
+            "Before `plato` and \"plato\".\n"
+            "```\n"
+            "`planner` is not a code span in here, but the planner is quoted:\n"
+            "Agent(subagent_type: \"plato\", prompt: \"Ask the planner.\")\n"
+            "subagent_type: \"archimedes | archimedes-standard | archimedes-simple\",\n"
+            "```\n"
+            "After `socrates` and the critic.\n"
+        )
+
+    def test_fence_info_string_and_longer_fences(self):
+        src = "````python\n`planner`\n```\n`planner`\n````\n`planner`\n"
+        self.assertEqual(self.fwd(src), "````python\n`planner`\n```\n`planner`\n````\n`plato`\n")
+
+    def test_an_unclosed_backtick_is_not_a_span(self):
+        self.assertEqual(self.fwd("a ` planner b\nc` planner\n"), "a ` planner b\nc` planner\n")
+
+    def test_crlf_is_preserved(self):
+        src = "---\r\nname: critic\r\n---\r\nThe critic and `critic`.\r\n```\r\n\"critic\"\r\n```\r\n"
+        self.assertEqual(
+            self.fwd(src),
+            "---\r\nname: socrates\r\n---\r\nThe critic and `socrates`.\r\n```\r\n\"socrates\"\r\n```\r\n")
+
+    def test_underscore_paths_are_immune(self):
+        self.assertEqual(self.fwd("`hooks/qa_guard_scope.py`"), "`hooks/qa_guard_scope.py`")
+
+    def test_forward_is_idempotent(self):
+        src = "`planner` and \"builder | builder-simple\" and the planner\n"
+        once = self.fwd(src)
+        self.assertEqual(self.fwd(once), once)
+
+    def test_reverse_renames_every_occurrence_in_every_casing(self):
+        """The deliberate asymmetry: reverse is blanket, so old over-theming is repairable."""
+        self.assertEqual(
+            self.rev("Work plan pyrrho. YOU ARE A PLATO. Plato asks the aristotle. "
+                     "`socrates` / archimedes-simple / \"cato\""),
+            "Work plan reviewer. YOU ARE A PLANNER. Planner asks the advisor. "
+            "`critic` / builder-simple / \"qa-guard\"")
+
+    def test_reverse_keeps_socratic(self):
+        self.assertEqual(self.rev("the Socratic method of socrates"),
+                         "the Socratic method of critic")
+
+    def test_round_trip_on_a_literal(self):
+        src = ("---\nname: planner\ndescription: Strategic planner for the reviewer role\n---\n"
+               "YOU ARE A PLANNER. Dispatch `builder-simple` via\n"
+               "```\nsubagent_type: \"builder | builder-standard | builder-simple\"\n```\n"
+               "Ask the critic.\n")
+        self.assertEqual(self.rev(self.fwd(src)), src)
+
+    def test_mappings_forward_is_lowercase_only_reverse_has_three_casings(self):
+        fwd = apply_theme._mappings("philosophers")
+        rev = apply_theme._mappings("functional")
+        self.assertEqual(len(fwd), len(apply_theme.PAIRS))
+        self.assertTrue(all(a == a.lower() for a, _ in fwd))
+        self.assertEqual(len(rev), 3 * len(apply_theme.PAIRS))
+        self.assertIn(("Plato", "Planner"), rev)
+        self.assertIn(("PLATO", "PLANNER"), rev)
 
 
 class ThemeReferenceBlastRadiusTest(unittest.TestCase):
@@ -596,7 +824,7 @@ class ThemeReferenceBlastRadiusTest(unittest.TestCase):
         the reference from this scan while leaving the next author free to
         write it again.
 
-        `_transform`/`_mappings` are the oracle rather than a re-derived
+        `_transform` is the oracle rather than a re-derived
         `\\b...\\b` rule of our own, so this cannot drift from the script it
         guards: a fourth casing variant, or a new pair, is picked up here the
         moment it lands in the script.
@@ -623,7 +851,11 @@ class ThemeReferenceBlastRadiusTest(unittest.TestCase):
         offenders = []
         for where, token in references:
             for theme in apply_theme.THEMES:
-                if apply_theme._transform(token, apply_theme._mappings(theme)) != token:
+                # Worst case: the author wrote the path in backticks, which is
+                # an identifier context — the only place the forward transform
+                # renames anything. A bare token would pass vacuously there.
+                wrapped = f"`{token}`"
+                if apply_theme._transform(wrapped, theme) != wrapped:
                     offenders.append(f"{where}: {token!r}")
                     break
 
@@ -667,8 +899,8 @@ class ThemeReferenceBlastRadiusTest(unittest.TestCase):
             # whichever direction this instance is themed in.
             body = (
                 "# Sibling\n"
-                "The builder writes code and the reviewer reads it; qa-guard gates it.\n"
-                "Under the other theme those are archimedes, pyrrho and cato.\n"
+                "The `builder` writes code and the `reviewer` reads it; `qa-guard` gates it.\n"
+                "Under the other theme those are `archimedes`, `pyrrho` and `cato`.\n"
                 "See hooks/qa-guard-scope.py and skills/test-writer-helper/SKILL.md.\n"
             )
             siblings = [
@@ -697,7 +929,7 @@ class ThemeReferenceBlastRadiusTest(unittest.TestCase):
             # Anti-vacuity: the sibling bodies must actually contain words this
             # run rewrites, or "unchanged" would be true for the boring reason.
             self.assertNotEqual(
-                apply_theme._transform(body, apply_theme._mappings(target)), body,
+                apply_theme._transform(body, target), body,
                 f"the sibling fixture contains no name the '{target}' theme rewrites — "
                 "an unchanged snapshot would prove nothing",
             )
