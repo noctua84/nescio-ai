@@ -533,6 +533,7 @@ def _wire_command_hook(
     use_async: bool,
     dry_run: bool,
     matcher: str | None = None,
+    extra: dict | None = None,
 ) -> None:
     """Inject a global command hook for ``event_name`` into ~/.claude/settings.json.
 
@@ -591,6 +592,15 @@ def _wire_command_hook(
 
     The wired entry carries ``"async": True`` only when ``use_async`` is set;
     otherwise the ``async`` key is omitted entirely.
+
+    ``extra`` adds further keys to the wired entry (e.g. ``{"onFailure":
+    "block", "timeout": 10}``). They are part of the entry's identity too: an
+    existing entry is "already wired" only when the interpreter, the matcher
+    *and* every ``extra`` key (same value) agree; otherwise it is re-wired in
+    place — the ``extra`` keys are set, any other keys on the entry are left
+    alone — and the printed drift reason names "options". ``None`` (the default)
+    adds nothing and checks nothing, so callers that pass no ``extra`` behave
+    exactly as before.
 
     Skipped as a no-op if the resolved script does not exist on disk (except
     under ``--dry-run``), so we never wire a hook to a script the ``hooks/``
@@ -690,12 +700,16 @@ def _wire_command_hook(
                   f"a resolvable interpreter to the virtualenv one {interpreter}")
             interpreter_ok = True
         matcher_ok = existing_group.get("matcher") == matcher
-        if interpreter_ok and matcher_ok:
+        options_ok = all(
+            k in existing and existing[k] == v for k, v in (extra or {}).items()
+        )
+        if interpreter_ok and matcher_ok and options_ok:
             print(f"  {event_name} hook already wired in {local_path} — leaving it")
             return
         drift = [
             label for label, ok in (("interpreter", interpreter_ok),
-                                    ("matcher", matcher_ok)) if not ok
+                                    ("matcher", matcher_ok),
+                                    ("options", options_ok)) if not ok
         ]
         reason = " and ".join(drift) + " changed"
         if dry_run:
@@ -704,9 +718,13 @@ def _wire_command_hook(
                 print(f"      {existing.get('command')} -> {interpreter}")
             if not matcher_ok:
                 print(f"      matcher {existing_group.get('matcher')!r} -> {matcher!r}")
+            if not options_ok:
+                print(f"      options -> {extra!r}")
             return
         if not interpreter_ok:
             existing["command"] = interpreter
+        if not options_ok:
+            existing.update(extra or {})
         args = existing.get("args")
         if not (isinstance(args, list) and any(
             isinstance(a, str) and _norm_path(a) == norm_script for a in args
@@ -742,6 +760,8 @@ def _wire_command_hook(
     }
     if use_async:
         entry["async"] = True
+    if extra:
+        entry.update(extra)
     block = _hook_group(matcher, [entry])
 
     if dry_run:
@@ -781,6 +801,34 @@ def wire_sessionstart_hook(config_dir: Path, *, dry_run: bool) -> None:
         script_name="harvest_nudge.py",
         use_async=False,
         dry_run=dry_run,
+    )
+
+
+def wire_check_file_guard_hook(config_dir: Path, *, dry_run: bool) -> None:
+    """Wire the PreToolUse check-file guard (``check_file_guard.py``) into settings.json.
+
+    Synchronous (no ``async`` key): the hook's whole job is to deny a tool call
+    *before* it runs, and an async hook cannot block anything.
+
+    ``onFailure: "block"`` (Claude Code v2.1.295+) makes a crash, timeout or
+    spawn failure of the hook block the tool call instead of failing open — a
+    guard that silently stops guarding is worse than no guard. Older versions
+    ignore the unknown key; the script's own exit-2-on-internal-error still
+    fails closed for errors it can catch. ``timeout`` is in seconds.
+
+    The matcher is an exact tool-name list joined by ``|``, not a regex, so it
+    scopes the hook to the file-writing and shell tools and keeps the latency of
+    a synchronous hook off every Read/Grep/Glob call. The script itself returns
+    immediately for any agent other than the guarded one.
+    """
+    _wire_command_hook(
+        config_dir,
+        event_name="PreToolUse",
+        script_name="check_file_guard.py",
+        use_async=False,
+        dry_run=dry_run,
+        matcher="Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        extra={"onFailure": "block", "timeout": 10},
     )
 
 
@@ -934,6 +982,7 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, parts: frozenset[str], cl
     if parts and (dry_run or hooks_linked):
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
+        wire_check_file_guard_hook(CLAUDE_DIR, dry_run=dry_run)
 
     if dry_run:
         print(f"\nWould relink {relinked} target(s). Backups kept as *.pre-adopt-*.bak.")
@@ -994,6 +1043,7 @@ def do_default(dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choi
         if parts and hooks_linked:
             wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
+            wire_check_file_guard_hook(CLAUDE_DIR, dry_run=dry_run)
         elif parts:
             print("  skipping hooks: hooks/ link was not created")
         print("Done. Restart Claude Code / Desktop to pick up changes.")
