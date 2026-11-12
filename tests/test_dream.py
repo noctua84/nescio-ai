@@ -285,20 +285,26 @@ class CliTest(DreamTestBase):
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
         self.assertIn("Agent reports parsed: 1 (dispatches seen: 1)", text)
-        self.assertNotIn("transcript format may have changed", text)
+        self.assertNotIn("report shape may have changed", text)
 
-    def test_zero_reports_with_sessions_warns_format_may_have_changed(self):
-        self.write("a", [human("hi")])
+    def test_dispatches_without_reports_warn_in_format_check(self):
+        self.write("a", [human("hi"), dispatch("d1", "builder")])
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 0", text)
-        self.assertIn("transcript format may have changed", text)
+        self.assertIn("Agent reports parsed: 0 (dispatches seen: 1)", text)
+        self.assertIn("## Format check\n\n- Agent dispatches seen but no agent reports parsed", text)
+
+    def test_sessions_without_agents_do_not_warn(self):
+        self.write("a", [human("hi")])
+        out_path = self.tmp / "p.md"
+        self.run_main("--no-stamp", "--out", str(out_path))
+        self.assertNotIn("report shape may have changed", out_path.read_text(encoding="utf-8"))
 
     def test_empty_window_does_not_warn_about_format(self):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
-        self.assertNotIn("transcript format may have changed", out_path.read_text(encoding="utf-8"))
+        self.assertNotIn("report shape may have changed", out_path.read_text(encoding="utf-8"))
 
     def test_proposal_sections_present(self):
         self.write("a", [report("builder", verdict_text("COMPLETE"))])

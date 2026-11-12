@@ -86,6 +86,8 @@ def drift_warnings(shape: dict) -> list[str]:
         found.append("No `tool_use` blocks found in a large transcript sample; the content-block shape may have changed.")
     if shape["tool_results"] > 0 and shape["result_dicts"] == 0:
         found.append("Tool results seen but no `toolUseResult` dicts; the field may have changed.")
+    if shape["agent_dispatches"] > 0 and shape["agent_reports"] == 0:
+        found.append("Agent dispatches seen but no agent reports parsed; the report shape may have changed.")
     if shape["agent_results"] > 0 and shape["agent_dispatches"] == 0:
         found.append("Agent results seen but no Agent/Task dispatches; the dispatch tool may have been renamed.")
     if shape["unknown_keys"]:
@@ -136,12 +138,13 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
     shape = {k: total_shape(sessions, k) for k in SHAPE_COUNTS}
     keys = sum((s["shape"]["typed_keys"] for s in sessions), Counter())
     shape["agent_dispatches"] = sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch")
+    shape["agent_reports"] = sum(len(s["reports"]) for s in sessions)
     shape["unknown_keys"] = sorted(k for k, n in keys.items() if n * 2 > shape["typed"] and k not in KNOWN_KEYS)
     return {
         "sessions_read": len(sessions),
         "sessions_skipped": skipped,
         "malformed_lines": total("malformed"),
-        "agent_reports": sum(len(s["reports"]) for s in sessions),
+        "agent_reports": shape["agent_reports"],
         "agent_dispatches": shape["agent_dispatches"],
         "shape": shape,
         "drift": drift_warnings(shape),
@@ -185,8 +188,6 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         f"- Agent reports parsed: {agg['agent_reports']} (dispatches seen: {agg['agent_dispatches']})",
         f"- Recurring means seen in at least {agg['min_sessions']} distinct sessions",
     ]
-    if agg["sessions_read"] and not agg["agent_reports"]:
-        out.append("- Note: sessions were read but no agent reports were parsed; transcript format may have changed.")
     out += _section("Format check", [f"- {w}" for w in agg["drift"]], "Transcript shapes look as expected.")
     empty = "None met the threshold." if agg["sessions_read"] else "No transcripts found in the window; nothing to review."
     rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions)" for r in agg["recurring"]]

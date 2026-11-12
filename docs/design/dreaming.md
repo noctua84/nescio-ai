@@ -269,7 +269,8 @@ no new instrumentation:
   ([Agent SDK sessions](https://code.claude.com/docs/en/agent-sdk/sessions.md)).
   The extractor therefore runs a format self-check: it tallies the shapes it
   relies on (user/assistant entries, `message.content`, `tool_use` blocks,
-  `toolUseResult` dicts, Agent/Task dispatches) and adds a "Format check"
+  `toolUseResult` dicts, Agent/Task dispatches, agent reports once
+  dispatches exist) and adds a "Format check"
   section to the proposal when one goes missing, or when an unknown top-level
   key appears on most entries. On the 871 sessions above it raised no warning.
 - Porting to the brain: the files sit in framework paths (`scripts/`,
