@@ -24,6 +24,13 @@ look like?
   first only so the crew can be tested with `claude plugin eval`. Decide on
   plugin distribution later, from real eval results. See
   [Recommendation](#6-recommendation).
+- **Update: the split is the better target.** NescioAI is meant for other
+  people too, so §7 looks at splitting it into a **crew plugin** and a **brain
+  template you fork**, joined by a small explicit contract. This is the stronger
+  long-term shape. If the crew is *only* ever installed as a plugin, its source
+  can use `nescio:` names directly. The render step is then no longer needed,
+  and `sync_from_upstream.py` no longer has to handle themes. Seven steps,
+  in §7.
 
 ## Evidence
 
@@ -340,3 +347,169 @@ bundle of agents.
    B and C.
 4. Whether `history_file` can hold a mid-conversation subagent result (Case 4),
    or only user and assistant turns.
+
+## 7. Evaluation: splitting the crew (plugin) from the brain (fork)
+
+**The goal:** someone can install the crew as a plugin and use it with no
+brain. Someone else can fork the brain and use it with that same plugin. The
+two parts should work together without any glue the user has to write.
+
+### 7.1 Where each part goes
+
+From `agents/`, `skills/`, `commands/`, the scripts those three reference, and
+`FRAMEWORK_PATHS` in `scripts/sync_from_upstream.py`:
+
+| Crew plugin (`nescio`) | Brain template (fork) |
+|---|---|
+| All 17 agents | `CLAUDE.md` (the always-loaded brief) |
+| Engineering skills: `code-navigation`, `modular-design`, `layered-api-design`, `handle-pr-comments`, `dependency-pr-ci-fix`, `gh-milestones-projects`, `fix-security-vulnerabilities` | `memory/` |
+| Crew scripts: `module_scan.py` (builders, planner, two skills), `verify_commit_position.py` (orchestrator), `module_gate.py` | Hooks: `record_stop.py`, `harvest_nudge.py`, `memory_trigger_nudge.py` |
+| Optional separate plugins in the same marketplace: `nescio-security` (about 20 security and compliance skills) and `nescio-llm` (5 LLM-engineering skills) | Brain commands: `/harvest-memory`, `/assess-repo` |
+| | Brain skills: `adopt-config`, `create-adr`, `publish-adrs`, `repo-hygiene` |
+| | Brain scripts: harvest, promote, mark/unmark, readiness, ADR, hygiene, wiki, roadmap-drift, sync |
+| | A slimmer `install.py`: CLAUDE.md consent, `permissions`, hooks, the `memory/` link, plus enabling the crew plugin |
+
+The test for each item is whether it reads or writes the user's accumulated
+state. If it does, it belongs to the brain. If it works on the project in
+front of it, it belongs to the crew.
+
+### 7.2 The contract between the two parts
+
+The split only works if every place one part depends on the other is written
+down. There are five today.
+
+1. **Where memory lives: `~/.claude/memory/` (read-mostly, may be absent).**
+   This is already the convention. `explore`, `reviewer` and `orchestrator`
+   use the absolute path, and `reviewer` already handles the case where no
+   memory exists. The brain's installer keeps creating the link. The crew must
+   treat the path as optional. In plugin-only use there is no brain, and every
+   step that reads memory must become "if present". The one place the crew
+   **writes** to memory is the orchestrator's ADR step
+   (`~/.claude/memory/repo/<repo>/adr/`). That step needs a fallback
+   (`.sisyphus/adr/`) when there is no brain.
+   - **Pre-existing bug this exposes:** 29 skills say "read … notes under
+     `memory/`" with a **relative** path. That resolves against the project
+     being worked on, which has no `memory/`. Agents were fixed to use absolute
+     paths, but these skills were not. This needs fixing whether or not the
+     split happens.
+2. **The entry agent.** The plugin's `settings.json` sets
+   `{"agent": "orchestrator"}`, which is enough for plugin-only users. The
+   brain's installer sets the user-level `"agent": "nescio:orchestrator"`. User
+   settings take precedence (tested), so the brain still decides.
+3. **Enabling the crew.** The brain's `settings.json` gains
+   `extraKnownMarketplaces.nescio` and `enabledPlugins["nescio@nescio"]`, which
+   `install.py` already merges (the `plugins` part). This is how a fork
+   declares which crew it uses.
+4. **The brief.** CLAUDE.md is the brain's main way to steer the crew, and it
+   reaches every agent **except** those with `omitClaudeMd: true` (`explore`,
+   `librarian`, `doc-researcher`). That exception is intended and stays. Crew
+   charters must not depend on anything that is only stated in CLAUDE.md.
+5. **Version compatibility.** Plugin `dependencies` can't refer to a fork.
+   Instead, the memory layout gets a version marker (`memory/.layout-version`),
+   and each crew release states which layouts it supports. The brain's
+   `install.py --check` compares the marker with the installed plugin version
+   and warns on a mismatch. Do this only if the layout actually changes; today
+   it is stable.
+
+### 7.3 How a fork customises a crew it can't edit
+
+Today a fork edits `agents/*.md` directly. With a plugin, the crew is a
+read-only cache, so customisation needs other routes. In order of preference:
+
+1. **CLAUDE.md and memory.** These already apply to almost every agent, and
+   they cover most real customisation: conventions, tone, project rules.
+2. **Overlays read by the charters.** Each charter gains one line: "if
+   `~/.claude/memory/crew/<agent>.md` exists, read it and follow it where it
+   doesn't conflict with this charter." This is cheap, uses prompt text only,
+   and does nothing when there is no brain.
+3. **Brain-local agents.** A fork can still keep its own `agents/` folder
+   linked into `~/.claude/agents/` for agents that aren't part of the crew.
+   They get bare names. If one has the same name as a crew agent, nothing
+   breaks (the crew's is `nescio:`-prefixed), but the duplicate descriptions
+   compete for routing. Document that forks shouldn't duplicate crew agents.
+4. **Forking the plugin.** A last resort. The fork changes its marketplace
+   entry to point at its own copy of the crew.
+
+### 7.4 Themes
+
+The philosopher theme renames agents. In a plugin the names are fixed when
+it's built, so a theme becomes **a separate build of the plugin**:
+`nescio` with the default names, and `nescio-philosophers` with the themed
+ones. Both come from the same source through `apply_theme.py` at release time
+and are listed in the same marketplace. Agent names then become things like
+`nescio-philosophers:archimedes`, which is long but unambiguous. If that isn't
+worth it, drop themes from the plugin and keep them only for crews installed
+from source. Either way, `sync_from_upstream.py` would no longer copy crew
+files, so the theme handling it contains today (the materialise-then-sync
+design) would only be needed if themes stay.
+
+### 7.5 Repository shape
+
+- **Monorepo (recommended first):** the crew moves to `crew/`, which contains
+  `.claude-plugin/plugin.json`, `agents/`, `skills/`, `scripts/` and `evals/`.
+  A root `.claude-plugin/marketplace.json` lists `"source": "./crew"`, plus the
+  optional skill packs. The brain stays at the root. Forks inherit `crew/` and
+  can ignore it, because their settings install the plugin from the upstream
+  marketplace. This is one repo, one PR flow and one CI. Because `crew/` is
+  only ever loaded as a plugin, its source can use `nescio:` names directly,
+  **so the render step from option D is not needed**.
+- **Two repos (later, if ever):** a crew repo and a brain template. This gives
+  cleaner ownership, but changes that touch both need two PRs. Only worth it if
+  there are separate maintainers.
+
+### 7.6 Maintainer development loop
+
+Develop the crew with `claude --plugin-dir crew/`, or add the checkout as a
+local marketplace. Local marketplaces pick up edits on `/reload-plugins` or at
+the next session start, without bumping `version`. To dogfood, a private brain
+can enable the crew from the local checkout and switch to the published
+marketplace for stable use. The loop is one step slower than editing a
+symlinked file, and that is the main day-to-day cost.
+
+### 7.7 Cost of the split
+
+| Work | Size |
+|---|---|
+| Move the crew into `crew/`, add `plugin.json` and `marketplace.json` | Small, mechanical |
+| Change the 12 dispatch lines and agent/skill names in prose to `nescio:`; change 10 `~/.claude/scripts/` paths to `${CLAUDE_PLUGIN_ROOT}/scripts/` | Small, mechanical |
+| Fix the 29 relative `memory/` paths (needed anyway) and make every memory read optional, plus the ADR fallback | Medium; charter prose with judgment calls |
+| `tests/test_agent_definitions.py` (140K, assumes `ROOT/agents` and bare dispatch names) pointed at `crew/agents`, with the prefix stripped before comparing | Medium |
+| `install.py`: stop linking `agents/`, `skills/` and `commands/`; enable the plugin; **migrate existing installs** by removing the old crew symlinks, because the bare and `nescio:` crews must never both be loaded | Medium; this is where an install can break |
+| `sync_from_upstream.py`: shrink `FRAMEWORK_PATHS` to brain paths. Existing forks need a one-time migration, and their local agent edits have to move to overlays | Medium; one-time pain for every existing fork, including the maintainer's private one |
+| Themes as a second build of the plugin, or drop them | Small to medium |
+| `evals/` for the crew (§5) | Medium; can be done independently |
+
+### 7.8 Verdict on the split
+
+**Worth doing, as a sequence of steps, each of which leaves the repo working.**
+For a project meant to be used by other people, the split gives each of them
+the right install:
+
+- **Crew only:** two commands.
+- **Crew plus brain:** fork the template and run `install.py`, which enables
+  the plugin.
+
+It also makes upstream sync smaller and safer, because forks no longer get
+crew files overwritten. The costs fall mostly on existing forks and on the
+maintainer's edit loop, and both are one-time or small.
+
+Suggested order:
+
+1. Fix the 29 relative `memory/` paths and make memory reads optional. This
+   is correct with or without the split.
+2. Option D: build the plugin and add evals, so behaviour is measured before
+   anything moves.
+3. Move the crew into `crew/` with `nescio:` names in its source, and remove
+   the render step.
+4. Slim `install.py` and add the migration for existing installs.
+5. Shrink `sync_from_upstream.py` and write the migration guide for forks.
+6. Decide on themes.
+7. Optional: split out the `nescio-security` and `nescio-llm` skill packs.
+
+Not checked here: whether plugin skills and agents can read `~/.claude/memory/`
+when Claude Code runs under a sandbox profile, whether `/reload-plugins` picks
+up agent edits mid-session, and how `claude plugin eval` handles a plugin whose
+charters read paths outside the plugin. The eval sandbox has a temporary home,
+so evals will always see the "no brain" case. That is the right default to
+test, but it means the brain-present path needs its own fixture through
+`context.add_dirs`.
