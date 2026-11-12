@@ -10,22 +10,22 @@ user-invocable: true
 
 ADRs capture significant architectural decisions with enough context for a future session to understand the *why*, the alternatives, and the consequences. The value this skill adds over free-hand note-taking is the **conflict gate**: every new ADR is reviewed against all existing ADRs for the same repo, and **no decision may silently contradict an accepted one** — it must either supersede it or justify coexistence.
 
-This brain already has an ADR convention — see the `adr/` subdirectory of any `memory/repo/<dir>/` that has one. Match it — do **not** invent a heavier template.
+This brain already has an ADR convention — see the `adr/` subdirectory of any `~/.claude/memory/repo/<dir>/` that has one. Match it — do **not** invent a heavier template.
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and the relevant `memory/repo/<repo>/` notes for prior decisions and constraints.
+Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and the relevant `~/.claude/memory/repo/<repo>/` notes for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
 
 ## Step 1 — Locate the ADR directory
 
 Decide where the ADR lives:
 
 - **Target project has its own `docs/adr/`** (or `docs/decisions/`) → write there, in that project's format.
-- **Otherwise (default for this brain)** → `memory/repo/<repo>/adr/`, using this brain's format below. `<repo>` is the short repo name already used under `memory/repo/`.
+- **Otherwise (default for this brain)** → `~/.claude/memory/repo/<repo>/adr/`, using this brain's format below. `<repo>` is the short repo name already used under `~/.claude/memory/repo/`.
 
 ```bash
 ls docs/adr docs/decisions 2>/dev/null            # target-project convention?
-ls memory/repo/<repo>/adr 2>/dev/null             # brain convention (default)
+ls ~/.claude/memory/repo/<repo>/adr 2>/dev/null             # brain convention (default)
 ```
 
 ## Step 2 — Review existing ADRs before writing (MANDATORY)
@@ -33,7 +33,7 @@ ls memory/repo/<repo>/adr 2>/dev/null             # brain convention (default)
 Read **every** ADR already in the chosen directory. Do not skip this — it's the whole point of the skill.
 
 ```bash
-ls memory/repo/<repo>/adr/ | sort
+ls ~/.claude/memory/repo/<repo>/adr/ | sort
 ```
 
 For each existing ADR, read its `## Decision` and `## Status`, then group them by the domain they touch (transport, persistence, error handling, identity, config, observability, …). Build the domain grouping **dynamically from what you read** — there is no fixed domain map, because it differs per repo.

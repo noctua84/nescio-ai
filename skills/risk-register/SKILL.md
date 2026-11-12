@@ -24,7 +24,7 @@ Create a risk register that delivers actionable, measurable results.
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Before starting, read the repo's `CLAUDE.md` and any relevant notes under the brain's memory at `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`) for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
 
 ## Process
 

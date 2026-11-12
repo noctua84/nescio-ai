@@ -14,7 +14,7 @@ This operationalizes the "Package updates and security vulnerabilities" policy i
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`). These record which sources apply to this repo, the PR/CI conventions, and any ADO project tag.
+Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and any relevant notes under `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`). Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it. These record which sources apply to this repo, the PR/CI conventions, and any ADO project tag.
 
 ## THE IRON LAWS
 
