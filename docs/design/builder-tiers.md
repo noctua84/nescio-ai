@@ -1,8 +1,7 @@
 # Builder tiers: one contract, three models
 
 > Status: implemented with `scripts/render_tiers.py`. The tier-specific sections
-> listed under "Recommendation" are waiting for maintainer approval. They are
-> in their own commit so they can be reverted without touching the generator.
+> listed under "Recommendation" are approved and live in the template.
 
 ## The question
 
@@ -128,7 +127,7 @@ unaffected.
    the tier paragraph, and the sections below. `tests/test_render_tiers.py`
    enforces this in the template, and `TestBuilderTierParity` enforces it on
    the committed files.
-3. Approve or reject these tier-specific sections (commit after the generator):
+3. Add these tier-specific sections (approved):
    - `builder-simple`: **Say early when a task is not `simple`.** Four stop
      signals, routed as *harder than this tier*.
    - `builder-standard`: **Make the decisions you were dispatched to make.**
