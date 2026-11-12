@@ -202,6 +202,39 @@ no new instrumentation:
 - This is not a controlled experiment. Usage mix changes week to week, so read
   trends across several dreams, not a single delta.
 
+### 7a. Effectiveness tracker (shipped)
+
+The minimal data model has three parts, all machine-local under
+`<config>/dreams/<repo_key>/`:
+
+| Piece | Written by | Holds |
+|---|---|---|
+| `<UTC>.json` sidecar | `dream.py`, next to each `<UTC>.md` | The run window (`since`, `until`), `sessions_read`, `agent_dispatches`, and **every** signal seen in at least one session: `{sig_id: {key, sessions, count}}` |
+| `links.json` | `dream.py --link HASH12 SIG_ID` | `{hash, sig, linked_at}`: which ledger entry was promoted because of which signal |
+| `memory/learning-log.md` | `promote_learnings.py`, unchanged | The promotion date for `hash` |
+
+- **Signal ids are stable keys, not counts.** The key is `escalation:<family>:<t>-><t'>`,
+  `tool-error:<tool>:<signature>`, `corrections`, `reverts`, `inverted-pins`,
+  `interrupts`, `blocked:<agent>` or `partial:<agent>`. The id is the first 8
+  hex digits of its SHA-256. The proposal prints `[sig <id>]` after each
+  recurring pattern, so the reviewer can copy it into `--link` after promoting.
+- **The sidecar records all signals, not the top five.** A signature that
+  drops out of the top five would otherwise look like it went to zero.
+- **The link stays out of the ledger.** Signal keys can carry tool names and
+  normalised command text. The ledger is tracked and synced, so adding a field
+  there would leak them and would change the contract that three schema copies
+  share. The ledger hash is enough to join on.
+- **`dream.py --compare`** reads the sidecars and drops a run whose window
+  overlaps an earlier kept run, which happens after `--no-stamp` reruns. For
+  each link it pools the runs before the promotion date and the runs after it,
+  and leaves out runs that straddle the date. Rate is the share of sessions
+  that show the signal. The verdict is `too early` (fewer than `--min-after`
+  sessions after, default 10), `no baseline`, `working` (the rate at least
+  halved), `ineffective` (the rate did not drop) or `unclear`.
+- The rate is per session, for every kind of signal. Per-dispatch rates for
+  escalations would be sharper, but they wait on the background-agent
+  undercount (section 9): with most reports unparsed, the denominator is wrong.
+
 ## 8. Prototype (shipped in this change)
 
 - `scripts/dream.py` (aggregate, render, CLI) and `scripts/_dream_parse.py`
@@ -231,11 +264,37 @@ no new instrumentation:
 - A "dream due" SessionStart nudge, in `harvest_nudge.py`.
 - Reading subagent transcripts, which hold the builder's own tool errors and
   retries, and QA reports (severity counts per audit).
-- Detecting successful workflows automatically: needs a model call, which means
-  a cost decision.
+- **Detecting successful workflows automatically.** Measured on one machine's
+  last 60 days (870 main transcripts, aggregate counts only):
+
+  | Proxy | Result | Verdict |
+  |---|---|---|
+  | First-try COMPLETE with no deviations | 68 of 229 reports with a verdict; only 229 of 1,475 parsed reports (and of about 7,500 dispatches) carry a `<verdict>` | The "no deviations" part discriminates, since 221 of 229 verdicts are COMPLETE. Coverage is about 3% of dispatches, so it waits on the background-agent fix above. |
+  | Session with no correction or interrupt | 797 of 870 sessions | Does not discriminate. The correction regex rarely fires. |
+  | Friction-free session (no correction, interrupt, revert or tool error) | 177 of 870 | Confounded by length: 106 of 285 sessions with fewer than 2 human messages, and 0 of 67 with 20 or more |
+
+  Model-assisted pass, estimated at chars/4 as in `session_anatomy.py` (tokens
+  only, never cost):
+
+  | Input to the model | Tokens over 60 days | Per default 50-session dream |
+  |---|---|---|
+  | Full transcript content (text, thinking, tool input and output) | about 100M (median 54k per session) | about 5.8M |
+  | Skeleton (human and assistant text, agent reports, tool calls cut to 300 chars) | about 33M (median 15k) | about 1.9M |
+  | Skeleton of candidate sessions only (2 or more human messages, at least one report, no correction) | about 12M (245 sessions) | about 2.4M |
+  | Clean first-try reports plus their dispatch prompts | about 100k (68 items, about 1.5k each) | well under 100k |
+
+  The proposal the reviewer reads today is a few thousand tokens. **Recommendation:**
+  do not add a transcript-level model pass. Only the last row is cheap: roughly 10 to 30 times
+  today's reviewer input per dream, against hundreds to thousands of times for the others. Run
+  that row inside `/dream` as part of the existing reviewer turn, with no new
+  API call: give the reviewer each clean report plus its dispatch prompt, and
+  ask what the brief got right. Do this after the hand-back parsing lifts
+  verdict coverage, because before that it samples 3% of dispatches. Any
+  separate model call stays a decision for the user.
 - `--auto-apply-memory` with the limits in section 5.
-- The effectiveness tracker: link a ledger entry to the signal signature that
-  prompted it.
+- The effectiveness tracker shipped (section 7a). Still open: a `/dream`
+  step that runs `--link` after each promotion and `--compare` before
+  triage, and listing `ineffective` notes as removal candidates.
 - The correction regex is English-only and heuristic. Expect both false
   positives and missed corrections. Tune it on real data before trusting the
   rates.
