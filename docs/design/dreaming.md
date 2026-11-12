@@ -125,7 +125,7 @@ four outputs:
 
 | Output | Where it goes | Approval |
 |---|---|---|
-| Memory note: a quirk, a convention, a correction | A nomination for `promote_learnings.py`, with source `empirical` (or `user override` for a correction the user stated) | The user approves each nomination. Auto-staging is open (section 5b). |
+| Memory note: a quirk, a convention, a correction | A nomination for `promote_learnings.py`, with source `empirical` (or `user override` for a correction the user stated) | The user approves each nomination. Never auto-applied (section 5b). |
 | An agent prompt, `CLAUDE.md` or tiering criterion change | A proposed diff, shown in the conversation or committed to a `dream/<date>` branch | **Always held.** It is never auto-applied. |
 | A new skill | A one-paragraph sketch plus evidence, filed as a spawned task | Always held |
 | A follow-up task from `<out-of-scope>` | A candidate task card | The user decides |
@@ -143,8 +143,8 @@ An earlier draft of this section sketched an opt-in `--auto-apply-memory`:
 nominations passed straight to `promote_learnings.py` when they targeted
 `repo/<name>` or `feedback`, carried source `empirical`, had been seen in at
 least 3 sessions, and were listed in the next SessionStart nudge for revert.
-Section 5a checks that sketch against the code. Section 5b says what to build
-instead.
+Section 5a checks that sketch against the code. Section 5b records the
+decision.
 
 ### 5a. Can the sketched auto-apply be built safely?
 
@@ -202,38 +202,26 @@ the code on 2026-11-13:
    identifiable individuals, which is the worst place to write without review.
    Only `repo/<name>` fits.
 
-### 5b. Recommendation: auto-stage, not auto-apply
+### 5b. Decision: no auto-apply (2026-11-13)
 
-Keep a human gate and move it from each item to the PR. This matches how
-Dreams works: it writes a separate artifact and nothing changes until the
-caller adopts it (section 1).
+Auto-apply is dropped. Every memory nomination from `/dream` is held, shown to
+the user and promoted through `/harvest-memory` only on approval. There is no
+`--auto-apply-memory` flag or setting.
 
-- `/dream` runs interactively, and Claude drafts nominations as it does today.
-- Nominations that pass the gate below skip the per-item question. They are
-  promoted together onto a `dream/<date>` branch in the brain, committed, and
-  delivered as one PR. Merging the PR approves them and closing it rejects them.
-  Nominations that fail the gate go through the per-item flow.
-- The gate is a deterministic stdlib function with no model call. All of these
-  must hold:
-  - the scope bucket is `repo` and the target does not exist yet (create-only,
-    `body` shape);
-  - the signal kind is `tool-error`, `escalation` or `revert`, so the source is
-    `empirical` by construction, and the nomination's own label must agree;
-  - the nomination cites a signal signature that a machine-readable sidecar of
-    the proposal lists with at least 3 sessions;
-  - the signature is not in `<config>/dreams/<repo_key>/rejected.json`;
-  - `check_brain` returns `brain`;
-  - at most 5 nominations per run, which caps the size of the review.
-- Closing the PR records its signatures in `rejected.json`. The next
-  SessionStart nudge lists open `dream/` PRs, which replaces "listed for revert".
-- Unattended runs, whether scheduled or headless, stay out of scope. A model
-  with tool access that reads injected text, with nobody watching, is a risk in
-  itself. That risk exists apart from anything written to memory.
+An alternative was considered and rejected: "auto-staging", where nominations
+that pass a deterministic gate would skip the per-item question and land
+together as one `dream/<date>` PR. The gate would have required a new note
+under `repo/` only, a signal of kind `tool-error`, `escalation` or `revert`
+seen in at least 3 sessions, no entry in a rejection list, and a brain-guard
+verdict of exactly `brain`. It kept a human gate at merge, so it was safe. It
+was dropped because the gain is small (one PR review in place of one
+confirmation per note), while it needs three new parts: a machine-readable
+sidecar from `dream.py`, a gate module, and a rejection list.
 
-The gain over today is modest: one PR review in place of one confirmation per
-note. Whether that is worth a sidecar format, a gate module and a rejection
-list is the user's decision. The alternative is to drop auto-apply and keep
-holding every nomination.
+Revisit this decision if the per-item review becomes a bottleneck, for example
+if dreams routinely produce more nominations than a user will confirm one by
+one. Start from auto-staging, not from auto-apply. The findings in 5a still
+apply to any version.
 
 ## 6. Privacy
 
@@ -322,8 +310,6 @@ no new instrumentation:
   retries, and QA reports (severity counts per audit).
 - Detecting successful workflows automatically: needs a model call, which means
   a cost decision.
-- Auto-staging memory notes onto a PR (section 5b), pending a decision.
-  It needs a JSON sidecar from `dream.py`, a gate module and `rejected.json`.
 - The effectiveness tracker: link a ledger entry to the signal signature that
   prompted it.
 - The correction regex is English-only and heuristic. Expect both false
