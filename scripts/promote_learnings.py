@@ -44,7 +44,7 @@ is shared with `commands/harvest-memory.md` and `memory/CONVENTIONS.md`:
 
     {
       "scope":       "repo/<name>" | "projects/<name>" | "context" | "feedback"
-                     | "people" | "glossary",   # mirrors the top-level memory/ bucket
+                     | "people" | "glossary" | "concepts",   # mirrors the top-level memory/ bucket
       "target":      "<real path under memory/, e.g. repo/myrepo/foo.md"
                      "or feedback/bar.md>",
       "name":        "<slug>",
@@ -52,13 +52,39 @@ is shared with `commands/harvest-memory.md` and `memory/CONVENTIONS.md`:
       "type":        "feedback" | "context" | "adr" | ...,  # the note's frontmatter type
       "body":        "<markdown>",
       "source":      "user override" | "empirical" | "agent inference",
-      "date":        "YYYY-MM-DD"
+      "date":        "YYYY-MM-DD",
+      "frontmatter": {"<key>": <scalar> | [<scalar>, ...], ...}   # OPTIONAL
     }
 
 ``scope`` mirrors the top-level ``memory/`` bucket the note lands in; ``target``
 is the real relative path under ``memory/``; ``type`` is the note's frontmatter
 type. ``scope``'s bucket is validated against the canonical set; ``type`` is
 open-ended and only checked for presence.
+
+``frontmatter`` is the one optional field: extra frontmatter keys for the note,
+so a ``concepts/`` note can carry the ``seen_in`` / ``corroboration`` keys
+``memory/CONVENTIONS.md`` requires of one. Absent, ``null`` and ``{}`` all mean
+"declares nothing"; ``REQUIRED_FIELDS`` is unchanged. It is a flat dict whose
+values are a scalar (``str``, ``int``, ``float``, ``bool``) or a list of
+scalars, e.g. ``{"seen_in": ["repo/x", "repo/y"], "corroboration": 2}``.
+Rejected in phase 1 (rc 1, the key named, nothing written): a ``frontmatter``
+that is not an object; a nested object or list member; a ``null`` member; a key
+not matching ``[A-Za-z_][A-Za-z0-9_-]*``; and a key equal to ``name``,
+``description`` or ``type``, which promote already writes from the nomination's
+own fields and would otherwise emit twice.
+
+  * **Emission is type-aware.** A ``str`` goes through ``yaml_scalar`` (quoted
+    only when a bare value would misparse or be retyped); a ``bool`` writes
+    ``true`` / ``false``; an ``int`` or ``float`` writes bare. So JSON ``3``
+    writes ``corroboration: 3`` while JSON ``"3"`` writes
+    ``corroboration: "3"`` — the distinction is deliberate.
+  * **On create**, declared keys follow ``name`` / ``description`` / ``type``,
+    in insertion order.
+  * **On update**, the keys the nomination declares are rewritten; keys already
+    in the note that it does *not* declare are preserved untouched. That is
+    what lets a corroboration bump leave hand-added keys alone.
+  * **Reading back:** ``split_frontmatter`` does no type inference, so every
+    value reads back as a string (``corroboration: 3`` reads as ``"3"``).
 
 **Two payload shapes, and exactly one per nomination** (#180 stage 1,
 ADR 0007 *Decision 2*). The schema above is the canonical, agent-facing one and
