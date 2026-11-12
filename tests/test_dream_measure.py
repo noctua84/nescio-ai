@@ -95,7 +95,9 @@ class SidecarTest(DreamTestBase):
 
     def test_verdict_and_error_keys_count_distinct_sessions(self):
         for name in ("a", "b"):
-            self.write(name, [report("b", verdict_text("BLOCKED")), report("b", verdict_text("BLOCKED"))])
+            first, second = report("b", verdict_text("BLOCKED")), report("b", verdict_text("BLOCKED"))
+            second["toolUseResult"]["agentId"] = "agent-2"  # a second dispatch; an identical (id, text) pair counts once
+            self.write(name, [first, second])
         table = dream.signal_table([dream.parse_session(self.transcripts / f"{n}.jsonl") for n in "ab"])
         entry = table[dream.signal_id("blocked:b")]
         self.assertEqual((entry["sessions"], entry["count"]), (2, 4))
