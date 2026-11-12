@@ -266,6 +266,19 @@ def _transform(text: str, target: str) -> str:
     return "".join(out)
 
 
+def theme_text(text: str, target: str) -> str:
+    """`text` rewritten for `target` exactly as `apply_theme` rewrites a charter.
+
+    The public entry point for callers that produce charter text outside the
+    agents tree (``render_tiers.py``) and must land on the same bytes this
+    script would. Going through here, not ``_transform``, keeps such callers
+    correct whenever the rewrite rule itself changes.
+    """
+    if target not in THEMES:
+        raise ValueError(f"unknown theme {target!r} (expected one of {THEMES})")
+    return _transform(text, target)
+
+
 def apply_theme(agents_dir: Path, target: str, *, dry_run: bool = False) -> int:
     if target not in THEMES:
         print(f"error: unknown theme {target!r} (expected one of {THEMES})", file=sys.stderr)

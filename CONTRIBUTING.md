@@ -154,6 +154,15 @@ the `agent-evaluation`, `prompt-testing-plan`, and `prompt-evaluation-harness`
 skills help. See `docs/specs/` for worked example design specs (the brainstorm →
 spec format).
 
+### Editing the builder tiers
+
+`agents/builder.md`, `builder-standard.md` and `builder-simple.md` are generated.
+Edit `agents/_src/tiers.md.tmpl`, then run `python scripts/render_tiers.py`;
+`tests/test_render_tiers.py` fails on a hand edit to a charter. Text outside a
+`<!-- tier: ... -->` block reaches all three tiers. Tier blocks may appear only
+above `## Your Purpose`, because everything below it is the shared contract. See
+`docs/design/builder-tiers.md` for what may differ between tiers and why.
+
 ## Running the tests
 
 ```
