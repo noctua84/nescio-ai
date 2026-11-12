@@ -265,11 +265,13 @@ The minimal data model has three parts, all machine-local under
 - Reading subagent transcripts, which hold the builder's own tool errors and
   retries, and QA reports (severity counts per audit).
 - **Detecting successful workflows automatically.** Measured on one machine's
-  last 60 days (870 main transcripts, aggregate counts only):
+  last 60 days (870 main transcripts, aggregate counts only). The counts were taken
+  from foreground `toolUseResult` reports only, before the hand-back fix above,
+  so verdict coverage is a lower bound and should be measured again:
 
   | Proxy | Result | Verdict |
   |---|---|---|
-  | First-try COMPLETE with no deviations | 68 of 229 reports with a verdict; only 229 of 1,475 parsed reports (and of about 7,500 dispatches) carry a `<verdict>` | The "no deviations" part discriminates, since 221 of 229 verdicts are COMPLETE. Coverage is about 3% of dispatches, so it waits on the background-agent fix above. |
+  | First-try COMPLETE with no deviations | 68 of 229 reports with a verdict; only 229 of 1,475 parsed reports (and of about 7,500 dispatches) carry a `<verdict>` | The "no deviations" part discriminates, since 221 of 229 verdicts are COMPLETE. Coverage was about 3% of dispatches before the hand-back fix. |
   | Session with no correction or interrupt | 797 of 870 sessions | Does not discriminate. The correction regex rarely fires. |
   | Friction-free session (no correction, interrupt, revert or tool error) | 177 of 870 | Confounded by length: 106 of 285 sessions with fewer than 2 human messages, and 0 of 67 with 20 or more |
 
@@ -288,8 +290,8 @@ The minimal data model has three parts, all machine-local under
   today's reviewer input per dream, against hundreds to thousands of times for the others. Run
   that row inside `/dream` as part of the existing reviewer turn, with no new
   API call: give the reviewer each clean report plus its dispatch prompt, and
-  ask what the brief got right. Do this after the hand-back parsing lifts
-  verdict coverage, because before that it samples 3% of dispatches. Any
+  ask what the brief got right. First measure verdict coverage again with the
+  hand-back parser, because the 3% above came from foreground reports only. Any
   separate model call stays a decision for the user.
 - `--auto-apply-memory` with the limits in section 5.
 - The effectiveness tracker shipped (section 7a). Still open: a `/dream`
