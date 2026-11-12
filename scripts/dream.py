@@ -9,8 +9,9 @@ a Markdown file (plus an optional watermark) under ``<config>/dreams/``. The
 other half -- turning the signals into harvest nominations or held prompt
 suggestions -- is the ``/dream`` command, run by a human-supervised session.
 
-Parsing one transcript lives in ``_dream_parse.py``; this file folds the
-per-session summaries into a proposal and owns discovery and the CLI.
+Parsing one transcript lives in ``_dream_parse.py`` and the extra inputs
+(subagent transcripts, QA audit reports) in ``_dream_inputs.py``; this file
+folds the per-session summaries into a proposal and owns discovery and the CLI.
 
 Deliberate design decisions, each with a failure mode behind it:
 
@@ -53,6 +54,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from _dream_parse import MAX_EXCERPTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
+from _dream_inputs import SEVERITIES, parse_subagents, qa_reports  # noqa: E402
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
@@ -62,8 +64,36 @@ VERDICTS = ("COMPLETE", "PARTIAL", "BLOCKED")
 TIER_NAMES = ("simple", "standard", "complex")
 
 
-def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) -> dict:
-    """Fold per-session summaries into the proposal's data."""
+def _subagent_rollup(sessions: list[dict]) -> tuple[list, dict, dict]:
+    """``(ranked errors, reruns, read/skipped/malformed)`` over the sessions' optional ``sub`` summaries."""
+    errs: dict[tuple, list] = defaultdict(lambda: [set(), 0])
+    by_agent: Counter = Counter()
+    rerun_ids: set = set()
+    totals = {"read": 0, "skipped": 0, "malformed": 0}
+    for s in sessions:
+        sub = s.get("sub")
+        if not sub:
+            continue
+        totals["read"] += sub["files"]
+        totals["skipped"] += sub["skipped"]
+        totals["malformed"] += sub["malformed"]
+        for key, n in sub["errors"].items():
+            errs[key][0].add(s["id"])
+            errs[key][1] += n
+        if sub["reruns"] > 0:
+            rerun_ids.add(s["id"])
+            by_agent.update(sub["rerun_agents"])
+    top = sorted(errs.items(), key=lambda kv: (-len(kv[1][0]), -kv[1][1], kv[0]))[:TOP_ERRORS]
+    reruns = {"count": sum(by_agent.values()), "sessions": len(rerun_ids), "by_agent": dict(sorted(by_agent.items()))}
+    return top, reruns, totals
+
+
+def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, qa: list[dict] | None = None) -> dict:
+    """Fold per-session summaries into the proposal's data.
+
+    Sessions may carry an optional ``sub`` summary (``parse_subagents``) and
+    ``qa`` is the optional ``qa_reports`` list; both default to "not read".
+    """
     verdicts: dict[str, Counter] = defaultdict(Counter)
     esc: dict[str, set] = defaultdict(set)
     errs: dict[tuple, list] = defaultdict(lambda: [set(), 0])
@@ -90,6 +120,16 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
     recurring += [
         {"kind": "tool-error", "summary": f"{t}: {sig}", "sessions": len(ids), "count": n} for (t, sig), (ids, n) in top
     ]
+    sub_top, sub_reruns, sub_totals = _subagent_rollup(sessions)
+    recurring += [
+        {"kind": "subagent-tool-error", "summary": f"{a} {t}: {sig}", "sessions": len(ids), "count": n}
+        for (a, t, sig), (ids, n) in sub_top
+    ]
+    if sub_reruns["sessions"]:
+        recurring.append({
+            "kind": "subagent-reruns", "sessions": sub_reruns["sessions"],
+            "summary": f"{sub_reruns['count']} identical Bash reruns in subagents",
+        })
     recurring += [
         {"kind": kind, "summary": text, "sessions": len(ids)}
         for kind, text, ids in (
@@ -101,13 +141,23 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
     return {
         "sessions_read": len(sessions),
         "sessions_skipped": skipped,
-        "malformed_lines": total("malformed"),
+        "malformed_lines": total("malformed") + sub_totals["malformed"],
+        "subagents_read": sub_totals["read"],
+        "subagents_skipped": sub_totals["skipped"],
         "agent_reports": sum(len(s["reports"]) for s in sessions),
         "agent_dispatches": sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch"),
         "min_sessions": min_sessions,
         "recurring": [r for r in recurring if r["sessions"] >= min_sessions],
         "verdicts": {a: dict(c) for a, c in sorted(verdicts.items())},
         "tool_errors": [{"tool": t, "signature": sig, "sessions": len(i), "count": n} for (t, sig), (i, n) in top],
+        "subagent_errors": [
+            {"agent": a, "tool": t, "signature": sig, "sessions": len(i), "count": n} for (a, t, sig), (i, n) in sub_top
+        ],
+        "subagent_reruns": sub_reruns,
+        "qa_reports": {
+            "reports": list(qa or []),
+            "totals": {sev: sum(r[sev] for r in qa or []) for sev in SEVERITIES},
+        },
         "corrections": {
             "count": total("corrections"),
             "sessions": len(having("corrections")),
@@ -140,6 +190,7 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         "",
         f"- Window: {since} to {until}",
         f"- Sessions read: {agg['sessions_read']} (skipped by cap: {agg['sessions_skipped']})",
+        f"- Subagent transcripts read: {agg['subagents_read']} (skipped by cap: {agg['subagents_skipped']})",
         f"- Malformed lines skipped: {agg['malformed_lines']}",
         f"- Agent reports parsed: {agg['agent_reports']} (dispatches seen: {agg['agent_dispatches']})",
         f"- Recurring means seen in at least {agg['min_sessions']} distinct sessions",
@@ -157,6 +208,23 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
     head = ["| Agent | COMPLETE | PARTIAL | BLOCKED | no verdict |", "|---|---|---|---|---|"]
     out += _section("Agent verdicts", head + table if table else [], "No agent reports found.")
     confirm = [f"- {f['text']} (agent {f['agent']}, session {f['session'][:8]}, {f['ts'] or 'no ts'})" for f in agg["to_confirm"]]
+    sub = [
+        f"- {e['agent']} {e['tool']}: {e['signature']} ({e['sessions']} sessions, {e['count']} errors)"
+        for e in agg["subagent_errors"]
+    ]
+    rr = agg["subagent_reruns"]
+    if rr["count"]:
+        by = ", ".join(f"{a} {n}" for a, n in rr["by_agent"].items())
+        sub.append(f"- Identical Bash reruns: {rr['count']} in {rr['sessions']} sessions (by agent: {by})")
+    out += _section("Subagent tool errors", sub, "None found (or subagent transcripts not read).")
+    qa = agg["qa_reports"]
+    rows = [
+        f"| {r['name']} | {r['date']} | " + " | ".join(str(r[k]) for k in SEVERITIES) + " |" for r in qa["reports"]
+    ]
+    if rows:
+        rows = ["| Report | Date | Critical | Major | Minor | Info |", "|---|---|---|---|---|---|", *rows,
+                "| **Total** | | " + " | ".join(f"**{qa['totals'][k]}**" for k in SEVERITIES) + " |"]
+    out += _section("QA audits", rows, "No QA reports in the window (or reading disabled).")
     out += _section("To confirm", confirm, "No inverted pins or deferred reds.")
     follow = [f"- {f['text']} ({f['sessions']} sessions)" for f in agg["follow_ups"]]
     out += _section("Candidate follow-ups", follow, "None reported.")
@@ -234,6 +302,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--since")
     p.add_argument("--max-sessions", type=int, default=50)
     p.add_argument("--min-sessions", type=int, default=2)
+    p.add_argument("--max-subagents", type=int, default=25, help="subagent transcripts read per parent session")
+    p.add_argument("--no-subagents", action="store_true", help="do not read subagent transcripts")
+    p.add_argument("--max-qa-reports", type=int, default=10, help="QA reports under docs/reports/ (0 disables)")
     p.add_argument("--out", type=Path)
     p.add_argument("--json", action="store_true", help="also print the structured result to stdout")
     p.add_argument("--no-stamp", action="store_true", help="do not advance the watermark")
@@ -250,7 +321,12 @@ def main(argv: list[str] | None = None) -> int:
     since = parse_iso(args.since) if args.since else read_since(state_dir / STATE_NAME, start)
     dirs = args.transcripts or transcript_dirs(args.projects_dir or config / "projects", root)
     files, skipped = select_sessions([Path(d) for d in dirs], since, args.max_sessions)
-    agg = aggregate([parse_session(f) for f in files], min_sessions=args.min_sessions, skipped=skipped)
+    sessions = [parse_session(f) for f in files]
+    if not args.no_subagents:
+        for f, s in zip(files, sessions):
+            s["sub"] = parse_subagents(f, args.max_subagents)
+    qa = qa_reports(root, since, args.max_qa_reports) if args.max_qa_reports > 0 else None
+    agg = aggregate(sessions, min_sessions=args.min_sessions, skipped=skipped, qa=qa)
     since_s, until_s = since.strftime("%Y-%m-%dT%H:%M:%SZ"), start.strftime("%Y-%m-%dT%H:%M:%SZ")
     out = args.out or state_dir / f"{start.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
