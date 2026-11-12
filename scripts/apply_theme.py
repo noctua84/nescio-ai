@@ -137,10 +137,11 @@ def _mappings(target: str) -> list[tuple[str, str]]:
 
 # Inline code span: single backticks on one line. Group 1 is the contents.
 _CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
-# A double-quoted string whose *entire* content is name-ish. `"planner"` and
-# `"builder | builder-standard | builder-simple"` qualify; `"Create a plan for
-# the planner: ..."` (a prompt) or a YAML description does not.
-_NAMEISH_QUOTED_RE = re.compile(r'"([\w\- |]+)"')
+# A double-quoted string whose *entire* content is one name or a `|`-separated
+# list of names. `"planner"` and `"builder | builder-standard | builder-simple"`
+# qualify; `"ask the planner"` (prose, even without punctuation), a
+# `prompt: "..."` or a YAML description does not.
+_NAMEISH_QUOTED_RE = re.compile(r'"([\w-]+(?:[ \t]*\|[ \t]*[\w-]+)*)"')
 # Opening/closing fence of a fenced code block: 3+ backticks or tildes.
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _NAME_LINE_RE = re.compile(r"^name:[ \t]*")
@@ -155,18 +156,22 @@ def _identifier_regions(text: str) -> list[tuple[int, int]]:
     1. **Inline code spans** — the text between single backticks on one line.
     2. **Name-ish double-quoted strings** — ``"planner"``,
        ``"builder | builder-standard | builder-simple"`` — whose whole content
-       matches ``[\\w\\- |]+``. Applies inside fenced code blocks too, which is
-       where the orchestrator's ``subagent_type: "..."`` dispatches live. A
-       quoted *sentence* (a ``prompt: "..."``, a YAML ``description: "..."``) has
-       punctuation in it and does not qualify.
+       is one name or a ``|``-separated list of names. Applies inside fenced
+       code blocks too, which is where the orchestrator's
+       ``subagent_type: "..."`` dispatches live. A quoted phrase or sentence (a
+       ``prompt: "..."``, a YAML ``description: "..."``, ``"ask the planner"``)
+       does not qualify.
     3. **The frontmatter ``name:`` value** (first ``---`` block of the file).
     4. Nothing else. Bare words, Capitalised and UPPERCASE words, YAML
        descriptions: prose. An author who means the agent writes it in
        backticks.
 
     Fence handling: a fence marker line is not scanned (so ``` ```python ``` is
-    not read as a code span), and inside a fence only rule 2 applies — the
-    backticks of rule 1 are prose punctuation there.
+    not read as a code span). Inside a fence rules 1 and 2 both apply: the
+    fenced blocks in the charters are mostly prompt and report *templates*
+    handed to other agents ("(from `advisor`)", "## Directives for
+    `planner`"), where a backticked name means the agent exactly as it does in
+    prose.
 
     Offsets index into ``text`` itself, with line endings untouched, so a CRLF
     file keeps its ``\\r``. The tests import this function so the real-tree
@@ -197,6 +202,8 @@ def _identifier_regions(text: str) -> list[tuple[int, int]]:
                     and not body.strip().strip(fence[0]):
                 fence = None  # closing fence: nothing to scan on it
             else:
+                for c in _CODE_SPAN_RE.finditer(body):
+                    regions.append((offset + c.start(1), offset + c.end(1)))
                 for q in _NAMEISH_QUOTED_RE.finditer(body):
                     regions.append((offset + q.start(1), offset + q.end(1)))
         elif fm:

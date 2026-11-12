@@ -679,6 +679,8 @@ class ForwardTransformIdentifiersOnlyTest(unittest.TestCase):
             'prompt: "Challenge the planner\'s approach."',
             'prompt: "Create a plan: planner, reviewer."',
             'description: "advisor. Read-only."',
+            '"ask the planner"',  # spaces but no punctuation: still prose
+            '"the planner | the critic"',
         ):
             with self.subTest(text=text):
                 self.assertEqual(self.fwd(text), text)
@@ -687,7 +689,7 @@ class ForwardTransformIdentifiersOnlyTest(unittest.TestCase):
         src = (
             "Before `planner` and \"planner\".\n"
             "```\n"
-            "`planner` is not a code span in here, but the planner is quoted:\n"
+            "`planner` is a code span in here too, but the planner is prose:\n"
             "Agent(subagent_type: \"planner\", prompt: \"Ask the planner.\")\n"
             "subagent_type: \"builder | builder-standard | builder-simple\",\n"
             "```\n"
@@ -697,7 +699,7 @@ class ForwardTransformIdentifiersOnlyTest(unittest.TestCase):
             self.fwd(src),
             "Before `plato` and \"plato\".\n"
             "```\n"
-            "`planner` is not a code span in here, but the planner is quoted:\n"
+            "`plato` is a code span in here too, but the planner is prose:\n"
             "Agent(subagent_type: \"plato\", prompt: \"Ask the planner.\")\n"
             "subagent_type: \"archimedes | archimedes-standard | archimedes-simple\",\n"
             "```\n"
@@ -706,7 +708,9 @@ class ForwardTransformIdentifiersOnlyTest(unittest.TestCase):
 
     def test_fence_info_string_and_longer_fences(self):
         src = "````python\n`planner`\n```\n`planner`\n````\n`planner`\n"
-        self.assertEqual(self.fwd(src), "````python\n`planner`\n```\n`planner`\n````\n`plato`\n")
+        # The inner ``` is shorter than the opening fence, so it does not close
+        # it; code spans are themed inside and outside the fence alike.
+        self.assertEqual(self.fwd(src), "````python\n`plato`\n```\n`plato`\n````\n`plato`\n")
 
     def test_an_unclosed_backtick_is_not_a_span(self):
         self.assertEqual(self.fwd("a ` planner b\nc` planner\n"), "a ` planner b\nc` planner\n")
