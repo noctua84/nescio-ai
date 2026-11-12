@@ -12,6 +12,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "hooks"))
 sys.path.insert(0, str(ROOT / "scripts"))
+import _dream_parse as dp  # noqa: E402
 import dream  # noqa: E402
 
 FAKE_TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3"
@@ -188,7 +189,7 @@ class ToolErrorTest(DreamTestBase):
         ])
 
     def test_signature_normalises_paths_and_numbers(self):
-        a, b = dream.error_signature("File not found: /a/b/c.py at 123"), dream.error_signature("File not found: /x/y.py at 9")
+        a, b = dp.error_signature("File not found: /a/b/c.py at 123"), dp.error_signature("File not found: /x/y.py at 9")
         self.assertEqual(a, b)
         self.assertIn("<path>", a)
 
@@ -198,6 +199,17 @@ class ToolErrorTest(DreamTestBase):
         self.assertEqual(len(errs), 1)
         self.assertEqual(errs[0]["sessions"], 2)
         self.assertTrue(errs[0]["summary"].startswith("Read:"))
+
+    def test_user_rejections_are_not_tool_errors(self):
+        rejected = "The user doesn't want to proceed with this tool use. The tool use was rejected."
+        s = self.parse("a", [
+            assistant(("t1", "Edit", {}), ("t2", "Bash", {})),
+            tool_error("t1", rejected),
+            tool_error("t2", "[Request interrupted by user for tool use]"),
+            tool_error("t2", "command failed"),
+        ])
+        self.assertEqual(list(s["errors"].values()), [1])
+        self.assertEqual(list(s["errors"])[0][0], "Bash")
 
     def test_single_session_does_not_meet_threshold(self):
         agg = dream.aggregate([self._session("a", "/p/one.py")])
@@ -220,7 +232,7 @@ class PrivacyTest(DreamTestBase):
 
     def test_excerpt_truncated(self):
         s = self.parse("a", [human("No " + "x" * 500)])
-        self.assertLessEqual(len(s["excerpts"][0]), dream.EXCERPT_MAX)
+        self.assertLessEqual(len(s["excerpts"][0]), dp.EXCERPT_MAX)
 
 
 class CliTest(DreamTestBase):
@@ -265,6 +277,27 @@ class CliTest(DreamTestBase):
         rc, _ = self.run_main("--no-stamp", "--out", str(out_path))
         self.assertEqual(rc, 0)
         self.assertIn("No transcripts found", out_path.read_text(encoding="utf-8"))
+
+    def test_sanity_line_counts_reports_and_dispatches(self):
+        self.write("a", [dispatch("d1", "builder"), report("builder", verdict_text("COMPLETE"))])
+        out_path = self.tmp / "p.md"
+        self.run_main("--no-stamp", "--out", str(out_path))
+        text = out_path.read_text(encoding="utf-8")
+        self.assertIn("Agent reports parsed: 1 (dispatches seen: 1)", text)
+        self.assertNotIn("transcript format may have changed", text)
+
+    def test_zero_reports_with_sessions_warns_format_may_have_changed(self):
+        self.write("a", [human("hi")])
+        out_path = self.tmp / "p.md"
+        self.run_main("--no-stamp", "--out", str(out_path))
+        text = out_path.read_text(encoding="utf-8")
+        self.assertIn("Agent reports parsed: 0", text)
+        self.assertIn("transcript format may have changed", text)
+
+    def test_empty_window_does_not_warn_about_format(self):
+        out_path = self.tmp / "p.md"
+        self.run_main("--no-stamp", "--out", str(out_path))
+        self.assertNotIn("transcript format may have changed", out_path.read_text(encoding="utf-8"))
 
     def test_proposal_sections_present(self):
         self.write("a", [report("builder", verdict_text("COMPLETE"))])
