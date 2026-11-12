@@ -216,12 +216,16 @@ no new instrumentation:
 
 ## 9. Open
 
-- **Background agents are undercounted.** On one machine's real data the
-  extractor saw 300 dispatches but only 69 parsed reports. A background
-  dispatch delivers its report later through a hand-back message, not as
-  `toolUseResult` on the dispatch, so verdict tallies and escalation detection
-  miss it. The proposal header prints both counts so the gap is visible. The
-  hand-back shape needs parsing next.
+- **Background agents: fixed, with gaps left.** A background dispatch
+  returns only an `agentId`. Its report arrives later as a hand-back message
+  (`<agent-message from="<agentId>">` with `[Subagent hand-back]`), or in older
+  transcripts inside `<task-notification>`. The parser now links `agentId` to
+  `agentType` through the dispatch and counts these reports. On real data the
+  parsed reports went from 69 to 153 in a 50-session window. Dispatches still
+  outnumber reports (272 against 153), and some builder hand-backs carry no
+  verdict. Escalations came out at 0. All three need a closer look.
+- The follow-ups section reached 335 lines on real data, so it needs a cap or a
+  ranking before `/dream` is pleasant to review.
 - User-rejected tool calls are excluded from tool errors, but rejections
   could themselves be a correction signal.
 - A "dream due" SessionStart nudge, in `harvest_nudge.py`.
