@@ -226,8 +226,8 @@ no new instrumentation:
   verdict. Escalations came out at 0. All three need a closer look.
 - The follow-ups section reached 335 lines on real data, so it needs a cap or a
   ranking before `/dream` is pleasant to review.
-- User-rejected tool calls are excluded from tool errors, but rejections
-  could themselves be a correction signal.
+- User-rejected tool calls are excluded from tool errors. A rejection that
+  carries a reason now counts as a correction; a bare rejection does not.
 - A "dream due" SessionStart nudge, in `harvest_nudge.py`.
 - Reading subagent transcripts, which hold the builder's own tool errors and
   retries, and QA reports (severity counts per audit).
@@ -236,8 +236,41 @@ no new instrumentation:
 - `--auto-apply-memory` with the limits in section 5.
 - The effectiveness tracker: link a ledger entry to the signal signature that
   prompted it.
-- The correction regex is English-only and heuristic. Expect both false
-  positives and missed corrections. Tune it on real data before trusting the
-  rates.
+- **User corrections are a lower bound, not a rate.** Measured on one
+  machine's real transcripts (871 sessions, 5,669 human messages; labels by
+  one reviewer, counts only):
+  - The first regex matched 72 messages; about 37% of a 60-message sample were
+    real corrections. Most false positives were a "no" answering the agent's
+    question with "nothing else", "stop here", "actually ..." redirects, and a
+    repeated session-opening prompt.
+  - The current rule matches 29 messages, about 83% of them corrections. It
+    ignores the session's first message, drops "actually" and "stop", requires
+    word boundaries, ignores "I mean," elaborations, and counts a bare "no"
+    only when the agent's last text did not end in a question. A rejected tool
+    call that carries a reason also counts (4 on that machine). The precision
+    is in-sample: the rule was tuned on the messages it was scored on.
+  - Recall did not improve. In a random sample of 200 human messages, 9 were
+    corrections and both rules caught 2. Most corrections are plain statements
+    of fact (for example, naming the right file), which no start-of-message cue can
+    tell apart from ordinary talk.
+  - Messages right after an interrupt are not counted: about 3 of the 17
+    measured were corrections. Interrupts stay a separate count.
+  - The cues are English-only. Corrections in other languages are not seen.
+    Closing the recall gap needs a model call, which is a cost decision.
+- **The transcript format is internal and unstable by Anthropic's own
+  statement.** Only the location is documented
+  (`~/.claude/projects/<project>/<session-id>.jsonl`, in
+  [Manage sessions](https://code.claude.com/docs/en/sessions.md), "Where
+  transcripts are stored"). The same page says the entry format is internal to
+  Claude Code and changes between versions, so direct parsers can break on any
+  release, and points to `/export` and the SDK instead. No official page defines
+  `toolUseResult`, `isMeta`, `agentType` or the entry `type` values, and the
+  SDK's `getSessionMessages()` types the payload as `unknown`
+  ([Agent SDK sessions](https://code.claude.com/docs/en/agent-sdk/sessions.md)).
+  The extractor therefore runs a format self-check: it tallies the shapes it
+  relies on (user/assistant entries, `message.content`, `tool_use` blocks,
+  `toolUseResult` dicts, Agent/Task dispatches) and adds a "Format check"
+  section to the proposal when one goes missing, or when an unknown top-level
+  key appears on most entries. On the 871 sessions above it raised no warning.
 - Porting to the brain: the files sit in framework paths (`scripts/`,
   `commands/`, `tests/`, `docs/`), so the usual sync carries them.

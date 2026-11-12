@@ -28,8 +28,20 @@ LINE_MAX = 200
 MAX_EXCERPTS = 3
 
 VERDICT_RE = re.compile(r"<verdict>\s*(COMPLETE|PARTIAL|BLOCKED)\s*</verdict>")
-CORRECTION_RE = re.compile(
-    r"^(no\b|nope|don'?t|do not|stop\b|wrong|that'?s (not|wrong)|instead\b|actually\b|undo|revert)",
+# Correction detection is a lower bound, not a rate. It is English-only and looks
+# only at the start of a message. Measured recall is low (about 2 of 9 corrections
+# in a random sample) because many corrections are phrased as plain factual
+# statements ("that file is the old one"), which no start-of-message cue can
+# separate from ordinary talk. Use the count to watch a trend across runs.
+LEAD = r"^(?:(?:hm+|ah|oh|well|wait)\b[\s,.!]*)?"
+CORRECTION_RE = re.compile(  # strong cue: counts regardless of context
+    LEAD + r"(don'?t\b|do not\b|please don'?t\b|stop (doing|that|it)\b|wrong\b|that'?s (not|wrong)\b|that is not\b|"
+    r"this is not\b|it'?s not\b|that (does not|doesn'?t)\b|not what\b|i meant\b|i mean\b(?!,)|i said\b|"
+    r"why (did|are|would|do) you\b|you('re| are) (wrong|mistaken)\b|instead\b|undo\b|revert\b)",
+    re.IGNORECASE,
+)
+NO_RE = re.compile(  # weak cue: a bare "no" counts only when it is not answering a question
+    LEAD + r"(no\b|nope\b)(?![\s,.!]*(need|thanks?|thank you|nothing|all\b|further|more\b|follow|keep|leave)\b)",
     re.IGNORECASE,
 )
 REVERT_RE = re.compile(r"\bgit\s+(revert|reset\s+--hard|checkout\s+--\s|restore\s)")
@@ -45,6 +57,10 @@ TASK_ID_RE = re.compile(r"<task-id>\s*([^<\s]+)\s*</task-id>")
 TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 # A tool result the *user* declined; an `is_error` flag on it is a decision, not a failure.
 REJECTION_RE = re.compile(r"^\s*(the user doesn'?t want to|user rejected|\[request interrupted by user)", re.IGNORECASE)
+# Per-session transcript-shape counters; ``dream.drift_warnings`` reads their sum to catch a silent format change.
+SHAPE_COUNTS = (
+    "entries", "typed", "with_message", "tool_uses", "tool_results", "result_dicts", "agent_results",
+)
 
 
 def _tag_lines(text: str, tag: str) -> list[str]:
@@ -138,16 +154,40 @@ def _new_session(path: Path) -> dict:
     return {
         "id": path.stem, "malformed": 0, "reports": [], "events": [], "corrections": 0,
         "excerpts": [], "interrupts": 0, "errors": Counter(), "reverts": 0, "escalations": [],
+        "humans": 0, "last_ask": False,
+        "shape": {**dict.fromkeys(SHAPE_COUNTS, 0), "typed_keys": Counter()},
         # Parse-time bookkeeping, dropped before the summary is returned.
         "_sub": {}, "_agents": {}, "_seen_reports": set(),
     }
 
 
+def _count_shape(entry: dict, s: dict) -> None:
+    """Tally which transcript shapes this entry has (counts only, no text kept)."""
+    shape = s["shape"]
+    shape["entries"] += 1
+    if entry.get("type") not in ("user", "assistant"):
+        return
+    shape["typed"] += 1
+    shape["typed_keys"].update(k for k in entry if isinstance(k, str))
+    message = entry.get("message")
+    if isinstance(message, dict) and "content" in message:
+        shape["with_message"] += 1
+    result = entry.get("toolUseResult")
+    if entry.get("type") == "user" and isinstance(result, dict):
+        shape["result_dicts"] += 1
+        if isinstance(result.get("agentType"), str):
+            shape["agent_results"] += 1
+
+
 def _on_assistant(entry: dict, s: dict, tools: dict, seen: set) -> None:
     content = (entry.get("message") or {}).get("content")
+    text = _text_of(content).strip()
+    if text:  # tool_use-only entries leave this alone
+        s["last_ask"] = text.endswith("?")
     for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict) or block.get("type") != "tool_use":
             continue
+        s["shape"]["tool_uses"] += 1
         uid, name, inp = block.get("id"), block.get("name"), block.get("input")
         tools[uid] = name
         if uid in seen:  # the same message is re-emitted as tool results resolve
@@ -222,10 +262,15 @@ def _on_human(text: str, s: dict) -> None:
     text = text.strip()
     if text.startswith("[Request interrupted by user"):
         s["interrupts"] += 1
-    elif text and not text.startswith("<") and CORRECTION_RE.match(text):
-        s["corrections"] += 1
-        if len(s["excerpts"]) < MAX_EXCERPTS:
-            s["excerpts"].append(scrub(text))
+    elif text and not text.startswith("<"):  # a ``<...>`` wrapper is not typed by the user
+        s["humans"] += 1
+        if s["humans"] == 1:  # the task prompt, not a reaction
+            return
+        # a bare "no" to a question is a decision, not a correction
+        if CORRECTION_RE.match(text) or (NO_RE.match(text) and not s["last_ask"]):
+            s["corrections"] += 1
+            if len(s["excerpts"]) < MAX_EXCERPTS:
+                s["excerpts"].append(scrub(text))
 
 
 def _on_user(entry: dict, s: dict, tools: dict) -> None:
@@ -234,8 +279,11 @@ def _on_user(entry: dict, s: dict, tools: dict) -> None:
     results = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"] if isinstance(content, list) else []
     text = _text_of(content)
     agent_traffic = _on_user_reports(entry, s, result, text, [b.get("tool_use_id") for b in results])
+    s["shape"]["tool_results"] += len(results)
     for block in results:
         text = _text_of(block.get("content"))
+        if REJECTION_RE.match(text) and "the user said:" in text.lower():  # a rejection with a reason
+            s["corrections"] += 1
         if block.get("is_error") is True and not REJECTION_RE.match(text):
             s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), error_signature(text))] += 1
     if not results and result is None and not entry.get("isMeta") and not agent_traffic:
@@ -255,7 +303,9 @@ def parse_session(path: Path) -> dict:
                 entry = None
             if not isinstance(entry, dict):
                 s["malformed"] += 1
-            elif entry.get("type") == "assistant":
+                continue
+            _count_shape(entry, s)
+            if entry.get("type") == "assistant":
                 _on_assistant(entry, s, tools, seen)
             elif entry.get("type") == "user":
                 _on_user(entry, s, tools)
