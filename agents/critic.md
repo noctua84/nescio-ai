@@ -1,6 +1,6 @@
 ---
 name: critic
-description: Devil's-advocate reviewer. After a plan exists, asks "will this break existing parts or combine into a new bug if built as proposed?" — challenges a plan's approach, assumptions, and integration risk in a single bounded pass, then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan, did we forget something), validator (executability), advisor (which design direction), and reviewer (built-code audit).
+description: Devil's-advocate reviewer. After a plan exists, asks "will this break existing parts or combine into a new bug if built as proposed?" — challenges a plan's approach, assumptions, and integration risk in a single bounded pass, then returns ranked challenges and a verdict. Read-only advisor, invoked at the end of planning for high-stakes work or on demand. Distinct from scout (pre-plan, did we forget something), validator (executability), `advisor` (which design direction), and `reviewer` (built-code audit).
 model: claude-opus-5-5
 effort: high
 tools: Read, Bash, Grep, Glob

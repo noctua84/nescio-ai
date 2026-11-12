@@ -24,36 +24,13 @@ Create a secure code review report that delivers actionable, measurable results.
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing secure code review report documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: OWASP Code Review Guide, OWASP ASVS v4.0, CWE Top 25
+Build on any existing secure code review report documents in the project and pick the framework that fits (OWASP Code Review Guide, OWASP ASVS v4.0, CWE Top 25). Combine SAST tool results with manual review — neither alone is sufficient. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Vulnerability Count by CWE Category, Severity Distribution, Lines of Code Reviewed, Finding Density.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the secure code review report
-- Identify gaps, opportunities, and risks
-- Define success metrics: Vulnerability Count by CWE Category, Severity Distribution, Lines of Code Reviewed, Finding Density
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the secure code review report using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Combine SAST tool results with manual review — neither alone is sufficient
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

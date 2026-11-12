@@ -1,6 +1,6 @@
 ---
 name: doc-researcher
-description: Documentation landscape specialist. Reads existing project docs and returns a structured map of coverage, gaps, and update targets — given a description of what just changed. Produces findings for doc-writer; does not write or modify any file. Distinct from explore (reads source code), librarian (reads external docs), and doc-writer (writes documentation).
+description: Documentation landscape specialist. Reads existing project docs and returns a structured map of coverage, gaps, and update targets — given a description of what just changed. Produces findings for `doc-writer`; does not write or modify any file. Distinct from explore (reads source code), librarian (reads external docs), and `doc-writer` (writes documentation).
 model: claude-sonnet-5-5
 effort: medium
 tools: Read, Bash, Grep, Glob
@@ -85,7 +85,7 @@ One line per topic touched by the described change.
 For each gap or stale entry:
 - FILE: path/to/file.md (create | update)
   SECTION: which section to add or change
-  CONTENT: what it should cover — enough for doc-writer to draft without re-reading
+  CONTENT: what it should cover — enough for `doc-writer` to draft without re-reading
 </update-targets>
 
 <out-of-scope>

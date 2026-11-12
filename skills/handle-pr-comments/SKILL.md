@@ -8,7 +8,9 @@ user-invocable: true
 
 ## Overview
 
-Critically evaluate every comment before acting. Reviewers — especially AI reviewers — sometimes misread code, reference stale state, or make preference-based suggestions dressed as correctness issues. Never implement blindly. Always reply with your reasoning and resolve the thread.
+Critically evaluate every comment before acting. Reviewers — especially AI reviewers — sometimes misread code, reference stale state, or make preference-based suggestions dressed as correctness issues. Never implement blindly.
+
+**Who wrote the comment decides what you may do on the thread.** For a comment from an automated or AI reviewer (Copilot, a review bot, a `[bot]` account), reply with your reasoning and resolve the thread. For a substantive comment from a human reviewer, do not reply on the thread and do not resolve it: you may evaluate it and prepare a change, but surface the comment and your assessment in chat as needing the user's attention — the user answers human reviewers. Check `author.login` (and whether it is a bot account) on the first comment of each thread before acting.
 
 ## Process
 
@@ -27,6 +29,9 @@ digraph address_pr_comments {
   "More unresolved?" [shape=diamond];
   "Commit accepted changes + push" [shape=box];
 
+  "Human reviewer?" [shape=diamond];
+  "Surface in chat — no reply, no resolve" [shape=box];
+
   "Fetch all unresolved threads" -> "Read code at referenced location";
   "Read code at referenced location" -> "Premise correct?";
   "Premise correct?" -> "Change beneficial?" [label="yes"];
@@ -35,8 +40,11 @@ digraph address_pr_comments {
   "Change beneficial?" -> "Reject: no code change" [label="no"];
   "Unclear what to do?" -> "Ask user — STOP" [label="yes"];
   "Unclear what to do?" -> "Accept: implement change" [label="no"];
-  "Accept: implement change" -> "Reply + resolve thread";
-  "Reject: no code change" -> "Reply + resolve thread";
+  "Accept: implement change" -> "Human reviewer?";
+  "Reject: no code change" -> "Human reviewer?";
+  "Human reviewer?" -> "Surface in chat — no reply, no resolve" [label="yes"];
+  "Human reviewer?" -> "Reply + resolve thread" [label="no (bot/AI)"];
+  "Surface in chat — no reply, no resolve" -> "More unresolved?";
   "Reply + resolve thread" -> "More unresolved?" ;
   "More unresolved?" -> "Read code at referenced location" [label="yes"];
   "More unresolved?" -> "Commit accepted changes + push" [label="no"];
@@ -122,7 +130,7 @@ mutation($id: ID!) {
 
 `$THREAD_NODE_ID` is the `id` string (e.g. `PRRT_...`) from the GraphQL response above.
 
-## Reply Format
+## Reply Format (bot/AI threads)
 
 Keep replies concise. Lead with the decision:
 
@@ -153,8 +161,11 @@ fix: address PR review comments
 **Implementing before verifying the premise**
 Reviewers often read the diff, not the final file. A rebase may have already fixed what they flagged. Read the current file first.
 
-**Resolving without replying**
-Resolving silently looks dismissive. Always reply, even for rejections — it closes the loop for the reviewer.
+**Resolving a bot thread without replying**
+Resolving silently looks dismissive. Reply on bot/AI threads, even for rejections — it closes the loop.
+
+**Replying to a human reviewer**
+Human-reviewer threads go to the user, not to a reply. Report the comment, your assessment and any prepared change in chat, and leave the thread open.
 
 **Rejecting without explanation**
 "Not changed" with no reason invites re-review of the same comment. Explain clearly why the current code is correct.
