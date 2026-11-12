@@ -11,6 +11,7 @@ a malformed line rather than failing the session. Every excerpt passes
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,13 @@ REVERT_RE = re.compile(r"\bgit\s+(revert|reset\s+--hard|checkout\s+--\s|restore\
 PATH_RE = re.compile(r"(?:[A-Za-z]:[\\/]|~?/)[^\s'\"`<>]+")
 HEX_RE = re.compile(r"\b[0-9a-fA-F]{7,}\b")
 DIGITS_RE = re.compile(r"\d+")
+# Background agents hand their report back as a later user entry, not as the
+# Agent tool's result: either `<agent-message from=ID>` + `[Subagent hand-back]`,
+# or (older transcripts) a `<task-notification>` carrying `<task-id>` and `<result>`.
+AGENT_MSG_RE = re.compile(r'<agent-message\s+from="([^"]+)"[^>]*>')
+HANDBACK_MARK = "[Subagent hand-back]"
+TASK_ID_RE = re.compile(r"<task-id>\s*([^<\s]+)\s*</task-id>")
+TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 # A tool result the *user* declined; an `is_error` flag on it is a decision, not a failure.
 REJECTION_RE = re.compile(r"^\s*(the user doesn'?t want to|user rejected|\[request interrupted by user)", re.IGNORECASE)
 
@@ -130,6 +138,8 @@ def _new_session(path: Path) -> dict:
     return {
         "id": path.stem, "malformed": 0, "reports": [], "events": [], "corrections": 0,
         "excerpts": [], "interrupts": 0, "errors": Counter(), "reverts": 0, "escalations": [],
+        # Parse-time bookkeeping, dropped before the summary is returned.
+        "_sub": {}, "_agents": {}, "_seen_reports": set(),
     }
 
 
@@ -145,21 +155,67 @@ def _on_assistant(entry: dict, s: dict, tools: dict, seen: set) -> None:
         seen.add(uid)
         inp = inp if isinstance(inp, dict) else {}
         if name in ("Agent", "Task") and isinstance(inp.get("subagent_type"), str):
+            s["_sub"][uid] = inp["subagent_type"]
             s["events"].append(("dispatch", inp["subagent_type"]))
         cmd = inp.get("command")
         if name == "Bash" and isinstance(cmd, str) and REVERT_RE.search(cmd):
             s["reverts"] += 1
 
 
-def _on_report(entry: dict, result: dict, s: dict) -> None:
-    rep = parse_report(_text_of(result.get("content")))
-    rep["agent"] = result["agentType"]
-    rep["ts"] = entry.get("timestamp")
+def add_report(s: dict, agent: str, text: str, agent_id: str, ts) -> None:
+    """Record one agent report; an identical (agent id, text) pair counts once."""
+    key = (agent_id, hashlib.sha1(" ".join(text.split()).encode("utf-8", "replace")).hexdigest())
+    if key in s["_seen_reports"]:
+        return
+    s["_seen_reports"].add(key)
+    rep = parse_report(text)
+    rep.update(agent=agent, ts=ts)
     rep["flags"] = [scrub(ln, LINE_MAX) for ln in rep["flags"]]
     rep["out_of_scope"] = [scrub(ln, LINE_MAX) for ln in rep["out_of_scope"]]
     s["reports"].append(rep)
     if rep["verdict"]:
-        s["events"].append(("report", rep["agent"], rep["verdict"]))
+        s["events"].append(("report", agent, rep["verdict"]))
+
+
+def hand_backs(text: str) -> list[tuple[str, str]]:
+    """``(agent id, report text)`` for each ``[Subagent hand-back]`` in ``text``."""
+    marks = list(AGENT_MSG_RE.finditer(text))
+    found = []
+    for i, m in enumerate(marks):
+        body = text[m.end(): marks[i + 1].start() if i + 1 < len(marks) else len(text)]
+        if HANDBACK_MARK in body:
+            found.append((m.group(1), body.split(HANDBACK_MARK, 1)[1].replace("</agent-message>", "")))
+    return found
+
+
+def task_notification(text: str) -> tuple[str, str] | None:
+    """``(task id, result text)`` of a task-notification that carries a verdict."""
+    ident, result = TASK_ID_RE.search(text), TASK_RESULT_RE.search(text)
+    if text.lstrip().startswith("<task-notification>") and ident and result and VERDICT_RE.search(result.group(1)):
+        return ident.group(1), result.group(1)
+    return None
+
+
+def _on_user_reports(entry: dict, s: dict, result, text: str, tool_ids: list) -> bool:
+    """Record any agent reports this user entry carries; True if it was agent traffic."""
+    ts = entry.get("timestamp")
+    if isinstance(result, dict):
+        agent_id = str(result.get("agentId") or "")
+        agent = result["agentType"] if isinstance(result.get("agentType"), str) else None
+        agent = agent or next((s["_sub"][t] for t in tool_ids if t in s["_sub"]), None)
+        if agent and agent_id:
+            s["_agents"][agent_id] = agent
+        if isinstance(result.get("agentType"), str) and not result.get("isAsync"):
+            add_report(s, agent, _text_of(result.get("content")), agent_id, ts)
+            return True
+    traffic = False
+    for agent_id, body in hand_backs(text):
+        add_report(s, s["_agents"].get(agent_id, "unknown"), body, agent_id, ts)
+        traffic = True
+    note = task_notification(text)
+    if note:
+        add_report(s, s["_agents"].get(note[0], "unknown"), note[1], note[0], ts)
+    return traffic or "<agent-message" in text or text.lstrip().startswith("<task-notification>")
 
 
 def _on_human(text: str, s: dict) -> None:
@@ -174,16 +230,16 @@ def _on_human(text: str, s: dict) -> None:
 
 def _on_user(entry: dict, s: dict, tools: dict) -> None:
     result = entry.get("toolUseResult")
-    if isinstance(result, dict) and isinstance(result.get("agentType"), str):
-        _on_report(entry, result, s)
     content = (entry.get("message") or {}).get("content")
     results = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"] if isinstance(content, list) else []
+    text = _text_of(content)
+    agent_traffic = _on_user_reports(entry, s, result, text, [b.get("tool_use_id") for b in results])
     for block in results:
         text = _text_of(block.get("content"))
         if block.get("is_error") is True and not REJECTION_RE.match(text):
             s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), error_signature(text))] += 1
-    if not results and result is None and not entry.get("isMeta"):
-        _on_human(_text_of(content), s)
+    if not results and result is None and not entry.get("isMeta") and not agent_traffic:
+        _on_human(text, s)
 
 
 def parse_session(path: Path) -> dict:
@@ -204,4 +260,6 @@ def parse_session(path: Path) -> dict:
             elif entry.get("type") == "user":
                 _on_user(entry, s, tools)
     s["escalations"] = find_escalations(s["events"])
+    for private in ("_sub", "_agents", "_seen_reports"):
+        del s[private]
     return s
