@@ -224,6 +224,8 @@ from _wiki_common import find_surrogate
 # module's own code below, and `tests/test_promote_learnings*.py`, which
 # reach these as `pl.<name>` — keeps working unchanged.
 from _promoted_block import (  # noqa: F401  (re-exported)
+    FRONTMATTER_FIELD,
+    MANAGED_KEYS,
     PROMOTED_BEGIN,
     PROMOTED_END,
     Unit,
@@ -455,6 +457,68 @@ def validate_frontmatter_values(nom: dict, label: str) -> str | None:
                 f"(U+{ord(bad):04X}), which cannot be written to a note. "
                 f"Remove it or replace it with the intended character."
             )
+    return validate_extra_frontmatter(nom, label)
+
+
+# What an extra frontmatter key may look like. `render_frontmatter` writes the
+# key bare, and `_top_level_key` reads it back as everything before the first
+# colon, so a key with a colon, a space, a newline or a leading `#`/`-` would
+# write YAML that parses as something else. Narrower than YAML allows on
+# purpose: the keys this field exists for (`seen_in`, `corroboration`) are
+# identifiers, and refusing the rest costs nothing.
+_FRONTMATTER_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+
+def validate_extra_frontmatter(nom: dict, label: str) -> str | None:
+    """Error message for a malformed optional `frontmatter` field, or None.
+
+    The field is a flat dict: scalar values, or lists of scalars (and nothing
+    nests deeper - `split_frontmatter` reads only flat scalars and `- ` lists,
+    so a nested value would be written and then never read back). Absent and
+    `null` are fine. A key that is one of `MANAGED_KEYS` is refused rather than
+    silently duplicated or overridden: the nomination already carries
+    `name`/`description`/`type` as top-level fields, and two sources for one
+    key is ambiguous. Each value and list item is then scanned for a lone
+    surrogate, the same phase-1 rejection the three fixed fields get.
+    """
+    declared = nom.get(FRONTMATTER_FIELD)
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        return (
+            f"error: {label!r}: '{FRONTMATTER_FIELD}' must be an object of "
+            f"scalar or list-of-scalar values, got {type(declared).__name__}"
+        )
+    for key, value in declared.items():
+        if not isinstance(key, str) or not _FRONTMATTER_KEY_RE.fullmatch(key):
+            return (
+                f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} is not a "
+                f"plain identifier (letters, digits, '_' and '-', not starting "
+                f"with a digit or '-')"
+            )
+        if key in MANAGED_KEYS:
+            return (
+                f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} is one of "
+                f"the keys promote already writes from the nomination's own "
+                f"'{key}' field. Set it there, not under '{FRONTMATTER_FIELD}'."
+            )
+        members = value if isinstance(value, list) else [value]
+        for member in members:
+            if not isinstance(member, (str, int, float)):
+                return (
+                    f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} holds a "
+                    f"{type(member).__name__}, but values must be scalars or "
+                    f"lists of scalars - nested objects and lists, and null, "
+                    f"cannot be written to a note."
+                )
+            bad = find_surrogate(member)
+            if bad is not None:
+                return (
+                    f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} contains "
+                    f"a lone surrogate (U+{ord(bad):04X}), which cannot be "
+                    f"written to a note. Remove it or replace it with the "
+                    f"intended character."
+                )
     return None
 
 
