@@ -207,6 +207,10 @@ and nothing above is blocked on it.
   simulating the edit and comparing the `[tool]` table / `scripts` object
   before and after, so `[project]` or `dependencies` edits pass. Shell
   handling is the three tiers above. Every other agent returns immediately.
+- `hooks/shell_write_targets.py` — the policy-free half of the shell handling:
+  segment splitting, write-target extraction and read-only command
+  recognition. The guard imports it; it knows nothing about which files are
+  protected.
 - `install.py` — `wire_check_file_guard_hook` wires it as a synchronous
   `PreToolUse` hook with matcher `Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell`,
   `"onFailure": "block"` and `"timeout": 10`. `_wire_command_hook` gained an
