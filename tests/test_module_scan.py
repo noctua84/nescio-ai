@@ -181,7 +181,9 @@ class TestReportAndExit(ModuleScanTestCase):
         payload = json.loads(json.dumps(result))
         self.assertEqual(payload["tripwire"], 400)
         self.assertEqual(payload["scanned"], 1)
-        self.assertEqual(payload["over"], [{"path": "huge.py", "lines": 1200}])
+        self.assertEqual(
+            payload["over"], [{"path": "huge.py", "lines": 1200, "tripwire": 400}]
+        )
 
     def test_scanned_counts_every_eligible_file_not_just_the_over_ones(self):
         _write(self.repo, "small.py", 10)
