@@ -224,6 +224,69 @@ class TestFormatReport(ModuleScanTestCase):
         self.assertNotIn("huge.py", report)
 
 
+class TestTestTripwire(ModuleScanTestCase):
+    """Test files are measured against the test tripwire (default 800)."""
+
+    def test_test_file_under_800_is_not_reported(self):
+        _write(self.repo, "tests/test_x.py", 600)
+        self.assertEqual(self.paths_over(), [])
+
+    def test_test_file_over_800_is_reported_with_its_tripwire(self):
+        _write(self.repo, "tests/test_x.py", 900)
+        _write(self.repo, "src/app.py", 500)
+        _write(self.repo, "src/small_test.py", 700)
+        result = module_scan.scan(self.repo, 400, ())
+        self.assertEqual(result["test_tripwire"], 800)
+        self.assertEqual(
+            result["over"],
+            [
+                {"path": "tests/test_x.py", "lines": 900, "tripwire": 800},
+                {"path": "src/app.py", "lines": 500, "tripwire": 400},
+            ],
+        )
+
+    def test_test_tripwire_boundary_is_strict(self):
+        _write(self.repo, "tests/test_at.py", 800)
+        _write(self.repo, "tests/test_over.py", 801)
+        self.assertEqual(self.paths_over(), ["tests/test_over.py"])
+
+    def test_scan_honours_an_explicit_test_tripwire(self):
+        _write(self.repo, "tests/test_x.py", 900)
+        result = module_scan.scan(self.repo, 400, (), test_tripwire=1000)
+        self.assertEqual(result["over"], [])
+        self.assertEqual(result["test_tripwire"], 1000)
+
+    def _main_json(self, *extra: str) -> dict:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = module_scan.main(["--repo", str(self.repo), "--json", *extra])
+        self.assertEqual(rc, 0)
+        return json.loads(buf.getvalue())
+
+    def test_cli_default_and_test_tripwire_flag(self):
+        _write(self.repo, "tests/test_x.py", 900)
+        default = self._main_json()
+        self.assertEqual(default["test_tripwire"], 800)
+        self.assertEqual([e["path"] for e in default["over"]], ["tests/test_x.py"])
+
+        raised = self._main_json("--test-tripwire", "1000")
+        self.assertEqual(raised["test_tripwire"], 1000)
+        self.assertEqual(raised["over"], [])
+
+        lowered = self._main_json("--test-tripwire", "500")
+        self.assertEqual(
+            lowered["over"], [{"path": "tests/test_x.py", "lines": 900, "tripwire": 500}]
+        )
+
+    def test_negative_test_tripwire_is_rejected(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                module_scan.main(["--repo", "unused", "--test-tripwire", "-1"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--test-tripwire", buf.getvalue())
+
+
 class TestArgumentValidation(unittest.TestCase):
     """Validation happens before the repo is ever touched, so these do not need
     the real-git-repo fixture from ModuleScanTestCase -- an arbitrary --repo
