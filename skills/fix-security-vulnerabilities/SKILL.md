@@ -14,15 +14,15 @@ This operationalizes the "Package updates and security vulnerabilities" policy i
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and any relevant notes under `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`). Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it. These record which sources apply to this repo, the PR/CI conventions, and any ADO project tag.
+Check the brain's notes for this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`. Together with the loaded `CLAUDE.md` / `CLAUDE.local.md`, these record which sources apply to this repo, the PR/CI conventions, and any ADO project tag.
 
-## THE IRON LAWS
+## Rules
 
-These apply without exception:
+These hold for every run:
 
 1. **Query every source that applies to this repo.** Never act on a single Dependabot PR alone. If a source is unavailable, follow the Source Failure Handling protocol — never skip silently.
 2. **Never create or modify a fix PR without rewriting its body to the repo's PR template.**
-3. **Never merge automatically.** All merges are explicit user steps in the Update Plan. (This mirrors the universal PR rule in `CLAUDE.md`: only the human merges.)
+3. **Never merge automatically.** All merges are explicit user steps in the Update Plan — only the human merges.
 
 ## Package-Update Discipline (from `CLAUDE.md`)
 

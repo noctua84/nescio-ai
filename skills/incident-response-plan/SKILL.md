@@ -24,36 +24,13 @@ Create an incident response plan that delivers actionable, measurable results.
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under the brain's memory at `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`) for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing incident response plan documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: NIST SP 800-61 Rev 2, SANS Incident Handling Process, ISO 27035
+Build on any existing incident response plan documents in the project and pick the framework that fits (NIST SP 800-61 Rev 2, SANS Incident Handling Process, ISO 27035). Define incident classification levels (P1-P4) with clear escalation criteria. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Mean Time to Detect (MTTD), Mean Time to Respond (MTTR), Incident Classification Accuracy, Communication Time to Stakeholders.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the incident response plan
-- Identify gaps, opportunities, and risks
-- Define success metrics: Mean Time to Detect (MTTD), Mean Time to Respond (MTTR), Incident Classification Accuracy, Communication Time to Stakeholders
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the incident response plan using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Define incident classification levels (P1-P4) with clear escalation criteria
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

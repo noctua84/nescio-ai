@@ -24,36 +24,13 @@ Create a security architecture review that delivers actionable, measurable resul
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under the brain's memory at `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`) for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing security architecture review documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: TOGAF Security Architecture, SABSA, NIST SP 800-160
+Build on any existing security architecture review documents in the project and pick the framework that fits (TOGAF Security Architecture, SABSA, NIST SP 800-160). Review architecture diagrams with explicit security control annotations. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Control Coverage %, Architecture Gap Count, Defense-in-Depth Layer Score, Compliance Alignment %.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the security architecture review
-- Identify gaps, opportunities, and risks
-- Define success metrics: Control Coverage %, Architecture Gap Count, Defense-in-Depth Layer Score, Compliance Alignment %
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the security architecture review using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Review architecture diagrams with explicit security control annotations
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

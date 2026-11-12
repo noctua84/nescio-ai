@@ -24,36 +24,13 @@ Create ISO 27001 ISMS documentation that delivers actionable, measurable results
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under the brain's memory at `~/.claude/memory/` (e.g. `~/.claude/memory/repo/<repo>/`, `~/.claude/memory/feedback/`) for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing iso 27001 isms documentation documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: ISO/IEC 27001:2022, ISO/IEC 27002:2022, ISO/IEC 27005
+Build on any existing iso 27001 isms documentation documents in the project and pick the framework that fits (ISO/IEC 27001:2022, ISO/IEC 27002:2022, ISO/IEC 27005). Scope the ISMS carefully — too broad makes certification impractical. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Annex A Control Implementation %, Statement of Applicability Completeness, Internal Audit Nonconformity Count, Risk Treatment Plan Progress.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the iso 27001 isms documentation
-- Identify gaps, opportunities, and risks
-- Define success metrics: Annex A Control Implementation %, Statement of Applicability Completeness, Internal Audit Nonconformity Count, Risk Treatment Plan Progress
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the iso 27001 isms documentation using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Scope the ISMS carefully — too broad makes certification impractical
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

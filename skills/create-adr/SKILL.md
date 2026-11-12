@@ -14,18 +14,18 @@ This brain already has an ADR convention — see the `adr/` subdirectory of any 
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` / `CLAUDE.local.md` and the relevant `~/.claude/memory/repo/<repo>/` notes for prior decisions and constraints. Use that absolute path — a relative `memory/` resolves against the working directory, which in a product checkout has none. If it does not exist, proceed without it.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/`.
 
 ## Step 1 — Locate the ADR directory
 
 Decide where the ADR lives:
 
 - **Target project has its own `docs/adr/`** (or `docs/decisions/`) → write there, in that project's format.
-- **Otherwise (default for this brain)** → `~/.claude/memory/repo/<repo>/adr/`, using this brain's format below. `<repo>` is the short repo name already used under `~/.claude/memory/repo/`.
+- **Otherwise (default for this brain)** → `~/.claude/memory/repo/<repo>/adr/`, using this brain's format below. `<repo>` is the short repo name already used under `~/.claude/memory/repo/`. Use the absolute path: a relative `memory/...` resolves against the project you are working in, not the brain.
 
 ```bash
 ls docs/adr docs/decisions 2>/dev/null            # target-project convention?
-ls ~/.claude/memory/repo/<repo>/adr 2>/dev/null             # brain convention (default)
+ls ~/.claude/memory/repo/<repo>/adr 2>/dev/null   # brain convention (default)
 ```
 
 ## Step 2 — Review existing ADRs before writing (MANDATORY)

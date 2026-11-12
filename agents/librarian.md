@@ -63,7 +63,7 @@ Execute documentation discovery first, then all tools in parallel.
 
 ### MANDATORY CITATION FORMAT
 
-Every claim MUST include a permalink:
+Every code claim includes a permalink; a claim drawn from documentation cites the doc page URL instead:
 
 ```markdown
 **Claim**: [What you're asserting]
