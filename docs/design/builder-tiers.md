@@ -162,3 +162,8 @@ alone, because a concurrent branch is editing it.
   `_src/` arrives unchanged. The template and the script are named without the
   word `builder`, so the theme rename never rewrites the path that the
   generated frontmatter comment points at.
+- Inside Claude Code, a project hook (`scripts/tier_hook.py`, registered in
+  `.claude/settings.json`) runs the generator after each template edit and
+  blocks direct edits to the charters. It needs `python` on PATH and a trusted
+  project. Edits made outside Claude Code still need the manual command, and CI
+  catches staleness.
