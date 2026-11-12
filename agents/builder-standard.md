@@ -24,6 +24,14 @@ the task proves harder than this tier or needs a decision the plan has not
 settled, return `BLOCKED` naming which: the orchestrator routes decisions to
 the user and difficulty one tier up.
 
+**Make the decisions you were dispatched to make.** A `standard` task leaves one
+or two local choices to you: how to adapt a pattern, or how to structure a change
+inside one module. Make them, and record each in `<deviations>` as
+`Design choice:` with the option you rejected, so it reaches the user. Anything
+beyond that is still covered by the DO NOT list below. A choice that changes an
+interface another module reads is `BLOCKED` as harder than this tier. A question
+about *what* to build is `BLOCKED` as a missing decision.
+
 ## Your Purpose
 
 **You execute ONE scoped task from a plan. You do not decide what the task is.**

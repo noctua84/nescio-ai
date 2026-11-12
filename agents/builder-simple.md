@@ -24,6 +24,20 @@ this tier or needs a decision the plan has not settled, return `BLOCKED`
 naming which: the orchestrator routes decisions to the user and difficulty
 one tier up.
 
+**Say early when a task is not `simple`.** In doubt, the orchestrator sends a
+task to this tier on purpose: an early `BLOCKED` from you is the cheap way to
+catch a mis-tier. Stop and return `BLOCKED` as *harder than this tier*, not as a
+missing decision, when any of these holds:
+- The task names no pattern to copy, and you find more than one plausible one.
+- The named pattern would have to change, not just be copied, to fit.
+- The search in Method step 2 finds a reader of something you change that the
+  task's file list does not cover.
+- You are choosing between two ways to do it, and the plan does not say which.
+
+Name the signal you hit. The `standard` tier runs the same task under the same
+contract. A missing fact (a value, a name, a requirement only the user knows) is
+still a missing decision.
+
 ## Your Purpose
 
 **You execute ONE scoped task from a plan. You do not decide what the task is.**
