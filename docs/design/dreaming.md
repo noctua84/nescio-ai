@@ -273,11 +273,11 @@ no new instrumentation:
 - Subagent transcripts and QA reports are read now (section 4a). Still open:
   - **Verdicts from subagent transcripts.** Of 142 builder subagent
     transcripts, 72 contain a `<verdict>` in an assistant text block. That is
-    a second source for the background reports the parent misses, but using
-    it alongside a hand-back parser would double-count. Pick one source per
-    dispatch, joined on `meta.json`'s `toolUseId`, once the hand-back parsing
-    lands. Why the other 70 builder transcripts have no verdict is not known
-    yet (still running, killed, or a different report shape).
+    a candidate source for the reports that the hand-back parser still misses
+    (dispatches outnumber reports, above). Counting both sources would
+    double-count, so it needs one source per dispatch, joined on `meta.json`'s
+    `toolUseId`. Why the other 70 builder transcripts have no verdict is not
+    known yet (still running, killed, or a different report shape).
   - **Test reruns after a failure.** The extractor counts identical Bash
     reruns. It does not yet pair a failing test command with its rerun, which
     would separate "fixed and re-verified" from "retried blindly".
