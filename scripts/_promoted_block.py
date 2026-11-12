@@ -105,18 +105,35 @@ def declared_frontmatter(nom: dict) -> dict:
     return declared if isinstance(declared, dict) else {}
 
 
+def _frontmatter_scalar(value: object) -> str:
+    """One scalar as YAML, by its type: only a string needs quoting.
+
+    A ``str`` goes through `yaml_scalar` (quoted when it would not parse or
+    would be retyped, so the string ``"3"`` stays ``"3"``). A ``bool`` is the
+    YAML literal ``true``/``false`` - tested before ``int``, since ``bool`` is a
+    subclass of it. An ``int``/``float`` is written bare, so the number ``3``
+    reads back as a number to an external parser, matching the repo's own
+    ``corroboration: 1`` convention. Phase 1 refuses every other type.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return yaml_scalar(value)
+
+
 def _frontmatter_lines(key: str, value: object) -> list[str]:
     """The column-0 line(s) that write ``key: value`` into a frontmatter block.
 
     A scalar is one line; a list is ``key:`` followed by one ``  - item`` line
     per item (the only list shape `_wiki_common.split_frontmatter` reads).
-    Every scalar and every list item goes through `yaml_scalar`, so a value
-    containing ``: `` or one YAML would retype (`no`, `3`) is quoted rather
-    than written raw. Raw interpolation here is the bug #230 repaired.
+    Each scalar and list item is emitted by `_frontmatter_scalar`: strings are
+    quoted where needed, numbers and booleans are written as YAML literals.
+    Raw interpolation here is the bug #230 repaired.
     """
     if isinstance(value, list):
-        return [f"{key}:"] + [f"  - {yaml_scalar(item)}" for item in value]
-    return [f"{key}: {yaml_scalar(value)}"]
+        return [f"{key}:"] + [f"  - {_frontmatter_scalar(item)}" for item in value]
+    return [f"{key}: {_frontmatter_scalar(value)}"]
 
 
 def render_frontmatter(nom: dict) -> str:

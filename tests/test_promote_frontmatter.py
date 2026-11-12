@@ -92,7 +92,7 @@ class CreateTest(unittest.TestCase):
             out,
             "---\nname: context-concept\ndescription: A generalized concept.\n"
             "type: context\nseen_in:\n  - repo-a\n  - repo-b\n"
-            'corroboration: "2"\ntier: general\n---\n',
+            'corroboration: 2\ntier: general\n---\n',
         )
 
     def test_created_note_still_carries_both_promoted_block_markers(self):
@@ -121,7 +121,7 @@ class CreateTest(unittest.TestCase):
 
 
 class RoundTripTest(unittest.TestCase):
-    """Every value and list item goes through `yaml_scalar`."""
+    """Strings go through `yaml_scalar`; numbers and booleans are written bare."""
 
     SCALARS = ["a: b", "no", "yes", "42", "2026-07-12", "has # comment? x #y", ""]
 
@@ -148,15 +148,41 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(raw, ["plain", '"a: b"', '"no"', '"7"'])
         self.assertEqual([_unquote_scalar(r) for r in raw], items)
 
-    @unittest.expectedFailure
     def test_list_items_round_trip_through_split_frontmatter(self):
-        """KNOWN GAP in the reader, not the writer: `split_frontmatter` appends
-        list items as `raw[4:].strip()` without `_unquote_scalar`, so a quoted
-        item comes back with its quotes. Remove the decorator when the reader
-        unquotes list items (one line in `_wiki_common.split_frontmatter`)."""
+        """`split_frontmatter` unquotes list items as it does scalars, so a
+        quoted item comes back as the original string."""
         items = ["plain", "a: b", "no", "7"]
         parsed, _ = split_frontmatter(self._written({"seen_in": items}))
         self.assertEqual(parsed["seen_in"], items)
+
+    def test_numbers_and_bools_are_written_bare_and_strings_stay_quoted(self):
+        fm = {
+            "corroboration": 3,
+            "ratio": 0.5,
+            "as_text": "3",
+            "on": True,
+            "off": False,
+            "seen_in": ["a", "b"],
+            "counts": [1, 2],
+            "mixed": ["3", 3, True, "no"],
+        }
+        text = self._written(fm)
+        for line in (
+            "corroboration: 3\n",
+            "ratio: 0.5\n",
+            'as_text: "3"\n',
+            "on: true\n",
+            "off: false\n",
+        ):
+            self.assertIn(line, text)
+        self.assertEqual(_list_items(text, "seen_in"), ["a", "b"])
+        self.assertEqual(_list_items(text, "counts"), ["1", "2"])
+        self.assertEqual(_list_items(text, "mixed"), ['"3"', "3", "true", '"no"'])
+
+    def test_bool_is_not_written_as_an_int(self):
+        out = pl.render_frontmatter(_nom(frontmatter={"flag": True}))
+        self.assertIn("flag: true\n", out)
+        self.assertNotIn("flag: 1", out)
 
 
 class UpdateTest(unittest.TestCase):
@@ -212,7 +238,7 @@ class UpdateTest(unittest.TestCase):
             self.assertEqual(rc, 0, summary)
             out = note.read_text(encoding="utf-8")
             self.assertIn("owner: markus\nreviewed:\n  - 2026-01-01\n  - 2026-02-01\n", out)
-            self.assertIn('corroboration: "3"\n', out)
+            self.assertIn("corroboration: 3\n", out)
 
     def test_declared_key_missing_from_the_note_is_inserted(self):
         with tempfile.TemporaryDirectory() as d:
