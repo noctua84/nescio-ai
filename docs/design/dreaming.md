@@ -128,7 +128,8 @@ and has no model in it. A **reviewer** pass is Claude running inside `/dream`.
   missing), capped by `--max-subagents` per parent session (default 25,
   newest first) and switched off by `--no-subagents`. From each one: tool
   errors keyed by agent type, tool and signature, and identical Bash commands
-  run more than once (retries). Subagents are reached only through their
+  run more than once (retries), the outcome of each test run (section 4b),
+  and the agent's final report. Subagents are reached only through their
   parent, so a parent dropped by `--max-sessions` or the watermark hides its
   subagents too. See "Measured" below.
 - **QA audit reports** `docs/reports/YYYY-MM-DD-*.md` in the main worktree,
@@ -179,6 +180,7 @@ distinct sessions (default 2). One bad afternoon is not a pattern.
 | User corrections and interrupts | A user message that starts with "no", "don't", "instead", "actually", "revert" and similar, or an interrupt marker | The crew's defaults differ from what this user wants. This is the strongest `user override` candidate. |
 | Repeated tool errors | `is_error` tool results, grouped by a normalised first line | Environment quirks, such as a Windows shell trap or a missing tool, that a memory note would prevent |
 | Reverts | Bash `git revert`, `reset --hard`, `checkout --` or `restore` | Work that was done and then undone |
+| Test run after a failure (subagents) | A test command's outcome read from the runner's summary (`OK` / `FAILED (`, `N passed` / `N failed`), the exit status only as a fallback. Each failing run is paired with the next run of known outcome in the same transcript, whatever its command: fixed after an edit, passed with no edit seen, failed again after an edit, retried with no edit, or never rerun. Recurring kinds: `test-retry-no-edit`, `test-not-rerun`, `test-failure-masked`, `complete-on-red` | Blind retries and stopping on red are agent-prompt or brief problems. A masked failure is a command habit (`… \| tail`) worth a memory note. COMPLETE on a red last run is worth confirming, since a pre-existing failure is a legitimate reason |
 
 Workflows that worked are the inverse signals: a COMPLETE with no deviations
 on the first dispatch, or a session with no corrections. The extractor reports
@@ -434,9 +436,27 @@ The minimal data model has three parts, all machine-local under
     format change. Still open: the remaining gap is mostly agents without a
     verdict contract (explore, general-purpose), and why about half of the
     builder transcripts carry no verdict is not known.
-  - **Test reruns after a failure.** The extractor counts identical Bash
-    reruns. It does not yet pair a failing test command with its rerun, which
-    would separate "fixed and re-verified" from "retried blindly".
+  - **Test reruns after a failure: done (section 4b).** Measured on one
+    machine (14 days, subagent transcripts): 1,404 test-command runs, 971 with
+    a readable outcome, 279 failing. 236 of those failures exited 0, because
+    the command piped its output through `tail`, so the exit status alone
+    misses most failures. An identical rerun of a failing command is rare
+    (about 1%), which is why a failure is paired with the next known run and
+    not with the same command. After a failure: 66 fixed after an edit, 69
+    passed with no edit seen, 39 failed again after an edit, 52 retried with
+    no edit, 43 never rerun. 4 of 71 COMPLETE builder reports ended on a red
+    run. Still open:
+    - "Passed with no edit seen" is ambiguous: a narrower or different test,
+      a flaky test, or an edit the detector misses (an interpreter writing a
+      file, `git apply`). It is reported, not raised as a pattern.
+    - The test-command regex matches the runner name anywhere in a command,
+      so `pip install pytest` counts as a run (it has no readable outcome, so
+      it only inflates the runs column). Anchoring it to the command position
+      would fix that.
+    - Runners without a parsed summary (go test, cargo) resolve only through
+      the exit status.
+    - Parent transcripts are not classified yet; their test runs are mostly
+      the orchestrator's verification.
   - **QA trend.** Severity counts per audit are reported, but nothing yet
     compares them across dreams or links a finding category to a memory note.
 - **Detecting successful workflows automatically.** Measured on one machine's
