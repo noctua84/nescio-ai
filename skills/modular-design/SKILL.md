@@ -29,6 +29,22 @@ The rule this skill enforces is not about size. It is:
 Default **400 physical lines**. A project may override it in its `CLAUDE.md`
 `## Architecture` section (`Module tripwire: 500 lines.`).
 
+400 is a convention, not an empirical defect threshold: it marks "a file that
+stops fitting in one comfortable read or one reviewable diff". It is a prompt to
+look, not a finding.
+
+**Test files get a higher tripwire: 800 lines** (a `tests` directory, or a
+`test_*.py`, `*_test.py`, `*.spec.*`, `*.test.*` filename). Each test case is
+independent, so length says much less about tangled responsibilities there.
+Override with `Test tripwire: 1000 lines.`.
+
+The CI gate (`scripts/module_gate.py`) does not ask for a verdict on mere size.
+It asks when a changed file is over its tripwire **and** is new, crossed the
+tripwire in this PR, or grew substantially: net growth of at least
+`min(150 lines, 25% of its base size)`, overridable with `Module growth: 100
+lines.` and/or `Module growth: 20%.`. A small edit to a file that was already
+over the tripwire is listed in the gate output but passes.
+
 Get the numbers instead of guessing at them:
 
 ```bash
