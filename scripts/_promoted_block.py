@@ -452,6 +452,56 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def declared_frontmatter_changed(existing_text: str | None, nom: dict) -> bool:
+    """Would the update path change a key ``nom`` declares under `frontmatter`?
+
+    `promote()` asks this of a `body` nomination whose body hash is already in
+    the ledger (issue 10): a corroboration bump changes only frontmatter, so its
+    body dedups, and without this the bump silently does not happen. True only
+    when the nomination declares at least one key AND that key's stored lines
+    differ from what `_refresh_frontmatter` would write for it.
+
+    The comparison is **rendered form against stored form**, line for line, via
+    the same `_frontmatter_lines` the update path emits with. Reading the note
+    back through `split_frontmatter` instead would erase exactly the distinction
+    type-aware emission keeps: the int ``3`` (``corroboration: 3``) and the
+    string ``"3"`` (``corroboration: "3"``) both read back as ``"3"``. Trailing
+    whitespace on a stored line is ignored; any other difference - a missing
+    key, a changed value, a list in a non-canonical shape - counts, because the
+    update path would rewrite it. Once rewritten, the same declaration compares
+    equal, so a replay still dedups.
+
+    False when there is no note, or the note has no frontmatter block: the
+    update path writes frontmatter only into a block that already exists (see
+    `_splice_block`), so a declared key there could never land, and reporting a
+    change would let the nomination through on every run to rewrite nothing.
+    Keys the nomination does not declare are never looked at.
+    """
+    declared = declared_frontmatter(nom)
+    if not declared or existing_text is None:
+        return False
+    fm_raw, _ = _split_raw_frontmatter(existing_text)
+    if not fm_raw:
+        return False
+    lines = fm_raw.splitlines()
+    stored: dict[str, list[list[str]]] = {}
+    i = 0
+    while i < len(lines):
+        key = _top_level_key(lines[i])
+        if key in declared:
+            end = _value_span_end(lines, i)
+            stored.setdefault(key, []).append([ln.rstrip() for ln in lines[i:end]])
+            i = end
+            continue
+        i += 1
+    for key, value in declared.items():
+        want = _frontmatter_lines(key, value)
+        spans = stored.get(key)
+        if not spans or any(span != want for span in spans):
+            return True
+    return False
+
+
 def _splice_block(
     existing_text: str | None, nom: dict, new_block: str
 ) -> tuple[str | None, str]:
