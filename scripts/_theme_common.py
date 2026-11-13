@@ -48,11 +48,14 @@ degradation, so there is no fallback here: an import failure downstream must
 refuse loudly, not degrade quietly.
 
 **R9 — the mapping is many-to-one, and that makes some upstream edits
-invisible to a themed instance, by choice.** ``planner``, ``Planner`` and
-``PLANNER`` all rename to ``plato``, ``Plato`` and ``PLATO`` — and so, on the
+invisible to a themed instance, by choice.** ``planner`` written as an
+identifier (in backticks, a name-ish quoted string, or the ``name:`` value —
+see ``apply_theme.py``'s docstring; bare, Capitalised and UPPERCASE prose
+``planner`` is deliberately left alone) renames to ``plato`` — and so, on the
 rendering side, does a literal upstream ``plato``. An upstream edit that
-changes exactly the word ``planner`` to the word ``plato`` therefore renders
-identically before and after, and a themed instance's sync sees no change.
+changes exactly the identifier ``planner`` to the word ``plato`` therefore
+renders identically before and after, and a themed instance's sync sees no
+change.
 Practical impact is nil (the instance's own rendering genuinely did not
 change), but it is worth stating here, at the source of the mapping, as a
 chosen property of a many-to-one rename rather than a bug a future reader

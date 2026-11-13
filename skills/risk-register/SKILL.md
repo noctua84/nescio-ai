@@ -24,36 +24,13 @@ Create a risk register that delivers actionable, measurable results.
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing risk register documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: ISO 31000, ISO 27005, NIST SP 800-39
+Build on any existing risk register documents in the project and pick the framework that fits (ISO 31000, ISO 27005, NIST SP 800-39). Assign a named owner for every risk — unowned risks never get mitigated. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Total Open Risks, Risk Age (Days Open), Risk Treatment Status Distribution, Top 10 Risks by Score.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the risk register
-- Identify gaps, opportunities, and risks
-- Define success metrics: Total Open Risks, Risk Age (Days Open), Risk Treatment Status Distribution, Top 10 Risks by Score
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the risk register using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Assign a named owner for every risk — unowned risks never get mitigated
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

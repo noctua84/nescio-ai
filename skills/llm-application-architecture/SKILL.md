@@ -24,36 +24,13 @@ Create an LLM application architecture that delivers actionable, measurable resu
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing llm application architecture documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: Anthropic 6 Agent Patterns, RAG Architecture, GenAI Platform Stack
+Build on any existing llm application architecture documents in the project and pick the framework that fits (Anthropic 6 Agent Patterns, RAG Architecture, GenAI Platform Stack). Start simple — many applications need only optimized single LLM calls with retrieval. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: TTFT (Time to First Token), Retrieval Precision/Recall, Guardrail Trigger Rate, End-to-End Latency.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the llm application architecture
-- Identify gaps, opportunities, and risks
-- Define success metrics: TTFT (Time to First Token), Retrieval Precision/Recall, Guardrail Trigger Rate, End-to-End Latency
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the llm application architecture using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Start simple — many applications need only optimized single LLM calls with retrieval
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

@@ -228,8 +228,8 @@ class AdditionThemedContentTest(_ThemedFixtureTestCase):
     def test_a_new_upstream_charter_is_added_with_themed_content(self):
         _write(
             self.up / "agents" / "newbie.md",
-            "---\nname: newbie\n---\nThe newbie works closely with the planner "
-            "and hands its output to the reviewer for a final pass.\n",
+            "---\nname: newbie\n---\nThe newbie works closely with `planner` "
+            "and hands its output to `reviewer` for a final pass.\n",
         )
 
         rc, out, err = _run_main(

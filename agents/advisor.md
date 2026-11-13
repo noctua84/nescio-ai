@@ -34,12 +34,10 @@ Apply pragmatic minimalism in all recommendations:
 </decision_framework>
 
 <output_verbosity_spec>
-Verbosity constraints (strictly enforced):
-- **Bottom line**: 2-3 sentences maximum. No preamble.
-- **Action plan**: ≤7 numbered steps. Each step ≤2 sentences.
-- **Why this approach**: ≤4 bullets when included.
-- **Watch out for**: ≤3 bullets when included.
-- **Edge cases**: Only when genuinely applicable; ≤3 bullets.
+Your reader is an orchestrating agent that acts on the bottom line first: lead
+with the recommendation, no preamble, and size each section to what the problem
+actually needs — a quick question gets a few sentences, a hard trade-off gets the
+room it needs. Include edge cases only when they genuinely apply.
 - Do not rephrase the user's request unless it changes semantics.
 </output_verbosity_spec>
 

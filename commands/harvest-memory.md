@@ -146,7 +146,7 @@ readlink -f ~/.claude/memory    # the repository containing this directory is th
 
    | Field | Meaning |
    |---|---|
-   | `scope` | Top-level `memory/` bucket the note lands in: `repo/<name>` \| `projects/<name>` \| `context` \| `feedback` \| `people` \| `glossary`. The bucket (part before any `/`) is validated. |
+   | `scope` | Top-level `memory/` bucket the note lands in: `repo/<name>` \| `projects/<name>` \| `context` \| `feedback` \| `people` \| `glossary` \| `concepts`. The bucket (part before any `/`) is validated. |
    | `target` | The note's real path under `memory/`, e.g. `repo/myrepo/readiness-loop.md` or `feedback/bar.md`. Must stay inside `memory/`. |
    | `name` | Short identifier / note title. |
    | `description` | One-line index summary (the text used in the `MEMORY.md` link). |
@@ -154,12 +154,23 @@ readlink -f ~/.claude/memory    # the repository containing this directory is th
    | `body` | The note body (markdown), portability-rewritten per step 4. |
    | `source` | Source class: `user override` \| `empirical` \| `agent inference`. |
    | `date` | `YYYY-MM-DD` the learning was observed. |
+   | `frontmatter` | **Optional.** Extra frontmatter keys for the note, as a flat object: each value a scalar (string, number, boolean) or a list of scalars. Use it on a `concepts/` note for `seen_in` and `corroboration`. Absent, `null` and `{}` all mean "declares nothing". Rejected before anything is written: a non-object, a nested object or list member, a `null` member, a key that is not a plain identifier (`[A-Za-z_][A-Za-z0-9_-]*`), and the keys `name`, `description` and `type` (set those on the nomination itself). |
    | `unrouted` | **Optional.** `true` declares that you could not determine where to file this learning. Switches the nomination onto the unrouted path below; omit it (or leave it false) for every ordinary nomination. |
    | `unrouted_reason` | Required **only** when `unrouted` is true: one line on why no target could be determined. |
 
-   All fields are required; a nomination missing any of them (or naming a
-   `scope` bucket / `source` outside the sets above, or a `target` that escapes
-   `memory/`) is rejected before anything is written.
+   All fields are required except `frontmatter` and the unrouted pair; a
+   nomination missing any of them (or naming a `scope` bucket / `source` outside
+   the sets above, or a `target` that escapes `memory/`) is rejected before
+   anything is written.
+
+   **`frontmatter` is typed, so write the JSON type you mean.** A string is
+   quoted in the note only when a bare value would misparse; a boolean writes
+   `true` / `false`; a number writes bare. JSON `3` becomes `corroboration: 3`,
+   whereas JSON `"3"` becomes `corroboration: "3"` — for a count, use the number.
+   On a new note the declared keys follow `name` / `description` / `type`, in the
+   order you give them. On an existing note, the keys you declare are rewritten
+   and any other key already in the note is left alone. The note
+   reader does no type inference — every value reads back as a string.
 
    **If you cannot decide where a learning belongs, say so — do not guess at a
    target.** A nomination may declare itself unrouted, and that declaration is a
@@ -220,6 +231,27 @@ readlink -f ~/.claude/memory    # the repository containing this directory is th
      }
    ]
    ```
+
+   Example concept nomination carrying `frontmatter`:
+
+   ```json
+   [
+     {
+       "scope": "concepts",
+       "target": "concepts/backup-before-symlink.md",
+       "name": "back up before symlinking",
+       "description": "replace-in-place installs lose the user's file unless it is backed up first",
+       "type": "convention",
+       "body": "Any installer that swaps a real file for a symlink must back the file up first...",
+       "source": "empirical",
+       "date": "2026-07-12",
+       "frontmatter": {"seen_in": ["repo/x", "repo/y"], "corroboration": 2}
+     }
+   ]
+   ```
+
+   This writes `seen_in:` as a two-item list and `corroboration: 2` after the
+   `name` / `description` / `type` lines.
 
 6. **Present a summary** of the drafted nominations — scope, target, source
    class, and date for each — and ask for explicit confirmation before anything

@@ -24,36 +24,13 @@ Create a vulnerability assessment report that delivers actionable, measurable re
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing vulnerability assessment report documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: CVSS v4.0, CIS Controls v8.1, NIST SP 800-40
+Build on any existing vulnerability assessment report documents in the project and pick the framework that fits (CVSS v4.0, CIS Controls v8.1, NIST SP 800-40). Prioritize by exploitability (EPSS score), not just CVSS severity. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Total Vulnerabilities by Severity, Patch Compliance Rate, Vulnerability Density per Host, Mean Time to Remediate.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the vulnerability assessment report
-- Identify gaps, opportunities, and risks
-- Define success metrics: Total Vulnerabilities by Severity, Patch Compliance Rate, Vulnerability Density per Host, Mean Time to Remediate
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the vulnerability assessment report using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Prioritize by exploitability (EPSS score), not just CVSS severity
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 
