@@ -4,7 +4,6 @@
 #   - draft PRs (reviewed once marked ready, via ready_for_review)
 #   - PRs authored by dependabot[bot] or github-actions[bot]
 #   - release-please release PRs (head branch release-please--*)
-#   - PRs from claude/* branches
 #   - PRs labelled skip-claude-review
 # A newer push to the same PR cancels a review still running for it (concurrency below).
 
@@ -25,7 +24,6 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.user.login != 'github-actions[bot]' &&
       !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
-      !startsWith(github.event.pull_request.head.ref, 'claude/') &&
       !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
 
     runs-on: ubuntu-latest
