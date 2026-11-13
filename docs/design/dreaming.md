@@ -125,7 +125,7 @@ four outputs:
 
 | Output | Where it goes | Approval |
 |---|---|---|
-| Memory note: a quirk, a convention, a correction | A nomination for `promote_learnings.py`, with source `empirical` (or `user override` for a correction the user stated) | The user approves each nomination. Auto-apply is opt-in (section 5). |
+| Memory note: a quirk, a convention, a correction | A nomination for `promote_learnings.py`, with source `empirical` (or `user override` for a correction the user stated) | The user approves each nomination. Never auto-applied (section 5b). |
 | An agent prompt, `CLAUDE.md` or tiering criterion change | A proposed diff, shown in the conversation or committed to a `dream/<date>` branch | **Always held.** It is never auto-applied. |
 | A new skill | A one-paragraph sketch plus evidence, filed as a spawned task | Always held |
 | A follow-up task from `<out-of-scope>` | A candidate task card | The user decides |
@@ -136,17 +136,92 @@ four outputs:
   and scripts. A recurring prompt flaw found in one user's sessions is weak
   evidence for changing a prompt every consumer runs. The drift cost of a bad
   edit is high, and an eval does not exist yet (section 7).
-- **Memory notes:** held by default. A later `--auto-apply-memory` (or a
-  setting) could pass nominations straight to `promote_learnings.py`, under
-  these limits:
-  - only scopes `repo/<name>` and `feedback`, and never `concepts/` or ADRs;
-  - only source `empirical`, never `agent inference`;
-  - only when seen in at least 3 sessions;
-  - every applied note listed in the next SessionStart nudge so that it can be
-    reverted (the ledger already records it).
+- **Memory notes:** held by default. Each nomination is shown to the user and
+  goes through `/harvest-memory` only on approval.
 
-  This is the counterpart of Dreams' "update automatically". Here it is a
-  bounded opt-in, not the default.
+An earlier draft of this section sketched an opt-in `--auto-apply-memory`:
+nominations passed straight to `promote_learnings.py` when they targeted
+`repo/<name>` or `feedback`, carried source `empirical`, had been seen in at
+least 3 sessions, and were listed in the next SessionStart nudge for revert.
+Section 5a checks that sketch against the code. Section 5b records the
+decision.
+
+### 5a. Can the sketched auto-apply be built safely?
+
+No, not as an unattended write into `memory/`. The findings, checked against
+the code on 2026-11-13:
+
+1. **A model has to write the note.** The extractor emits a signal kind, a
+   redacted excerpt of at most 160 characters, and a session count. It does not
+   emit a note. Turning a signal into a note body needs a model, either a
+   headless run or the interactive `/dream`. So "auto" can only mean that a
+   setting approves the model's draft in advance. The limits can check the
+   envelope (scope, target, source label, session count). They cannot check the
+   body, which is the part that is loaded into later sessions. The `source`
+   label has the same problem: the drafting model asserts it. It is not
+   measured. A gate has to derive the source from the signal kind instead of
+   trusting the label.
+2. **The recurrence threshold does not contain prompt injection.** Excerpts come
+   from tool output, error text and fetched pages. `record_stop.redact` blanks
+   secret shapes, not instructions, and 160 characters is enough room for an
+   instruction. The threshold of 3 sessions filters noise, not attacks. A
+   planted string in a repo file, a dependency's error message, or a page the
+   crew fetches often shows up in every session, so a persistent source is
+   exactly what clears the threshold. Memory is read by every later session as
+   trusted guidance. An injected note would therefore outlive the transcript it
+   came from and act as a persistent injection. Holding proposals for approval
+   (section 6) is the only control in this design that addresses this risk, and
+   auto-apply removes it.
+3. **The brain guard warns when nobody is reading.** `guard_brain` refuses only
+   on `mismatch` and `broken`. On `unknown` and `override` it prints a warning
+   and proceeds. That is fine in an interactive harvest, where someone sees the
+   warning. In an automatic path nobody does, so that path must require the
+   verdict `brain` exactly.
+4. **Contradiction precedence protects only `user override`.** In
+   `promote_learnings.py`, a `body` nomination whose source equals the existing
+   note's source overwrites it without a date comparison (same-source
+   refinement). An automatic `empirical` note could therefore replace a reviewed
+   `empirical` note entirely. An automatic path must be create-only and refuse
+   any existing target. The `units` shape is not a way around this: the
+   promote docstring says it stays unexercised until #180 stage 2, and its
+   `supersedes` deletes text.
+5. **Revert has no tool, and merge is already the gate.** `promote_learnings.py`
+   does no git work. `/harvest-memory` step 9 requires delivering through a
+   branch and a PR, never a commit on `main`. Every `memory/` change therefore
+   already passes a human at merge, and auto-applying to `main` would break the
+   repo's own rule. `scripts/unmark_harvested.py` does not revert notes. It
+   deletes harvest watermarks left by a bad global stamp, which is a different
+   problem. A `body` note can only be reverted with git: close the PR, or
+   `git revert` after merge. Closing the PR also drops the ledger line, so the
+   next dream proposes the same note again. An automatic path needs a
+   machine-local rejection list keyed by signal signature, or rejected notes
+   come back on every run.
+6. **The `feedback` scope does not fit.** Most feedback notes come from user
+   corrections, and those are `user override`, which the limits exclude. The
+   promote docstring also treats `feedback` and `people` as observations about
+   identifiable individuals, which is the worst place to write without review.
+   Only `repo/<name>` fits.
+
+### 5b. Decision: no auto-apply (2026-11-13)
+
+Auto-apply is dropped. Every memory nomination from `/dream` is held, shown to
+the user and promoted through `/harvest-memory` only on approval. There is no
+`--auto-apply-memory` flag or setting.
+
+An alternative was considered and rejected: "auto-staging", where nominations
+that pass a deterministic gate would skip the per-item question and land
+together as one `dream/<date>` PR. The gate would have required a new note
+under `repo/` only, a signal of kind `tool-error`, `escalation` or `revert`
+seen in at least 3 sessions, no entry in a rejection list, and a brain-guard
+verdict of exactly `brain`. It kept a human gate at merge, so it was safe. It
+was dropped because the gain is small (one PR review in place of one
+confirmation per note), while it needs three new parts: a machine-readable
+sidecar from `dream.py`, a gate module, and a rejection list.
+
+Revisit this decision if the per-item review becomes a bottleneck, for example
+if dreams routinely produce more nominations than a user will confirm one by
+one. Start from auto-staging, not from auto-apply. The findings in 5a still
+apply to any version.
 
 ## 6. Privacy
 
@@ -169,7 +244,9 @@ four outputs:
   ZDR-eligible, for the same reason.
 - Prompt-injection surface: transcripts contain web pages and tool output. The
   reviewer treats every excerpt as data. Proposals are held for approval, so
-  injected text cannot write memory on its own.
+  injected text cannot write memory on its own. That hold is the control.
+  Redaction, truncation and the recurrence threshold do not stop an
+  instruction (section 5a).
 
 ## 7. Cost controls, and how to know whether it helps
 
@@ -293,7 +370,6 @@ The minimal data model has three parts, all machine-local under
   ask what the brief got right. First measure verdict coverage again with the
   hand-back parser, because the 3% above came from foreground reports only. Any
   separate model call stays a decision for the user.
-- `--auto-apply-memory` with the limits in section 5.
 - The effectiveness tracker shipped (section 7a), and `/dream` runs it:
   `--compare` before triage, with `ineffective` notes reported as removal or
   rewrite candidates, and `--link` after each promotion. Still open: linking is
