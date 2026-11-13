@@ -26,7 +26,7 @@ you review each item before it's committed to the repo.
 
 ## Sources
 
-Three producers feed the same promotion. All are machine-local, unreviewed, and
+Two producers feed the same promotion. Both are machine-local, unreviewed, and
 never synced on their own — this command is the one gate that distils them into
 durable repo memory:
 
@@ -38,10 +38,6 @@ durable repo memory:
   not conclusions. **Not** pruned to a rolling window in practice — the Stop-hook
   pruner is designed to age harvested records out but never runs, so trails only
   grow. Step 10 carries the detail and the threshold.
-- the current project's `.claude/memory/review-learnings/` — durable
-  regression / security / architecture notes the GitHub PR-review action
-  committed into the target repo (see `github-action/`). Present only in repos
-  wired with that pipeline.
 
 ## Destination layout
 
@@ -122,9 +118,8 @@ readlink -f ~/.claude/memory    # the repository containing this directory is th
    refused — that just means step 10 will stamp nothing for it.
 
    Then, for the declared subject, list and read every producer under
-   [Sources](#sources): the auto-memory store, the learning-trail JSONL (when
-   present), and `.claude/memory/review-learnings/` (when present). If all three
-   are absent or empty, report that and stop.
+   [Sources](#sources): the auto-memory store and the learning-trail JSONL (when
+   present). If both are absent or empty, report that and stop.
 2. **Classify each learning** by scope:
    - Specific to one repo → `memory/repo/<repo-name>/`
    - Spans multiple repos in an initiative → `memory/projects/<project-name>/`
