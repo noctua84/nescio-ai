@@ -37,7 +37,7 @@ from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
-from _dream_parse import REJECTION_RE, _text_of, error_signature
+from _dream_parse import LINE_MAX, REJECTION_RE, VERDICT_RE, _text_of, error_signature, find_escalations, parse_report, scrub
 
 UNKNOWN_AGENT = "unknown"
 SEVERITIES = ("critical", "major", "minor", "info")
@@ -84,13 +84,16 @@ def parse_subagent(path: Path, agent: str) -> dict:
     ``errors`` is a Counter keyed ``(agent, tool, signature)``; ``reruns`` is the
     sum of ``count - 1`` over Bash commands issued more than once. A tool_use
     re-emitted as results resolve is counted once (deduped by id), and a
-    malformed line is counted and skipped.
+    malformed line is counted and skipped. ``report`` is the parsed report of
+    the last assistant text block carrying a ``<verdict>`` (flags and
+    out-of-scope lines scrubbed, no raw text), or ``None``.
     """
     errors: Counter = Counter()
     commands: Counter = Counter()
     tools: dict = {}
     seen: set = set()
     malformed = 0
+    last_report = None
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             if not line.strip():
@@ -106,6 +109,9 @@ def parse_subagent(path: Path, agent: str) -> dict:
             if not isinstance(content, list):
                 continue
             if entry.get("type") == "assistant":
+                text = _text_of(content)
+                if VERDICT_RE.search(text):
+                    last_report = parse_report(text)
                 for b in content:
                     if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
@@ -126,13 +132,19 @@ def parse_subagent(path: Path, agent: str) -> dict:
                         sig = error_signature(text)
                         if sig:
                             errors[(agent, tool, sig)] += 1
-    return {"errors": errors, "reruns": sum(n - 1 for n in commands.values() if n > 1), "malformed": malformed}
+    if last_report:
+        last_report["flags"] = [scrub(ln, LINE_MAX) for ln in last_report["flags"]]
+        last_report["out_of_scope"] = [scrub(ln, LINE_MAX) for ln in last_report["out_of_scope"]]
+    return {
+        "errors": errors, "reruns": sum(n - 1 for n in commands.values() if n > 1), "malformed": malformed,
+        "report": last_report,
+    }
 
 
 def parse_subagents(main_path: Path, cap: int) -> dict:
     """All (capped) subagent transcripts of one parent session, folded together."""
     files, skipped = subagent_files(main_path, cap)
-    out = {"files": len(files), "skipped": skipped, "malformed": 0, "errors": Counter(), "reruns": 0, "rerun_agents": Counter()}
+    out = {"files": len(files), "skipped": skipped, "malformed": 0, "errors": Counter(), "reruns": 0, "rerun_agents": Counter(), "reports": []}
     for path, agent in files:
         try:
             r = parse_subagent(path, agent)
@@ -142,9 +154,48 @@ def parse_subagents(main_path: Path, cap: int) -> dict:
         out["malformed"] += r["malformed"]
         out["errors"].update(r["errors"])
         out["reruns"] += r["reruns"]
+        if r["report"]:
+            out["reports"].append((path.stem.removeprefix("agent-"), agent, r["report"]))
         if r["reruns"]:
             out["rerun_agents"][agent] += r["reruns"]
     return out
+
+
+def merge_subagent_reports(s: dict, sub: dict) -> int:
+    """Add reports found only in subagent transcripts to a parent session summary; returns how many.
+
+    A background agent's report often never reaches the parent transcript, but
+    its own transcript ends with it. ``sub`` is ``parse_subagents`` output and
+    ``s`` a ``parse_session`` summary. Why it works this way:
+
+      * **Dedupe by agent id; the parent's copy wins.** An id in
+        ``s["reported_ids"]`` already has a report (possibly an edited
+        re-statement of the same text), so the subagent copy is dropped.
+      * **Placement is an approximation.** Events carry no timestamps, so the
+        ``("report", agent, verdict)`` event goes right after the agent's own
+        dispatch (``s["agent_dispatch"]``), or at the end when that is unknown.
+        That keeps a failed report ahead of the later higher-tier dispatch that
+        ``find_escalations`` looks for, but it can misorder against other
+        reports. Escalations are recomputed after the merge.
+    """
+    known = set(s.get("reported_ids", ()))
+    dispatch_at = s.get("agent_dispatch", {})
+    merged = 0
+    inserts: list[tuple[int, int, tuple]] = []  # (position, order, event)
+    for agent_id, agent, rep in sub.get("reports", ()):
+        if agent_id in known:
+            continue
+        known.add(agent_id)
+        s["reports"].append({**rep, "agent": agent, "ts": None, "source": "subagent"})
+        at = dispatch_at.get(agent_id)
+        inserts.append((len(s["events"]) if at is None else at + 1, merged, ("report", agent, rep["verdict"])))
+        merged += 1
+    # Descending position keeps earlier indices valid; later-merged goes first so equal positions keep merge order.
+    for pos, _, ev in sorted(inserts, key=lambda t: (-t[0], -t[1])):
+        s["events"].insert(pos, ev)
+    if merged:
+        s["escalations"] = find_escalations(s["events"])
+    return merged
 
 
 def _severity_counts(text: str) -> tuple[dict, str] | None:

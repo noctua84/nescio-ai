@@ -54,7 +54,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from _dream_parse import MAX_EXCERPTS, SHAPE_COUNTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
-from _dream_inputs import SEVERITIES, parse_subagents, qa_reports  # noqa: E402
+from _dream_inputs import SEVERITIES, merge_subagent_reports, parse_subagents, qa_reports  # noqa: E402
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
@@ -178,7 +178,9 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, 
     shape = {k: total_shape(sessions, k) for k in SHAPE_COUNTS}
     keys = sum((s["shape"]["typed_keys"] for s in sessions), Counter())
     shape["agent_dispatches"] = sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch")
-    shape["agent_reports"] = sum(len(s["reports"]) for s in sessions)
+    from_subs = sum((s.get("sub") or {}).get("merged", 0) for s in sessions)
+    # Drift looks at the parent transcripts only: reports recovered from subagent files must not mask a parent-format change.
+    shape["agent_reports"] = sum(len(s["reports"]) for s in sessions) - from_subs
     shape["unknown_keys"] = sorted(k for k, n in keys.items() if n * 2 > shape["typed"] and k not in KNOWN_KEYS)
     return {
         "sessions_read": len(sessions),
@@ -186,8 +188,9 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, 
         "malformed_lines": total("malformed") + sub_totals["malformed"],
         "subagents_read": sub_totals["read"],
         "subagents_skipped": sub_totals["skipped"],
-        "agent_reports": shape["agent_reports"],
+        "agent_reports": shape["agent_reports"] + from_subs,
         "agent_dispatches": shape["agent_dispatches"],
+        "reports_from_subagents": from_subs,
         "shape": shape,
         "drift": drift_warnings(shape),
         "min_sessions": min_sessions,
@@ -236,7 +239,8 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         f"- Sessions read: {agg['sessions_read']} (skipped by cap: {agg['sessions_skipped']})",
         f"- Subagent transcripts read: {agg['subagents_read']} (skipped by cap: {agg['subagents_skipped']})",
         f"- Malformed lines skipped: {agg['malformed_lines']}",
-        f"- Agent reports parsed: {agg['agent_reports']} (dispatches seen: {agg['agent_dispatches']})",
+        f"- Agent reports parsed: {agg['agent_reports']}, of which {agg['reports_from_subagents']} from subagent "
+        f"transcripts (dispatches seen: {agg['agent_dispatches']})",
         f"- Recurring means seen in at least {agg['min_sessions']} distinct sessions",
     ]
     out += _section("Format check", [f"- {w}" for w in agg["drift"]], "Transcript shapes look as expected.")
@@ -368,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_subagents:
         for f, s in zip(files, sessions):
             s["sub"] = parse_subagents(f, args.max_subagents)
+            s["sub"]["merged"] = merge_subagent_reports(s, s["sub"])
     qa = qa_reports(root, since, args.max_qa_reports) if args.max_qa_reports > 0 else None
     agg = aggregate(sessions, min_sessions=args.min_sessions, skipped=skipped, qa=qa)
     since_s, until_s = since.strftime("%Y-%m-%dT%H:%M:%SZ"), start.strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -293,7 +293,7 @@ class CliTest(DreamTestBase):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 1 (dispatches seen: 1)", text)
+        self.assertIn("Agent reports parsed: 1, of which 0 from subagent transcripts (dispatches seen: 1)", text)
         self.assertNotIn("report shape may have changed", text)
 
     def test_dispatches_without_reports_warn_in_format_check(self):
@@ -301,7 +301,7 @@ class CliTest(DreamTestBase):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 0 (dispatches seen: 1)", text)
+        self.assertIn("Agent reports parsed: 0, of which 0 from subagent transcripts (dispatches seen: 1)", text)
         self.assertIn("## Format check\n\n- Agent dispatches seen but no agent reports parsed", text)
 
     def test_sessions_without_agents_do_not_warn(self):

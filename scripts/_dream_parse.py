@@ -166,7 +166,7 @@ def _new_session(path: Path) -> dict:
         "humans": 0, "last_ask": False,
         "shape": {**dict.fromkeys(SHAPE_COUNTS, 0), "typed_keys": Counter()},
         # Parse-time bookkeeping, dropped before the summary is returned.
-        "_sub": {}, "_agents": {}, "_seen_reports": set(),
+        "_sub": {}, "_agents": {}, "_seen_reports": set(), "_dispatch_at": {}, "_agent_dispatch": {},
     }
 
 
@@ -206,6 +206,7 @@ def _on_assistant(entry: dict, s: dict, tools: dict, seen: set) -> None:
         if name in ("Agent", "Task") and isinstance(inp.get("subagent_type"), str):
             s["_sub"][uid] = inp["subagent_type"]
             s["events"].append(("dispatch", inp["subagent_type"]))
+            s["_dispatch_at"][uid] = len(s["events"]) - 1
         cmd = inp.get("command")
         if name == "Bash" and isinstance(cmd, str) and REVERT_RE.search(cmd):
             s["reverts"] += 1
@@ -254,6 +255,10 @@ def _on_user_reports(entry: dict, s: dict, result, text: str, tool_ids: list) ->
         agent = agent or next((s["_sub"][t] for t in tool_ids if t in s["_sub"]), None)
         if agent and agent_id:
             s["_agents"][agent_id] = agent
+        if agent_id:
+            at = next((s["_dispatch_at"][t] for t in tool_ids if t in s["_dispatch_at"]), None)
+            if at is not None:
+                s["_agent_dispatch"][agent_id] = at
         if isinstance(result.get("agentType"), str) and not result.get("isAsync"):
             add_report(s, agent, _text_of(result.get("content")), agent_id, ts)
             return True
@@ -321,6 +326,9 @@ def parse_session(path: Path) -> dict:
             elif entry.get("type") == "user":
                 _on_user(entry, s, tools)
     s["escalations"] = find_escalations(s["events"])
-    for private in ("_sub", "_agents", "_seen_reports"):
+    # Public: lets ``_dream_inputs.merge_subagent_reports`` tell which agents the parent already reported.
+    s["reported_ids"] = sorted({aid for aid, _ in s["_seen_reports"] if aid})
+    s["agent_dispatch"] = dict(s["_agent_dispatch"])
+    for private in ("_sub", "_agents", "_seen_reports", "_dispatch_at", "_agent_dispatch"):
         del s[private]
     return s
