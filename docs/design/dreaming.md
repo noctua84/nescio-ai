@@ -400,7 +400,8 @@ The minimal data model has three parts, all machine-local under
   triage each pattern into memory nomination, held prompt diff, or drop, and
   apply the privacy gate.
 - `scripts/_dream_inputs.py` reads the extra inputs of section 4a: subagent
-  transcripts and QA report severity counts.
+  transcripts (errors, reruns and recovered reports) and QA report severity
+  counts. `scripts/_dream_aggregate.py` folds sessions into the proposal data.
 - `tests/test_dream.py` and `tests/test_dream_inputs.py` cover the extractor
   on synthetic fixtures. No real transcripts are used.
 
@@ -419,13 +420,20 @@ The minimal data model has three parts, all machine-local under
 - User-rejected tool calls are excluded from tool errors. A rejection that
   carries a reason now counts as a correction; a bare rejection does not.
 - Subagent transcripts and QA reports are read now (section 4a). Still open:
-  - **Verdicts from subagent transcripts.** Of 142 builder subagent
-    transcripts, 72 contain a `<verdict>` in an assistant text block. That is
-    a candidate source for the reports that the hand-back parser still misses
-    (dispatches outnumber reports, above). Counting both sources would
-    double-count, so it needs one source per dispatch, joined on `meta.json`'s
-    `toolUseId`. Why the other 70 builder transcripts have no verdict is not
-    known yet (still running, killed, or a different report shape).
+  - **Verdicts from subagent transcripts: done.** A subagent transcript is
+    named `agent-<agentId>.jsonl`, and that id matched the parent's `agentId`
+    in every joinable case (409 of 409). When the parent has no report for an
+    agent id, the extractor takes the last assistant text block with a
+    `<verdict>` from the subagent transcript, marks it `source: "subagent"`,
+    and inserts its report event right after that agent's dispatch, so
+    escalation detection sees it. The parent's copy wins on a duplicate. On
+    one machine this took parsed reports from 245 to 302 of 443 dispatches
+    (57 recovered); only 3 of the recovered verdicts were PARTIAL or BLOCKED,
+    so escalations stay rare. The "dispatches but no reports" drift warning
+    still counts parent reports only, so subagent files cannot hide a parent
+    format change. Still open: the remaining gap is mostly agents without a
+    verdict contract (explore, general-purpose), and why about half of the
+    builder transcripts carry no verdict is not known.
   - **Test reruns after a failure.** The extractor counts identical Bash
     reruns. It does not yet pair a failing test command with its rerun, which
     would separate "fixed and re-verified" from "retried blindly".
