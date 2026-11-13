@@ -36,12 +36,32 @@ docstring:
 
 - `scope` — mirrors the top-level `memory/` bucket the note lands in:
   `repo/<name>` | `projects/<name>` | `context` | `feedback` | `people` |
-  `glossary`. Its bucket (the part before any `/`) is validated.
+  `glossary` | `concepts`. Its bucket (the part before any `/`) is validated.
 - `target` — the note's real path under `memory/`, e.g. `repo/myrepo/foo.md` or
   `feedback/bar.md`. Must stay inside `memory/` (no absolute or `..` paths).
 - `type` — the note's frontmatter type: `feedback` | `context` | `adr` | … —
   open-ended, checked only for presence.
 - `name`, `description`, `body`, `source`, `date` — all required.
+- `frontmatter` — **optional.** Extra frontmatter keys for the note, so a
+  `concepts/` note can carry the `seen_in` / `corroboration` keys required of one
+  (see [Concept notes & generalization](#concept-notes--generalization)). Absent,
+  `null` and `{}` all mean "declares nothing". A flat object whose values are a
+  scalar (string, integer, float, boolean) or a list of scalars, e.g.
+  `{"seen_in": ["repo/x", "repo/y"], "corroboration": 2}`. Rejected up front
+  (exit 1, the key named): a non-object, a nested object or list member, a
+  `null` member, a key not matching `[A-Za-z_][A-Za-z0-9_-]*`, and the keys
+  `name`, `description` or `type` (already written from the nomination's own
+  fields).
+  - Emission is type-aware: a string is quoted only when a bare value would
+    misparse or be retyped, a boolean writes `true` / `false`, a number writes
+    bare. JSON `3` writes `corroboration: 3`; JSON `"3"` writes
+    `corroboration: "3"`.
+  - On create, declared keys follow `name` / `description` / `type`, in
+    insertion order. On update, the keys the nomination declares are rewritten
+    and keys already in the note that it does not declare are left untouched, so
+    a corroboration bump keeps hand-added keys.
+  - The reader (`split_frontmatter`) does no type inference: every value reads
+    back as a string.
 
 ## Enforcement
 
