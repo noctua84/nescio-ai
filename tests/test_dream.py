@@ -117,8 +117,9 @@ class ParseTest(DreamTestBase):
 
     def test_corrections_exclude_meta_tool_result_and_wrappers(self):
         s = self.parse("a", [
+            human("Please fix the build"),
             human("No, use the other file"),
-            human("Actually, revert that"),
+            human("Revert that change"),
             human("no way this was meta", isMeta=True),
             human("<command-name>/no</command-name>"),
             human("Nothing to correct here"),
@@ -131,7 +132,7 @@ class ParseTest(DreamTestBase):
         self.assertEqual(s["interrupts"], 1)
 
     def test_excerpts_capped_at_three_per_run(self):
-        sessions = [self.parse(f"s{i}", [human(f"no {i}"), human(f"no again {i}")]) for i in range(3)]
+        sessions = [self.parse(f"s{i}", [human("task"), human(f"no {i}"), human(f"no again {i}")]) for i in range(3)]
         agg = dream.aggregate(sessions)
         self.assertEqual(agg["corrections"]["count"], 6)
         self.assertEqual(len(agg["corrections"]["excerpts"]), 3)
@@ -219,19 +220,19 @@ class ToolErrorTest(DreamTestBase):
 
 class PrivacyTest(DreamTestBase):
     def test_token_excerpt_is_redacted(self):
-        s = self.parse("a", [human(f"No, the key is {FAKE_TOKEN}")])
+        s = self.parse("a", [human("task"), human(f"No, the key is {FAKE_TOKEN}")])
         self.assertEqual(s["excerpts"], ["[redacted]"])
 
     def test_home_path_replaced_with_tilde(self):
         fake_home = self.tmp / "fakehome" / "someone"
         with mock.patch.object(Path, "home", return_value=fake_home):
-            s = self.parse("a", [human(f"No, look at {fake_home}/proj and {str(fake_home).replace(os.sep, '/')}/x")])
+            s = self.parse("a", [human("task"), human(f"No, look at {fake_home}/proj and {str(fake_home).replace(os.sep, '/')}/x")])
         text = s["excerpts"][0]
         self.assertNotIn("someone", text)
         self.assertEqual(text.count("~"), 2)
 
     def test_excerpt_truncated(self):
-        s = self.parse("a", [human("No " + "x" * 500)])
+        s = self.parse("a", [human("task"), human("No " + "x" * 500)])
         self.assertLessEqual(len(s["excerpts"][0]), dp.EXCERPT_MAX)
 
 
@@ -284,20 +285,26 @@ class CliTest(DreamTestBase):
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
         self.assertIn("Agent reports parsed: 1 (dispatches seen: 1)", text)
-        self.assertNotIn("transcript format may have changed", text)
+        self.assertNotIn("report shape may have changed", text)
 
-    def test_zero_reports_with_sessions_warns_format_may_have_changed(self):
-        self.write("a", [human("hi")])
+    def test_dispatches_without_reports_warn_in_format_check(self):
+        self.write("a", [human("hi"), dispatch("d1", "builder")])
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 0", text)
-        self.assertIn("transcript format may have changed", text)
+        self.assertIn("Agent reports parsed: 0 (dispatches seen: 1)", text)
+        self.assertIn("## Format check\n\n- Agent dispatches seen but no agent reports parsed", text)
+
+    def test_sessions_without_agents_do_not_warn(self):
+        self.write("a", [human("hi")])
+        out_path = self.tmp / "p.md"
+        self.run_main("--no-stamp", "--out", str(out_path))
+        self.assertNotIn("report shape may have changed", out_path.read_text(encoding="utf-8"))
 
     def test_empty_window_does_not_warn_about_format(self):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
-        self.assertNotIn("transcript format may have changed", out_path.read_text(encoding="utf-8"))
+        self.assertNotIn("report shape may have changed", out_path.read_text(encoding="utf-8"))
 
     def test_proposal_sections_present(self):
         self.write("a", [report("builder", verdict_text("COMPLETE"))])
