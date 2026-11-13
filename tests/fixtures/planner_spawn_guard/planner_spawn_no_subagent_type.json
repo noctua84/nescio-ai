@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "agent_id": "agent-3",
+  "agent_type": "planner",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Look around",
+    "prompt": "Summarise the repository layout."
+  },
+  "tool_use_id": "toolu_03"
+}

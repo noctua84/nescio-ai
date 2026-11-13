@@ -1,0 +1,13 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Implement the token refresh",
+    "prompt": "Implement the plan in .sisyphus/plans/refresh.md.",
+    "subagent_type": "builder"
+  },
+  "tool_use_id": "toolu_05"
+}

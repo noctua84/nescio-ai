@@ -1,0 +1,15 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "agent_id": "agent-1",
+  "agent_type": "plato",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Map the auth module",
+    "prompt": "Find every caller of refresh_token and report file:line.",
+    "subagent_type": "explore"
+  },
+  "tool_use_id": "toolu_01"
+}

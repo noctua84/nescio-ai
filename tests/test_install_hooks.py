@@ -1336,5 +1336,181 @@ class WireCheckFileGuardHookTest(unittest.TestCase):
             self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), before)
 
 
+class WirePlannerSpawnGuardHookTest(unittest.TestCase):
+    """install.wire_planner_spawn_guard_hook wires a synchronous PreToolUse guard
+    scoped to the `Agent` tool alone, with the same `onFailure`/`timeout`
+    options as the check-file guard, in its own group alongside it."""
+
+    MATCHER = "Agent"
+    CHECK_FILE_MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell"
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        self.install = importlib.import_module("install")
+        _pin_not_a_venv(self)  # assertions below compare against sys.executable
+        self.out = io.StringIO()
+        self.enterContext(contextlib.redirect_stdout(self.out))
+
+    def _local(self, config_dir: Path) -> Path:
+        return config_dir / "settings.json"
+
+    def _script(self, config_dir: Path, name: str = "planner_spawn_guard.py") -> str:
+        return str(config_dir / "hooks" / name)
+
+    def _seed_script(self, config_dir: Path, name: str = "planner_spawn_guard.py") -> None:
+        hooks = config_dir / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        (hooks / name).write_text("# stub\n", encoding="utf-8")
+
+    def _groups(self, config_dir: Path) -> list:
+        data = json.loads(self._local(config_dir).read_text(encoding="utf-8"))
+        return data["hooks"]["PreToolUse"]
+
+    def test_fresh_wiring_writes_group_with_matcher_and_options(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(list(groups[0]), ["matcher", "hooks"])
+            self.assertEqual(groups[0]["matcher"], self.MATCHER)
+            self.assertEqual(len(groups[0]["hooks"]), 1)
+            entry = groups[0]["hooks"][0]
+            self.assertEqual(entry["type"], "command")
+            self.assertEqual(entry["command"], sys.executable)
+            self.assertEqual(entry["args"], [self._script(cfg)])
+            self.assertEqual(entry["onFailure"], "block")
+            self.assertEqual(entry["timeout"], 10)
+            self.assertNotIn("async", entry)
+
+    def test_rerun_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+            first = self._local(cfg).read_text(encoding="utf-8")
+            self.out.truncate(0)
+            self.out.seek(0)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), first)
+            self.assertEqual(len(self._groups(cfg)), 1)
+            self.assertIn("already wired", self.out.getvalue())
+
+    def test_dry_run_on_fresh_config_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=True)
+            self.assertFalse(self._local(cfg).exists())
+
+    def test_dry_run_reports_options_drift_without_writing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            stale = {"type": "command", "command": sys.executable,
+                     "args": [self._script(cfg)]}
+            text = json.dumps({"hooks": {"PreToolUse": [
+                {"matcher": self.MATCHER, "hooks": [stale]}]}})
+            self._local(cfg).write_text(text, encoding="utf-8")
+
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=True)
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), text)
+            self.assertIn("options", self.out.getvalue())
+
+    def test_entry_missing_on_failure_is_rewired_as_options_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            stale = {"type": "command", "command": sys.executable,
+                     "args": [self._script(cfg)], "timeout": 10}
+            self._local(cfg).write_text(json.dumps(
+                {"hooks": {"PreToolUse": [
+                    {"matcher": self.MATCHER, "hooks": [stale]}]}}), encoding="utf-8")
+
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(len(groups[0]["hooks"]), 1)
+            entry = groups[0]["hooks"][0]
+            self.assertEqual(entry["onFailure"], "block")
+            self.assertEqual(entry["timeout"], 10)
+            self.assertIn("(options changed)", self.out.getvalue())
+
+    def test_changed_option_value_is_rewired(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+            data = json.loads(self._local(cfg).read_text(encoding="utf-8"))
+            data["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"] = 60
+            self._local(cfg).write_text(json.dumps(data), encoding="utf-8")
+
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+            self.assertEqual(self._groups(cfg)[0]["hooks"][0]["timeout"], 10)
+
+    def test_wrong_matcher_is_rescoped_in_place(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            entry = {"type": "command", "command": sys.executable,
+                     "args": [self._script(cfg)], "onFailure": "block", "timeout": 10}
+            self._local(cfg).write_text(json.dumps(
+                {"hooks": {"PreToolUse": [
+                    {"matcher": "Agent|Bash", "hooks": [entry]}]}}), encoding="utf-8")
+
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0]["matcher"], self.MATCHER)
+            self.assertEqual(len(groups[0]["hooks"]), 1)
+
+    def test_coexists_with_check_file_guard_in_separate_groups(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_script(cfg, "check_file_guard.py")
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 2)
+            by_matcher = {g["matcher"]: g["hooks"] for g in groups}
+            self.assertEqual(set(by_matcher),
+                             {self.CHECK_FILE_MATCHER, self.MATCHER})
+            self.assertEqual(
+                [e["args"] for e in by_matcher[self.CHECK_FILE_MATCHER]],
+                [[self._script(cfg, "check_file_guard.py")]])
+            self.assertEqual(
+                [e["args"] for e in by_matcher[self.MATCHER]],
+                [[self._script(cfg)]])
+
+    def test_coexistence_is_idempotent_in_either_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self._seed_script(cfg, "check_file_guard.py")
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            first = self._local(cfg).read_text(encoding="utf-8")
+
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), first)
+            self.assertEqual(len(self._groups(cfg)), 2)
+
+    def test_skips_when_script_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self.install.wire_planner_spawn_guard_hook(cfg, dry_run=False)
+            self.assertFalse(self._local(cfg).exists())
+            self.assertIn("does not exist", self.out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
