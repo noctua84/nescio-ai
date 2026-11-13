@@ -164,6 +164,24 @@ class AggregateTest(SubTestBase):
         self.assertEqual([r["kind"] for r in agg["recurring"] if r["kind"] == "subagent-reruns"], ["subagent-reruns"])
         self.assertEqual((agg["subagents_read"], agg["malformed_lines"]), (2, 2))
 
+    def test_subagent_kinds_carry_stable_ids_from_their_keys(self):
+        sessions = []
+        for name in ("a", "b"):
+            s = self.session_with_error(name, "boom: /p/x.py")
+            self.write_sub(name, "2", [assistant(BASH("r1", "go"), BASH("r2", "go"))], meta='{"agentType": "scout"}')
+            s["sub"] = di.parse_subagents(self.transcripts / f"{name}.jsonl", 25)
+            sessions.append(s)
+        by_kind = {r["kind"]: r for r in dream.aggregate(sessions)["recurring"]}
+        self.assertEqual(by_kind["subagent-tool-error"]["id"], dream.signal_id("subagent-tool-error:builder:Bash:boom: <path>"))
+        self.assertEqual(by_kind["subagent-reruns"]["id"], dream.signal_id("subagent-reruns"))
+        table = dream.signal_table(sessions)
+        self.assertEqual(table[by_kind["subagent-tool-error"]["id"]]["key"], "subagent-tool-error:builder:Bash:boom: <path>")
+        self.assertEqual(table[by_kind["subagent-reruns"]["id"]], {"key": "subagent-reruns", "sessions": 2, "count": 2})
+
+    def test_signal_table_keeps_subagent_signals_below_min_sessions(self):
+        table = dream.signal_table([self.session_with_error("a")])
+        self.assertEqual([v["key"] for v in table.values()], ["subagent-tool-error:builder:Bash:boom: <path>"])
+
     def test_sessions_without_sub_key_are_tolerated(self):
         agg = dream.aggregate([dream.parse_session(self.parent())])
         self.assertEqual((agg["subagents_read"], agg["subagent_errors"], agg["subagent_reruns"]["count"]), (0, [], 0))
@@ -239,6 +257,17 @@ class CliInputsTest(SubTestBase):
         self.assertIn("-audit.md |", text)
         self.assertNotIn("ancient", text)
         self.assertIn("| **Total** | | **0** | **2** | **1** | **5** |", text)
+
+    def test_subagent_signals_get_ids_and_sidecar_entries(self):
+        for name in ("a", "b"):
+            self.write_sub(name, "2", [assistant(BASH("r1", "go"), BASH("r2", "go"))], meta='{"agentType": "scout"}')
+        text, _ = self.run_proposal()
+        sidecar = json.loads(self.out_path.with_suffix(".json").read_text(encoding="utf-8"))["signals"]
+        for key in ("subagent-tool-error:builder:Bash:boom", "subagent-reruns"):
+            sid = dream.signal_id(key)
+            self.assertEqual((sidecar[sid]["key"], sidecar[sid]["sessions"]), (key, 2))
+            self.assertIn(f"[sig {sid}]", text)
+        self.assertIn("[subagent-reruns] 2 identical Bash reruns in subagents (2 sessions)", text)
 
     def test_no_subagents_flag_disables_reading(self):
         text, _ = self.run_proposal("--no-subagents")

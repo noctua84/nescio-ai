@@ -59,7 +59,7 @@ TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 REJECTION_RE = re.compile(r"^\s*(the user doesn'?t want to|user rejected|\[request interrupted by user)", re.IGNORECASE)
 # A Bash failure line with no output after it: carries no signature of its own.
 EXIT_ONLY_RE = re.compile(r"Exit code \d+")
-# Per-session transcript-shape counters; ``dream.drift_warnings`` reads their sum to catch a silent format change.
+# Per-session transcript-shape counters; ``_dream_aggregate.drift_warnings`` reads their sum to catch a silent format change.
 SHAPE_COUNTS = (
     "entries", "typed", "with_message", "tool_uses", "tool_results", "result_dicts", "agent_results",
 )

@@ -44,7 +44,7 @@ proposal and not a rewritten wiki.
 | Piece | Role | What dreaming takes from it |
 |---|---|---|
 | `hooks/record_stop.py` | The Stop hook appends one record per turn to `<config>/learning-trail/<repo_key>.jsonl`, including `transcript_path`. It deliberately records **no** verdict. | Its docstring defers deriving outcomes to a later step that can afford to read transcripts. Dreaming is that step. It reuses `repo_key`, `redact` and `config_dir`. |
-| `hooks/harvest_nudge.py`, `hooks/memory_trigger_nudge.py` | SessionStart reminders: a harvest backlog, a half-finished harvest, ADR 0002 triggers | Where a "dream due" nudge would go (section 3) |
+| `hooks/harvest_nudge.py`, `hooks/memory_trigger_nudge.py` | SessionStart reminders: a harvest backlog, a half-finished harvest, ADR 0002 triggers | Where the "dream due" nudge lives (`hooks/dream_nudge.py`, section 3) |
 | `/harvest-memory`, plus `begin_harvest.py`, `promote_learnings.py` and `mark_harvested.py` | The **only** sanctioned writer into the version-controlled `memory/`. It validates nominations, applies `user override > empirical > agent inference`, stamps provenance and keeps a ledger. | The sink for memory proposals from dreaming. Dreaming never writes `memory/` itself. |
 | `memory/` (`repo/<repo>/`, `projects/`, `concepts/`, `feedback/`, ADRs under `repo/<repo>/adr/`) | Durable, synced memory | The target of proposals, through the harvest pipeline |
 | Auto-memory, `~/.claude/projects/<slug>/memory/` | Machine-local notes captured during sessions | Already an input to harvest. Dreaming adds signal that comes from transcripts. |
@@ -59,10 +59,11 @@ proposal and not a rewritten wiki.
 
 Options, in order of preference:
 
-1. **SessionStart nudge (recommended default).** Extend `harvest_nudge.py` to
-   print one line when the last dream is older than N days *and* at least M
-   sessions have ended since then. This costs nothing until the user acts, and
-   it follows the pattern the hooks already use.
+1. **SessionStart nudge (the default, implemented).** `hooks/dream_nudge.py`,
+   called from `harvest_nudge.main()` after the other reminders and printed in
+   addition to them, prints one line when a dream is due. It costs nothing
+   until the user acts, and it follows the pattern the hooks already use. The
+   rule is below.
 2. **On demand:** `/dream`, which the prototype ships.
 3. **Scheduled:** a cloud routine (`/schedule`) or a local `/loop`. A cloud
    routine cannot see machine-local transcripts. That rules it out unless the
@@ -72,6 +73,44 @@ Options, in order of preference:
 `<config>/dreams/<repo_key>/last-dream.json` holds the watermark, kept apart
 from the harvest watermark. A dream does not claim to have harvested anything,
 so it must never move the pruner's watermark.
+
+### 3a. When the nudge fires
+
+| Case | Fires when | Defaults (env override) |
+|---|---|---|
+| Dreamt before | The watermark is at least N days old **and** at least M sessions ended after it | N = 7 (`CLAUDE_DREAM_NUDGE_DAYS`), M = 10 (`CLAUDE_DREAM_NUDGE_SESSIONS`) |
+| Never dreamt, or the watermark does not parse | At least F sessions ended in the last 14 days | F = 30 (`CLAUDE_DREAM_NUDGE_FIRST_SESSIONS`) |
+
+`CLAUDE_DREAM_NUDGE=0` turns it off. A bad or negative value falls back to the
+default. It fires only on `startup` and `resume`, like the other reminders, and
+any failure degrades to silence.
+
+Decisions behind the rule:
+
+- **Never dreamt is not silent.** A silent hook would leave `/dream`
+  undiscoverable. Using the ordinary M would nag everyone who has not opted
+  in. A threefold bar speaks up only where a first dream has plenty to read.
+  The 14-day window is the one `dream.py` reads on a first run
+  (`DEFAULT_DAYS`), so the count never promises sessions the dream would skip.
+- **Sessions are counted from transcript mtimes, not the learning trail.** A
+  "session that ended" is a top-level `*.jsonl` in this repo's transcript
+  directories (the main slug and its `--claude-worktrees-` children) modified
+  after the baseline. That is the same selection `dream.select_sessions`
+  makes, so the nudge and the dream agree. The repo's canonical trail
+  undercounts worktree sessions, which is the workflow this framework
+  mandates. The current session's transcript is excluded.
+- **The time budget.** One listing of `<config>/projects`, one `stat` per
+  transcript, and an early stop at the threshold. No transcript is opened and
+  no subprocess runs beyond the `git` call every reminder makes. The test
+  suite holds 2,000 foreign transcripts plus 500 of the repo's under 0.5 s.
+  With the reminder turned off, even that `git` call is skipped.
+- **The watermark key follows `dream.py`.** `dream.main_root` resolves the
+  root with `Path.resolve()`, so on Windows its `repo_key` hashes a
+  backslashed path, while `record_stop.git_roots` returns git's
+  forward-slashed one. The hook resolves the root the same way `dream.py`
+  does, and a test pins it to a real `dream.py` run. As a result the dream
+  watermark and the learning trail use different keys for one repo on
+  Windows. That is harmless while nothing joins them.
 
 ## 4. The pipeline
 
@@ -318,6 +357,39 @@ no new instrumentation:
 - This is not a controlled experiment. Usage mix changes week to week, so read
   trends across several dreams, not a single delta.
 
+### 7a. Effectiveness tracker (shipped)
+
+The minimal data model has three parts, all machine-local under
+`<config>/dreams/<repo_key>/`:
+
+| Piece | Written by | Holds |
+|---|---|---|
+| `<UTC>.json` sidecar | `dream.py`, next to each `<UTC>.md` | The run window (`since`, `until`), `sessions_read`, `agent_dispatches`, and **every** signal seen in at least one session: `{sig_id: {key, sessions, count}}` |
+| `links.json` | `dream.py --link HASH12 SIG_ID` | `{hash, sig, linked_at}`: which ledger entry was promoted because of which signal |
+| `memory/learning-log.md` | `promote_learnings.py`, unchanged | The promotion date for `hash` |
+
+- **Signal ids are stable keys, not counts.** The key is `escalation:<family>:<t>-><t'>`,
+  `tool-error:<tool>:<signature>`, `corrections`, `reverts`, `inverted-pins`,
+  `interrupts`, `blocked:<agent>` or `partial:<agent>`. The id is the first 8
+  hex digits of its SHA-256. The proposal prints `[sig <id>]` after each
+  recurring pattern, so the reviewer can copy it into `--link` after promoting.
+- **The sidecar records all signals, not the top five.** A signature that
+  drops out of the top five would otherwise look like it went to zero.
+- **The link stays out of the ledger.** Signal keys can carry tool names and
+  normalised command text. The ledger is tracked and synced, so adding a field
+  there would leak them and would change the contract that three schema copies
+  share. The ledger hash is enough to join on.
+- **`dream.py --compare`** reads the sidecars and drops a run whose window
+  overlaps an earlier kept run, which happens after `--no-stamp` reruns. For
+  each link it pools the runs before the promotion date and the runs after it,
+  and leaves out runs that straddle the date. Rate is the share of sessions
+  that show the signal. The verdict is `too early` (fewer than `--min-after`
+  sessions after, default 10), `no baseline`, `working` (the rate at least
+  halved), `ineffective` (the rate did not drop) or `unclear`.
+- The rate is per session, for every kind of signal. Per-dispatch rates for
+  escalations would be sharper, but they wait on the background-agent
+  undercount (section 9): with most reports unparsed, the denominator is wrong.
+
 ## 8. Prototype (shipped in this change)
 
 - `scripts/dream.py` (aggregate, render, CLI) and `scripts/_dream_parse.py`
@@ -346,7 +418,6 @@ no new instrumentation:
   ranking before `/dream` is pleasant to review.
 - User-rejected tool calls are excluded from tool errors. A rejection that
   carries a reason now counts as a correction; a bare rejection does not.
-- A "dream due" SessionStart nudge, in `harvest_nudge.py`.
 - Subagent transcripts and QA reports are read now (section 4a). Still open:
   - **Verdicts from subagent transcripts.** Of 142 builder subagent
     transcripts, 72 contain a `<verdict>` in an assistant text block. That is
@@ -360,10 +431,38 @@ no new instrumentation:
     would separate "fixed and re-verified" from "retried blindly".
   - **QA trend.** Severity counts per audit are reported, but nothing yet
     compares them across dreams or links a finding category to a memory note.
-- Detecting successful workflows automatically: needs a model call, which means
-  a cost decision.
-- The effectiveness tracker: link a ledger entry to the signal signature that
-  prompted it.
+- **Detecting successful workflows automatically.** Measured on one machine's
+  last 60 days (870 main transcripts, aggregate counts only). The counts were taken
+  from foreground `toolUseResult` reports only, before the hand-back fix above,
+  so verdict coverage is a lower bound and should be measured again:
+
+  | Proxy | Result | Verdict |
+  |---|---|---|
+  | First-try COMPLETE with no deviations | 68 of 229 reports with a verdict; only 229 of 1,475 parsed reports (and of about 7,500 dispatches) carry a `<verdict>` | The "no deviations" part discriminates, since 221 of 229 verdicts are COMPLETE. Coverage was about 3% of dispatches before the hand-back fix. |
+  | Session with no correction or interrupt | 797 of 870 sessions | Does not discriminate. The correction regex rarely fires. |
+  | Friction-free session (no correction, interrupt, revert or tool error) | 177 of 870 | Confounded by length: 106 of 285 sessions with fewer than 2 human messages, and 0 of 67 with 20 or more |
+
+  Model-assisted pass, estimated at chars/4 as in `session_anatomy.py` (tokens
+  only, never cost):
+
+  | Input to the model | Tokens over 60 days | Per default 50-session dream |
+  |---|---|---|
+  | Full transcript content (text, thinking, tool input and output) | about 100M (median 54k per session) | about 5.8M |
+  | Skeleton (human and assistant text, agent reports, tool calls cut to 300 chars) | about 33M (median 15k) | about 1.9M |
+  | Skeleton of candidate sessions only (2 or more human messages, at least one report, no correction) | about 12M (245 sessions) | about 2.4M |
+  | Clean first-try reports plus their dispatch prompts | about 100k (68 items, about 1.5k each) | well under 100k |
+
+  The proposal the reviewer reads today is a few thousand tokens. **Recommendation:**
+  do not add a transcript-level model pass. Only the last row is cheap: roughly 10 to 30 times
+  today's reviewer input per dream, against hundreds to thousands of times for the others. Run
+  that row inside `/dream` as part of the existing reviewer turn, with no new
+  API call: give the reviewer each clean report plus its dispatch prompt, and
+  ask what the brief got right. First measure verdict coverage again with the
+  hand-back parser, because the 3% above came from foreground reports only. Any
+  separate model call stays a decision for the user.
+- The effectiveness tracker shipped (section 7a). Still open: a `/dream`
+  step that runs `--link` after each promotion and `--compare` before
+  triage, and listing `ineffective` notes as removal candidates.
 - **User corrections are a lower bound, not a rate.** Measured on one
   machine's real transcripts (871 sessions, 5,669 human messages; labels by
   one reviewer, counts only):

@@ -9,9 +9,11 @@ a Markdown file (plus an optional watermark) under ``<config>/dreams/``. The
 other half -- turning the signals into harvest nominations or held prompt
 suggestions -- is the ``/dream`` command, run by a human-supervised session.
 
-Parsing one transcript lives in ``_dream_parse.py`` and the extra inputs
-(subagent transcripts, QA audit reports) in ``_dream_inputs.py``; this file
-folds the per-session summaries into a proposal and owns discovery and the CLI.
+Parsing one transcript lives in ``_dream_parse.py``, the extra inputs
+(subagent transcripts, QA audit reports) in ``_dream_inputs.py`` and the fold of
+per-session summaries into signals (with their stable ids) in
+``_dream_aggregate.py``; this file renders the proposal and owns discovery and
+the CLI.
 
 Deliberate design decisions, each with a failure mode behind it:
 
@@ -40,6 +42,8 @@ Usage:
     python scripts/dream.py                          # this repo, since last run
     python scripts/dream.py --repo ../other --since 2026-01-01
     python scripts/dream.py --no-stamp --json
+    python scripts/dream.py --link HASH12 SIG_ID     # note HASH12 answers signal SIG_ID
+    python scripts/dream.py --compare                # did the linked signals drop?
 """
 
 from __future__ import annotations
@@ -49,174 +53,20 @@ import json
 import os
 import re
 import subprocess
-from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _dream_parse import MAX_EXCERPTS, SHAPE_COUNTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
+from _dream_parse import parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
 from _dream_inputs import SEVERITIES, merge_subagent_reports, parse_subagents, qa_reports  # noqa: E402
+from _dream_aggregate import (  # noqa: E402,F401  (re-exported: tests and callers use ``dream.<name>``)
+    KNOWN_KEYS, TIER_NAMES, TOP_ERRORS, aggregate, drift_warnings, signal_id, signal_table, total_shape,
+)
+import _dream_measure as measure  # noqa: E402
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
-TOP_ERRORS = 5
 STATE_NAME = "last-dream.json"
 VERDICTS = ("COMPLETE", "PARTIAL", "BLOCKED")
-TIER_NAMES = ("simple", "standard", "complex")
-# Top-level transcript-entry keys seen in practice; a key outside this set on most entries is reported as drift.
-KNOWN_KEYS = frozenset({
-    "type", "message", "uuid", "parentUuid", "isSidechain", "userType", "cwd", "sessionId", "version", "gitBranch",
-    "timestamp", "requestId", "toolUseResult", "sourceToolAssistantUUID", "isMeta", "promptId", "entrypoint", "slug",
-    "effort", "perTurnEffort", "advisorModel", "apiBlockIndex", "rendered", "renderedRole", "requestedModel",
-    "serverClassifierRequest", "serverClassifierContext", "wireToolInputs", "requestRef", "isCompactSummary",
-    "isVisibleInTranscriptOnly", "thinkingMetadata", "todos", "permissionMode", "level", "subtype", "content",
-    "isApiErrorMessage", "error", "origin", "imagePasteIds",
-})
-
-
-def drift_warnings(shape: dict) -> list[str]:
-    """One-line warnings when the transcript shapes the parser relies on look different.
-
-    ``shape`` is ``aggregate()["shape"]``. A format change must not read as "zero signals".
-    """
-    typed = shape["typed"]
-    found = []
-    if shape["entries"] > 0 and typed == 0:
-        found.append("No user/assistant entries found; the `type` field may have changed.")
-    if typed > 0 and shape["with_message"] < typed / 2:
-        found.append("Most user/assistant entries lack `message.content`; the message shape may have changed.")
-    if typed >= 50 and shape["tool_uses"] == 0:
-        found.append("No `tool_use` blocks found in a large transcript sample; the content-block shape may have changed.")
-    if shape["tool_results"] > 0 and shape["result_dicts"] == 0:
-        found.append("Tool results seen but no `toolUseResult` dicts; the field may have changed.")
-    if shape["agent_dispatches"] > 0 and shape["agent_reports"] == 0:
-        found.append("Agent dispatches seen but no agent reports parsed; the report shape may have changed.")
-    if shape["agent_results"] > 0 and shape["agent_dispatches"] == 0:
-        found.append("Agent results seen but no Agent/Task dispatches; the dispatch tool may have been renamed.")
-    if shape["unknown_keys"]:
-        found.append(f"New top-level keys on most entries: {', '.join(shape['unknown_keys'])} (informational).")
-    return found
-
-
-def total_shape(sessions: list[dict], key: str) -> int:
-    return sum(s["shape"][key] for s in sessions)
-
-
-def _subagent_rollup(sessions: list[dict]) -> tuple[list, dict, dict]:
-    """``(ranked errors, reruns, read/skipped/malformed)`` over the sessions' optional ``sub`` summaries."""
-    errs: dict[tuple, list] = defaultdict(lambda: [set(), 0])
-    by_agent: Counter = Counter()
-    rerun_ids: set = set()
-    totals = {"read": 0, "skipped": 0, "malformed": 0}
-    for s in sessions:
-        sub = s.get("sub")
-        if not sub:
-            continue
-        totals["read"] += sub["files"]
-        totals["skipped"] += sub["skipped"]
-        totals["malformed"] += sub["malformed"]
-        for key, n in sub["errors"].items():
-            errs[key][0].add(s["id"])
-            errs[key][1] += n
-        if sub["reruns"] > 0:
-            rerun_ids.add(s["id"])
-            by_agent.update(sub["rerun_agents"])
-    top = sorted(errs.items(), key=lambda kv: (-len(kv[1][0]), -kv[1][1], kv[0]))[:TOP_ERRORS]
-    reruns = {"count": sum(by_agent.values()), "sessions": len(rerun_ids), "by_agent": dict(sorted(by_agent.items()))}
-    return top, reruns, totals
-
-
-def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, qa: list[dict] | None = None) -> dict:
-    """Fold per-session summaries into the proposal's data.
-
-    Sessions may carry an optional ``sub`` summary (``parse_subagents``) and
-    ``qa`` is the optional ``qa_reports`` list; both default to "not read".
-    """
-    verdicts: dict[str, Counter] = defaultdict(Counter)
-    esc: dict[str, set] = defaultdict(set)
-    errs: dict[tuple, list] = defaultdict(lambda: [set(), 0])
-    oos: dict[str, list] = defaultdict(lambda: [set(), ""])
-    flags = []
-    for s in sessions:
-        for rep in s["reports"]:
-            verdicts[rep["agent"]][rep["verdict"] or "none"] += 1
-            flags += [{"session": s["id"], "ts": rep["ts"], "agent": rep["agent"], "text": t} for t in rep["flags"]]
-            for t in rep["out_of_scope"]:
-                entry = oos[" ".join(t.lower().split())]
-                entry[0].add(s["id"])
-                entry[1] = t
-        for fam, t1, t2 in s["escalations"]:
-            esc[f"{fam}: {TIER_NAMES[t1]}→{TIER_NAMES[t2]}"].add(s["id"])
-        for key, n in s["errors"].items():
-            errs[key][0].add(s["id"])
-            errs[key][1] += n
-    top = sorted(errs.items(), key=lambda kv: (-len(kv[1][0]), -kv[1][1], kv[0]))[:TOP_ERRORS]
-    having = lambda key: {s["id"] for s in sessions if s[key]}  # noqa: E731
-    total = lambda key: sum(s[key] for s in sessions)  # noqa: E731
-    pins = {f["session"] for f in flags if f["text"].startswith("Inverted pin:")}
-    recurring = [{"kind": "escalation", "summary": k, "sessions": len(v)} for k, v in sorted(esc.items())]
-    recurring += [
-        {"kind": "tool-error", "summary": f"{t}: {sig}", "sessions": len(ids), "count": n} for (t, sig), (ids, n) in top
-    ]
-    sub_top, sub_reruns, sub_totals = _subagent_rollup(sessions)
-    recurring += [
-        {"kind": "subagent-tool-error", "summary": f"{a} {t}: {sig}", "sessions": len(ids), "count": n}
-        for (a, t, sig), (ids, n) in sub_top
-    ]
-    if sub_reruns["sessions"]:
-        recurring.append({
-            "kind": "subagent-reruns", "sessions": sub_reruns["sessions"],
-            "summary": f"{sub_reruns['count']} identical Bash reruns in subagents",
-        })
-    recurring += [
-        {"kind": kind, "summary": text, "sessions": len(ids)}
-        for kind, text, ids in (
-            ("corrections", f"{total('corrections')} user corrections", having("corrections")),
-            ("reverts", f"{total('reverts')} revert-style git commands", having("reverts")),
-            ("inverted-pins", "inverted test pins in builder reports", pins),
-        )
-    ]
-    shape = {k: total_shape(sessions, k) for k in SHAPE_COUNTS}
-    keys = sum((s["shape"]["typed_keys"] for s in sessions), Counter())
-    shape["agent_dispatches"] = sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch")
-    from_subs = sum((s.get("sub") or {}).get("merged", 0) for s in sessions)
-    # Drift looks at the parent transcripts only: reports recovered from subagent files must not mask a parent-format change.
-    shape["agent_reports"] = sum(len(s["reports"]) for s in sessions) - from_subs
-    shape["unknown_keys"] = sorted(k for k, n in keys.items() if n * 2 > shape["typed"] and k not in KNOWN_KEYS)
-    return {
-        "sessions_read": len(sessions),
-        "sessions_skipped": skipped,
-        "malformed_lines": total("malformed") + sub_totals["malformed"],
-        "subagents_read": sub_totals["read"],
-        "subagents_skipped": sub_totals["skipped"],
-        "agent_reports": shape["agent_reports"] + from_subs,
-        "agent_dispatches": shape["agent_dispatches"],
-        "reports_from_subagents": from_subs,
-        "shape": shape,
-        "drift": drift_warnings(shape),
-        "min_sessions": min_sessions,
-        "recurring": [r for r in recurring if r["sessions"] >= min_sessions],
-        "verdicts": {a: dict(c) for a, c in sorted(verdicts.items())},
-        "tool_errors": [{"tool": t, "signature": sig, "sessions": len(i), "count": n} for (t, sig), (i, n) in top],
-        "subagent_errors": [
-            {"agent": a, "tool": t, "signature": sig, "sessions": len(i), "count": n} for (a, t, sig), (i, n) in sub_top
-        ],
-        "subagent_reruns": sub_reruns,
-        "qa_reports": {
-            "reports": list(qa or []),
-            "totals": {sev: sum(r[sev] for r in qa or []) for sev in SEVERITIES},
-        },
-        "corrections": {
-            "count": total("corrections"),
-            "sessions": len(having("corrections")),
-            "excerpts": [x for s in sessions for x in s["excerpts"]][:MAX_EXCERPTS],
-        },
-        "interrupts": total("interrupts"),
-        "reverts": {"count": total("reverts"), "sessions": len(having("reverts"))},
-        "to_confirm": flags,
-        "follow_ups": sorted(
-            ({"text": t, "sessions": len(ids)} for ids, t in oos.values()), key=lambda f: (-f["sessions"], f["text"])
-        ),
-    }
 
 
 NEXT_STEPS = (
@@ -245,7 +95,7 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
     ]
     out += _section("Format check", [f"- {w}" for w in agg["drift"]], "Transcript shapes look as expected.")
     empty = "None met the threshold." if agg["sessions_read"] else "No transcripts found in the window; nothing to review."
-    rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions)" for r in agg["recurring"]]
+    rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions) [sig {r['id']}]" for r in agg["recurring"]]
     rec += [f"  - correction excerpt: {x}" for x in agg["corrections"]["excerpts"]]
     out += _section("Recurring patterns", rec, empty)
     table = [
@@ -355,16 +205,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path)
     p.add_argument("--json", action="store_true", help="also print the structured result to stdout")
     p.add_argument("--no-stamp", action="store_true", help="do not advance the watermark")
+    p.add_argument("--link", nargs=2, metavar=("HASH12", "SIG_ID"), help="record that ledger note HASH12 answers signal SIG_ID")
+    p.add_argument("--compare", action="store_true", help="per linked note, compare its signal's rate before and after")
+    p.add_argument("--ledger", type=Path, help="learning ledger for --compare (default: <repo>/memory/learning-log.md)")
+    p.add_argument("--min-after", type=int, default=10, help="sessions needed after a note before judging it (default 10)")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.out and args.out.suffix.lower() == ".json":
+        # The sidecar is written at out.with_suffix(".json"); a .json --out would be overwritten by it.
+        parser.error("--out must not end in .json: that path is reserved for the run's JSON sidecar")
     start = datetime.now(timezone.utc)
     config = rs.config_dir()
     root = main_root(args.repo)
     key = rs.repo_key(str(root))
     state_dir = config / "dreams" / key
+    if args.link:
+        return measure.run_link(state_dir, *args.link, start)
+    if args.compare:
+        return measure.run_compare(state_dir, args.ledger or root / "memory" / "learning-log.md", args.min_after, args.json)
     since = parse_iso(args.since) if args.since else read_since(state_dir / STATE_NAME, start)
     dirs = args.transcripts or transcript_dirs(args.projects_dir or config / "projects", root)
     files, skipped = select_sessions([Path(d) for d in dirs], since, args.max_sessions)
@@ -379,6 +241,9 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or state_dir / f"{start.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(agg, repo_key=key, since=since_s, until=until_s), encoding="utf-8")
+    sidecar = {"schema": measure.SCHEMA, "repo_key": key, "since": since_s, "until": until_s,
+               "sessions_read": agg["sessions_read"], "agent_dispatches": agg["agent_dispatches"], "signals": signal_table(sessions)}
+    out.with_suffix(".json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
     if not args.no_stamp:
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_dir / STATE_NAME).write_text(json.dumps({"since": until_s}), encoding="utf-8")
