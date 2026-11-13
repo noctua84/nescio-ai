@@ -24,6 +24,7 @@ RESOLVE_STEP = "Resolve PR context"
 CHECKOUT_STEP = "Checkout PR head"
 SNAPSHOT_STEP = "Snapshot review state"
 PUBLISH_STEP = "Publish review comments"
+GATE_STEP = "Submit formal review based on Claude's verdict"
 
 # The full, exact allow-list Claude is meant to hold: read-only GitHub CLI
 # calls, read-only git, `cat`, and the file tools it stages comments with.
@@ -338,6 +339,38 @@ class MergeGateTest(_CoreBase):
         needs = [needs] if isinstance(needs, str) else needs
         self.assertIn("review", needs)
         self.assertIn("!cancelled()", str(gate.get("if", "")))
+
+    def _gate_step(self):
+        steps = [s for s in self.jobs["merge-gate"]["steps"] if s.get("name") == GATE_STEP]
+        self.assertEqual(len(steps), 1, f"expected exactly one {GATE_STEP!r} step")
+        return steps[0]
+
+    def _assignment(self, run, var):
+        """The single-quoted value of the one `VAR='...'` line in `run`."""
+        values = re.findall(rf"^\s*{var}='([^']*)'\s*$", run, re.M)
+        self.assertEqual(len(values), 1, f"expected exactly one {var}='...' assignment")
+        return values[0]
+
+    def test_trusted_jq_matches_publish_step(self):
+        # The gate may only trust the logins the publish step posts as.
+        gate = self._assignment(self._gate_step()["run"], "TRUSTED_JQ")
+        publish = self._assignment(self._named_step(PUBLISH_STEP)["run"], "TRUSTED_JQ")
+        self.assertEqual(gate, publish)
+        for login in ("github-actions[bot]", "claude[bot]"):
+            with self.subTest(login=login):
+                self.assertIn(f'.user.login == "{login}"', gate)
+
+    def test_verdict_re_matches_publish_step(self):
+        # The publish step guarantees line 2 matches the pattern the gate reads.
+        gate = self._assignment(self._gate_step()["run"], "VERDICT_RE")
+        publish = self._assignment(self._named_step(PUBLISH_STEP)["run"], "VERDICT_RE")
+        self.assertEqual(gate, publish)
+
+    def test_gate_uses_trusted_filter(self):
+        self.assertIn("select($TRUSTED_JQ", self._gate_step()["run"])
+
+    def test_no_expression_interpolation_in_gate_run(self):
+        self.assertNotIn("${{", self._gate_step()["run"])
 
 
 class SnippetSkipConditionsTest(unittest.TestCase):

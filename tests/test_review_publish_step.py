@@ -2,29 +2,20 @@
 
 The step's `run:` script is extracted from
 `github-action/claude-review-core.yml` and executed with bash against a fake
-`gh` on PATH. The fake logs every call and serves canned JSON for GET calls
-(applying the `--jq` filter with the real `jq`, printing strings raw like
-`gh` does). The tests assert on the logged WRITE calls (method + endpoint +
-fields), never on log wording.
+`gh` on PATH (see _review_step_harness.py). The tests assert on the logged
+WRITE calls (method + endpoint + fields), never on log wording.
 
 Skipped unless `bash` and `jq` are on PATH.
 """
-import json
-import os
-import shutil
-import subprocess
-import tempfile
+import sys
 import unittest
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
-CORE = ROOT / "github-action" / "claude-review-core.yml"
+from _review_step_harness import StepHarness, comment as _comment, posix as _posix  # noqa: E402
+
 PUBLISH_STEP = "Publish review comments"
-
-BASH = shutil.which("bash")
-JQ = shutil.which("jq")
 
 PR = "7"
 REPO = "o/r"
@@ -37,106 +28,15 @@ PR_FILES = f"repos/{REPO}/pulls/{PR}/files"
 SUMMARY_MARKER = "<!-- claude-pr-summary -->"
 REVIEW_MARKER = "<!-- claude-comprehensive-review -->"
 
-FAKE_GH = r"""#!/usr/bin/env bash
-# Fake gh for the publish-step tests. Only `gh api` is supported.
-set -u
-D="$FAKE_GH_DIR"
-n=$(( $(cat "$D/count" 2>/dev/null || echo 0) + 1 ))
-echo "$n" > "$D/count"
-{ printf '%s' "$n"; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "$D/calls.log"
-if [ "${1:-}" != api ]; then echo "fake-gh: unsupported command ${1:-}" >&2; exit 2; fi
-shift
-method=GET; endpoint=""; jqf=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -X|--method) method="$2"; shift 2 ;;
-    --jq|-q) jqf="$2"; shift 2 ;;
-    --paginate) shift ;;
-    -F|--field)
-      case "$2" in body=@*) cp "${2#body=@}" "$D/bodies/$n.md" ;; esac
-      shift 2 ;;
-    -f|--raw-field)
-      case "$2" in body=*) printf '%s' "${2#body=}" > "$D/bodies/$n.md" ;; esac
-      shift 2 ;;
-    -*) echo "fake-gh: unsupported flag $1" >&2; exit 2 ;;
-    *) endpoint="$1"; shift ;;
-  esac
-done
-echo "fake-gh: $method $endpoint" >&2
-if grep -Fxq -- "$method $endpoint" "$D/fail.txt" 2>/dev/null; then
-  echo "fake-gh: HTTP 403 for $method $endpoint" >&2
-  exit 1
-fi
-if [ "$method" != GET ]; then echo '{}'; exit 0; fi
-resp="$D/responses/$(printf '%s' "$endpoint" | tr '/?&=' '____').json"
-[ -f "$resp" ] || resp="$D/empty.json"
-if [ -n "$jqf" ]; then
-  jq -r "($jqf) | if type == \"string\" then . else tojson end" < "$resp"
-else
-  cat "$resp"
-fi
-"""
 
-# Native Windows jq writes CRLF line endings; the step runs on ubuntu-latest
-# where jq writes LF. Only installed when the local jq emits CRLF, so the test
-# exercises the script as it behaves on Linux.
-JQ_LF_SHIM = """#!/usr/bin/env bash
-set -o pipefail
-"{real}" "$@" | tr -d '\\r'
-"""
-
-
-def _posix(path):
-    return str(path).replace("\\", "/")
-
-
-def _jq_writes_crlf():
-    out = subprocess.run([JQ, "-n", "-r", '"a","b"'], capture_output=True).stdout
-    return b"\r\n" in out
-
-
-def _comment(cid, login, body, **extra):
-    return {"id": cid, "user": {"login": login}, "body": body, **extra}
-
-
-@unittest.skipUnless(BASH and JQ, "bash and jq are required on PATH")
-class _PublishHarness(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        doc = yaml.safe_load(CORE.read_text(encoding="utf-8"))
-        steps = [s for s in doc["jobs"]["review"]["steps"]
-                 if s.get("name") == PUBLISH_STEP]
-        assert len(steps) == 1, f"expected exactly one {PUBLISH_STEP!r} step"
-        cls.script_text = steps[0]["run"].replace("\r\n", "\n")
-        cls.crlf_jq = _jq_writes_crlf()
+class _PublishHarness(StepHarness):
+    JOB = "review"
+    STEP = PUBLISH_STEP
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        root = Path(self._tmp.name)
-        self.root = root
-        self.outbox = root / "outbox"
+        super().setUp()
+        self.outbox = self.root / "outbox"
         self.outbox.mkdir()
-        self.runner_temp = root / "runner-temp"
-        self.runner_temp.mkdir()
-        self.fake = root / "fake-gh"
-        (self.fake / "responses").mkdir(parents=True)
-        (self.fake / "bodies").mkdir()
-        (self.fake / "empty.json").write_text("[]", encoding="utf-8", newline="\n")
-        self.bin = root / "bin"
-        self.bin.mkdir()
-        self._write_exec(self.bin / "gh", FAKE_GH)
-        if self.crlf_jq:
-            self._write_exec(self.bin / "jq", JQ_LF_SHIM.format(real=_posix(JQ)))
-        self.script = root / "publish.sh"
-        self.script.write_text(self.script_text, encoding="utf-8", newline="\n")
-
-    # -- fixtures ---------------------------------------------------------------
-
-    @staticmethod
-    def _write_exec(path, text):
-        path.write_text(text, encoding="utf-8", newline="\n")
-        path.chmod(0o755)
 
     def stage(self, rel, text):
         path = self.outbox / rel
@@ -144,77 +44,13 @@ class _PublishHarness(unittest.TestCase):
         path.write_text(text, encoding="utf-8", newline="\n")
         return path
 
-    def respond(self, endpoint, data):
-        name = endpoint.translate(str.maketrans("/?&=", "____")) + ".json"
-        (self.fake / "responses" / name).write_text(
-            json.dumps(data), encoding="utf-8", newline="\n")
-
-    def refuse(self, method, endpoint):
-        with open(self.fake / "fail.txt", "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(f"{method} {endpoint}\n")
-
     def run_publish(self, head_sha=HEAD_SHA, pr=PR, outbox=None):
-        env = dict(os.environ)
-        env.update({
+        return self.run_step({
             "REVIEW_OUTBOX": _posix(outbox if outbox is not None else self.outbox),
-            "RUNNER_TEMP": _posix(self.runner_temp),
             "PR_NUMBER": pr,
             "REPO": REPO,
             "HEAD_SHA": head_sha,
-            "GH_TOKEN": "fake-token",
-            "FAKE_GH_DIR": _posix(self.fake),
-            "PATH": str(self.bin) + os.pathsep + env.get("PATH", ""),
         })
-        proc = subprocess.run(
-            [BASH, _posix(self.script)], env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            timeout=180)
-        self.output = proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
-        return proc
-
-    # -- call log ---------------------------------------------------------------
-
-    def calls(self):
-        log = self.fake / "calls.log"
-        if not log.exists():
-            return []
-        result = []
-        for line in log.read_text(encoding="utf-8").splitlines():
-            if not line:
-                continue
-            n, *args = line.split("\x1f")
-            assert args[:1] == ["api"], args
-            method, endpoint, fields = "GET", None, {}
-            i = 1
-            while i < len(args):
-                a = args[i]
-                if a in ("-X", "--method"):
-                    method = args[i + 1]; i += 2
-                elif a in ("--jq", "-q"):
-                    i += 2
-                elif a == "--paginate":
-                    i += 1
-                elif a in ("-f", "-F", "--field", "--raw-field"):
-                    k, _, v = args[i + 1].partition("=")
-                    fields[k] = v; i += 2
-                else:
-                    endpoint = a; i += 1
-            body = self.fake / "bodies" / f"{n}.md"
-            result.append({
-                "n": int(n), "method": method, "endpoint": endpoint,
-                "fields": fields,
-                "body": body.read_text(encoding="utf-8") if body.exists() else None,
-            })
-        return result
-
-    def writes(self):
-        return [c for c in self.calls() if c["method"] != "GET"]
-
-    def write_keys(self):
-        return [(c["method"], c["endpoint"]) for c in self.writes()]
-
-    def assertExit(self, proc, code):
-        self.assertEqual(proc.returncode, code, f"exit {proc.returncode}; output:\n{self.output}")
 
 
 def _finding(path, line, side, marker, extra=""):
@@ -528,6 +364,77 @@ class StepOutcomeTest(_PublishHarness):
         proc = self.run_publish(pr="7; true")
         self.assertNotEqual(proc.returncode, 0, self.output)
         self.assertEqual(self.writes(), [])
+
+
+# ---------------------------------------------------------------------------
+# (i) review.md line 2 must be the verdict the merge gate reads
+# ---------------------------------------------------------------------------
+class ReviewVerdictLineTest(_PublishHarness):
+    BAD_LINE_2 = {
+        "missing": "## Comprehensive Review",
+        "blank": "",
+        "unknown verdict": "<!-- claude-verdict: MERGE -->",
+        "lower case": "<!-- claude-verdict: approve -->",
+        "trailing text": "<!-- claude-verdict: APPROVE --> ok",
+        "leading space": " <!-- claude-verdict: APPROVE -->",
+        "two verdicts": "<!-- claude-verdict: APPROVE --><!-- claude-verdict: COMMENT -->",
+    }
+
+    def _top_level_writes(self):
+        return [c for c in self.writes()
+                if c["endpoint"] == ISSUE_COMMENTS
+                or c["endpoint"].startswith(f"repos/{REPO}/issues/comments/")]
+
+    def test_bad_or_missing_verdict_line_is_not_published(self):
+        # A trusted prior review exists, so both the PATCH and the POST path
+        # are reachable; neither may be taken.
+        self.respond(ISSUE_COMMENTS, [
+            _comment(110, "github-actions[bot]",
+                     f"{REVIEW_MARKER}\n<!-- claude-verdict: CHANGES_REQUESTED -->\nold"),
+        ])
+        for case, line2 in self.BAD_LINE_2.items():
+            with self.subTest(case=case):
+                self.clear_calls()
+                # The verdict is present further down, just not on line 2.
+                self.stage("review.md", f"{REVIEW_MARKER}\n{line2}\n## Comprehensive Review\n"
+                                        "<!-- claude-verdict: APPROVE -->\n")
+                proc = self.run_publish()
+                self.assertNotEqual(proc.returncode, 0, self.output)
+                self.assertEqual(self._top_level_writes(), [])
+
+    def test_review_with_only_marker_line_is_not_published(self):
+        self.stage("review.md", f"{REVIEW_MARKER}\n")
+        proc = self.run_publish()
+        self.assertNotEqual(proc.returncode, 0, self.output)
+        self.assertEqual(self.writes(), [])
+
+    def test_every_valid_verdict_is_published(self):
+        for verdict in ("APPROVE", "CHANGES_REQUESTED", "COMMENT"):
+            with self.subTest(verdict=verdict):
+                self.clear_calls()
+                body = f"{REVIEW_MARKER}\n<!-- claude-verdict: {verdict} -->\n## Comprehensive Review\n"
+                self.stage("review.md", body)
+                proc = self.run_publish()
+                self.assertExit(proc, 0)
+                self.assertEqual(self.write_keys(), [("POST", ISSUE_COMMENTS)])
+                self.assertEqual(self.writes()[0]["body"], body)
+
+    def test_summary_has_no_verdict_line_rule(self):
+        summary = f"{SUMMARY_MARKER}\n## PR Summary\n**What this PR does:** x\n"
+        review = f"{REVIEW_MARKER}\n<!-- claude-verdict: COMMENT -->\n## Comprehensive Review\n"
+        self.stage("summary.md", summary)
+        self.stage("review.md", review)
+        proc = self.run_publish()
+        self.assertExit(proc, 0)
+        self.assertEqual([c["body"] for c in self._top_level_writes()], [summary, review])
+
+    def test_bad_review_does_not_block_the_summary(self):
+        summary = f"{SUMMARY_MARKER}\n## PR Summary\n"
+        self.stage("summary.md", summary)
+        self.stage("review.md", f"{REVIEW_MARKER}\n<!-- claude-verdict: MERGE -->\n")
+        proc = self.run_publish()
+        self.assertNotEqual(proc.returncode, 0, self.output)
+        self.assertEqual([c["body"] for c in self._top_level_writes()], [summary])
 
 
 if __name__ == "__main__":
