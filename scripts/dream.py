@@ -39,6 +39,8 @@ Usage:
     python scripts/dream.py                          # this repo, since last run
     python scripts/dream.py --repo ../other --since 2026-01-01
     python scripts/dream.py --no-stamp --json
+    python scripts/dream.py --link HASH12 SIG_ID     # note HASH12 answers signal SIG_ID
+    python scripts/dream.py --compare                # did the linked signals drop?
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import hashlib
 import re
 import subprocess
 from collections import Counter, defaultdict
@@ -53,6 +56,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from _dream_parse import MAX_EXCERPTS, SHAPE_COUNTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
+import _dream_measure as measure  # noqa: E402
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
@@ -99,10 +103,53 @@ def total_shape(sessions: list[dict], key: str) -> int:
     return sum(s["shape"][key] for s in sessions)
 
 
+def signal_id(key: str) -> str:
+    """Stable 8-hex id of a signal key; independent of counts, so it survives across runs."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
+
+
+def _esc_key(fam: str, t1: int, t2: int) -> str:
+    return f"escalation:{scrub(fam, 80)}:{TIER_NAMES[t1]}->{TIER_NAMES[t2]}"
+
+
+def _err_key(tool: str, sig: str) -> str:
+    return f"tool-error:{scrub(tool, 80)}:{sig}"
+
+
+def signal_table(sessions: list[dict]) -> dict:
+    """``{sig_id: {key, sessions, count}}`` for *every* signal seen in at least one session.
+
+    Unlike ``aggregate``'s top-N and ``--min-sessions`` cuts, nothing is dropped:
+    a signature that slips out of the top 5 must not read as zero to ``--compare``.
+    Keys are built from already-scrubbed text only.
+    """
+    seen: dict[str, list] = defaultdict(lambda: [set(), 0])
+
+    def add(key: str, sid: str, n: int) -> None:
+        seen[key][0].add(sid)
+        seen[key][1] += n
+
+    for s in sessions:
+        for rep in s["reports"]:
+            if rep["verdict"] in ("BLOCKED", "PARTIAL"):
+                add(f"{rep['verdict'].lower()}:{scrub(rep['agent'], 80)}", s["id"], 1)
+            pins = sum(1 for t in rep["flags"] if t.startswith("Inverted pin:"))
+            if pins:
+                add("inverted-pins", s["id"], pins)
+        for fam, t1, t2 in s["escalations"]:
+            add(_esc_key(fam, t1, t2), s["id"], 1)
+        for (tool, sig), n in s["errors"].items():
+            add(_err_key(tool, sig), s["id"], n)
+        for key in ("corrections", "reverts", "interrupts"):
+            if s[key]:
+                add(key, s["id"], s[key])
+    return {signal_id(k): {"key": k, "sessions": len(ids), "count": n} for k, (ids, n) in sorted(seen.items())}
+
+
 def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) -> dict:
     """Fold per-session summaries into the proposal's data."""
     verdicts: dict[str, Counter] = defaultdict(Counter)
-    esc: dict[str, set] = defaultdict(set)
+    esc: dict[tuple, set] = defaultdict(set)
     errs: dict[tuple, list] = defaultdict(lambda: [set(), 0])
     oos: dict[str, list] = defaultdict(lambda: [set(), ""])
     flags = []
@@ -115,7 +162,7 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
                 entry[0].add(s["id"])
                 entry[1] = t
         for fam, t1, t2 in s["escalations"]:
-            esc[f"{fam}: {TIER_NAMES[t1]}→{TIER_NAMES[t2]}"].add(s["id"])
+            esc[(fam, t1, t2)].add(s["id"])
         for key, n in s["errors"].items():
             errs[key][0].add(s["id"])
             errs[key][1] += n
@@ -123,12 +170,20 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
     having = lambda key: {s["id"] for s in sessions if s[key]}  # noqa: E731
     total = lambda key: sum(s[key] for s in sessions)  # noqa: E731
     pins = {f["session"] for f in flags if f["text"].startswith("Inverted pin:")}
-    recurring = [{"kind": "escalation", "summary": k, "sessions": len(v)} for k, v in sorted(esc.items())]
+    recurring = sorted(
+        (
+            {"kind": "escalation", "summary": f"{f}: {TIER_NAMES[a]}→{TIER_NAMES[b]}", "sessions": len(v),
+             "id": signal_id(_esc_key(f, a, b))}
+            for (f, a, b), v in esc.items()
+        ),
+        key=lambda r: r["summary"],
+    )
     recurring += [
-        {"kind": "tool-error", "summary": f"{t}: {sig}", "sessions": len(ids), "count": n} for (t, sig), (ids, n) in top
+        {"kind": "tool-error", "summary": f"{t}: {sig}", "sessions": len(ids), "count": n, "id": signal_id(_err_key(t, sig))}
+        for (t, sig), (ids, n) in top
     ]
     recurring += [
-        {"kind": kind, "summary": text, "sessions": len(ids)}
+        {"kind": kind, "summary": text, "sessions": len(ids), "id": signal_id(kind)}
         for kind, text, ids in (
             ("corrections", f"{total('corrections')} user corrections", having("corrections")),
             ("reverts", f"{total('reverts')} revert-style git commands", having("reverts")),
@@ -190,7 +245,7 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
     ]
     out += _section("Format check", [f"- {w}" for w in agg["drift"]], "Transcript shapes look as expected.")
     empty = "None met the threshold." if agg["sessions_read"] else "No transcripts found in the window; nothing to review."
-    rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions)" for r in agg["recurring"]]
+    rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions) [sig {r['id']}]" for r in agg["recurring"]]
     rec += [f"  - correction excerpt: {x}" for x in agg["corrections"]["excerpts"]]
     out += _section("Recurring patterns", rec, empty)
     table = [
@@ -280,24 +335,40 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path)
     p.add_argument("--json", action="store_true", help="also print the structured result to stdout")
     p.add_argument("--no-stamp", action="store_true", help="do not advance the watermark")
+    p.add_argument("--link", nargs=2, metavar=("HASH12", "SIG_ID"), help="record that ledger note HASH12 answers signal SIG_ID")
+    p.add_argument("--compare", action="store_true", help="per linked note, compare its signal's rate before and after")
+    p.add_argument("--ledger", type=Path, help="learning ledger for --compare (default: <repo>/memory/learning-log.md)")
+    p.add_argument("--min-after", type=int, default=10, help="sessions needed after a note before judging it (default 10)")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.out and args.out.suffix.lower() == ".json":
+        # The sidecar is written at out.with_suffix(".json"); a .json --out would be overwritten by it.
+        parser.error("--out must not end in .json: that path is reserved for the run's JSON sidecar")
     start = datetime.now(timezone.utc)
     config = rs.config_dir()
     root = main_root(args.repo)
     key = rs.repo_key(str(root))
     state_dir = config / "dreams" / key
+    if args.link:
+        return measure.run_link(state_dir, *args.link, start)
+    if args.compare:
+        return measure.run_compare(state_dir, args.ledger or root / "memory" / "learning-log.md", args.min_after, args.json)
     since = parse_iso(args.since) if args.since else read_since(state_dir / STATE_NAME, start)
     dirs = args.transcripts or transcript_dirs(args.projects_dir or config / "projects", root)
     files, skipped = select_sessions([Path(d) for d in dirs], since, args.max_sessions)
-    agg = aggregate([parse_session(f) for f in files], min_sessions=args.min_sessions, skipped=skipped)
+    sessions = [parse_session(f) for f in files]
+    agg = aggregate(sessions, min_sessions=args.min_sessions, skipped=skipped)
     since_s, until_s = since.strftime("%Y-%m-%dT%H:%M:%SZ"), start.strftime("%Y-%m-%dT%H:%M:%SZ")
     out = args.out or state_dir / f"{start.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(agg, repo_key=key, since=since_s, until=until_s), encoding="utf-8")
+    sidecar = {"schema": measure.SCHEMA, "repo_key": key, "since": since_s, "until": until_s,
+               "sessions_read": agg["sessions_read"], "agent_dispatches": agg["agent_dispatches"], "signals": signal_table(sessions)}
+    out.with_suffix(".json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
     if not args.no_stamp:
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_dir / STATE_NAME).write_text(json.dumps({"since": until_s}), encoding="utf-8")
