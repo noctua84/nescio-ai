@@ -13,8 +13,10 @@ it that must NOT move:
     exactly what the note already holds, still dedups;
   * "already holds" is decided on the RENDERED form - `corroboration: 3` is the
     int `3`, while the string `"3"` renders `corroboration: "3"` and differs;
-  * a frontmatter-only update appends a ledger line, and the duplicate body hash
-    that line carries does not break the dedup set.
+  * a frontmatter-only update appends a `frontmatter:` ledger line - distinct
+    from `promoted:` so it cannot collide with the original promotion line even
+    when date, target and name match - and the duplicate body hash that line
+    carries does not break the dedup set.
 
 Kept apart from `test_promote_frontmatter.py`, which covers how the field is
 rendered, refreshed and validated; this module covers only whether a nomination
@@ -266,7 +268,7 @@ class LedgerTest(unittest.TestCase):
             self.assertEqual(after[0], first[0], "the original promotion line survives")
             self.assertEqual(
                 after[1],
-                f"- 2026-08-01 | {TARGET} | {h} | {pl.LEDGER_VERB_PROMOTED} backup-first",
+                f"- 2026-08-01 | {TARGET} | {h} | {pl.LEDGER_VERB_FRONTMATTER} backup-first",
             )
 
             note_before, ledger_before = repo.text(), repo.ledger_text()
@@ -274,6 +276,55 @@ class LedgerTest(unittest.TestCase):
             self.assertTrue(_skipped_dedup(summary), summary)
             self.assertEqual(repo.text(), note_before)
             self.assertEqual(repo.ledger_text(), ledger_before)
+
+    def test_same_date_bump_still_appends_a_distinct_frontmatter_line(self):
+        # The vanishing case: date, target, hash and name all equal the original
+        # nomination's. Under the shared `promoted:` verb the composed line was
+        # byte-identical and `_append_ledger_event` dropped it as a duplicate.
+        with tempfile.TemporaryDirectory() as d:
+            repo = _Repo(self, d, _nom(frontmatter=SEEDED_FM))
+            h = pl.content_hash12(_nom()["body"])
+            first = repo.entries()
+            self.assertEqual(len(first), 1)
+            self.assertIn(pl.LEDGER_VERB_PROMOTED, first[0])
+
+            summary = repo.run(
+                _nom(frontmatter={**SEEDED_FM, "corroboration": 3})  # same date, same name
+            )
+            self.assertFalse(_skipped_dedup(summary), summary)
+            self.assertIn("corroboration: 3\n", repo.text())
+
+            after = repo.entries()
+            self.assertEqual(len(after), 2, after)
+            self.assertEqual(after[0], first[0], "the original promoted: line survives")
+            self.assertEqual(
+                after[1],
+                f"- 2026-07-12 | {TARGET} | {h} | {pl.LEDGER_VERB_FRONTMATTER} backup-first",
+            )
+            self.assertNotEqual(after[1], first[0])
+            self.assertNotIn(pl.LEDGER_VERB_PROMOTED, after[1])
+
+            # Set membership holds: the hash is still in the dedup set, so an
+            # identical-body nomination declaring nothing new still dedups.
+            self.assertEqual(
+                pl.parse_ledger(repo.ledger)[h], ("2026-07-12", TARGET)
+            )
+            note_before, ledger_before = repo.text(), repo.ledger_text()
+            self.assertTrue(_skipped_dedup(repo.run(_nom())))
+            # Re-running the identical bump is stopped by
+            # `declared_frontmatter_changed`, not by the duplicate-line guard.
+            self.assertTrue(
+                _skipped_dedup(repo.run(_nom(frontmatter={**SEEDED_FM, "corroboration": 3})))
+            )
+            self.assertEqual(repo.text(), note_before)
+            self.assertEqual(repo.ledger_text(), ledger_before)
+
+    def test_verb_constants_are_distinct(self):
+        self.assertEqual(pl.LEDGER_VERB_FRONTMATTER, "frontmatter:")
+        self.assertEqual(
+            len({pl.LEDGER_VERB_PROMOTED, pl.LEDGER_VERB_SUPERSEDED, pl.LEDGER_VERB_FRONTMATTER}),
+            3,
+        )
 
     def test_successive_bumps_each_record_a_line(self):
         with tempfile.TemporaryDirectory() as d:
