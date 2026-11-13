@@ -300,7 +300,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.out and args.out.suffix.lower() == ".json":
+        # The sidecar is written at out.with_suffix(".json"); a .json --out would be overwritten by it.
+        parser.error("--out must not end in .json: that path is reserved for the run's JSON sidecar")
     start = datetime.now(timezone.utc)
     config = rs.config_dir()
     root = main_root(args.repo)

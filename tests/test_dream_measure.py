@@ -1,5 +1,7 @@
 """Sidecar, ``--link`` and ``--compare`` for dream.py. Synthetic fixtures only."""
 
+import contextlib
+import io
 import json
 import sys
 import unittest
@@ -54,6 +56,13 @@ class SidecarTest(DreamTestBase):
         out = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out), *argv)
         return json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+
+    def test_json_out_is_refused_before_anything_is_written(self):
+        out = self.tmp / "p.JSON"
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
+            self.run_main("--no-stamp", "--out", str(out))
+        self.assertEqual(cm.exception.code, 2)
+        self.assertFalse(out.exists())
 
     def test_sidecar_lists_every_signal_not_only_top_five(self):
         kinds = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"]
