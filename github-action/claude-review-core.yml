@@ -872,10 +872,15 @@ jobs:
               echo "::warning::Staged file '$lab' not published: could not list the existing comments."
               return 1
             fi
-            if [ -n "$id" ]; then
-              gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$file" >/dev/null || return 1
+            # An earlier template version posted as claude[bot], and GITHUB_TOKEN
+            # may not be allowed to edit that comment. The merge gate reads the
+            # newest marker comment, so a fresh comment is correct.
+            if [ -n "$id" ] && gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$file" >/dev/null; then
               echo "Updated comment $id from '$lab'."
             else
+              if [ -n "$id" ]; then
+                echo "::warning::Could not edit comment $id from '$lab'; posting a new comment instead."
+              fi
               gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" -F body=@"$file" >/dev/null || return 1
               echo "Created a comment from '$lab'."
             fi
