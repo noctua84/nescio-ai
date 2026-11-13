@@ -53,7 +53,7 @@ proposal and not a rewritten wiki.
 | Orchestrator BLOCKED routing and tier escalation | A BLOCKED or PARTIAL from a `-simple` or `-standard` tier, followed by a re-dispatch one tier up | Shows as a sequence of `agentType`s in one session, so it can be detected without a theme |
 | `scripts/session_anatomy.py` | Streams transcripts line by line and tolerates malformed lines | The parsing pattern copied here |
 | `consolidate-memory` | Not in this repo. It is reachable only as the Anthropic plugin skill `anthropic-skills:consolidate-memory`, which merges duplicates and fixes stale facts in memory files. | Deliberately **not** reimplemented. See section 4c. |
-| QA reports, `docs/reports/YYYY-MM-DD-*.md` | Severity-ranked audits written by the QA agent | Optional input (section 9) |
+| QA reports, `docs/reports/YYYY-MM-DD-*.md` | Severity-ranked audits written by the QA agent (`agents/reviewer.md`) | Severity counts per audit (section 4a) |
 
 ## 3. Trigger
 
@@ -123,8 +123,47 @@ and has no model in it. A **reviewer** pass is Claude running inside `/dream`.
   included, up to `--max-sessions`, newest first.
 - From each one: agent results (`toolUseResult` with `agentType`), user
   messages, `tool_use` and `tool_result` pairs, and Bash commands.
-- Not yet read: subagent transcripts under `<session>/subagents/`, QA report
-  files, the learning trail, and auto-memory. Section 9 covers these.
+- **Subagent transcripts** under `<session>/subagents/agent-*.jsonl`, with the
+  agent type from the sibling `agent-*.meta.json` (`"unknown"` when it is
+  missing), capped by `--max-subagents` per parent session (default 25,
+  newest first) and switched off by `--no-subagents`. From each one: tool
+  errors keyed by agent type, tool and signature, and identical Bash commands
+  run more than once (retries). Subagents are reached only through their
+  parent, so a parent dropped by `--max-sessions` or the watermark hides its
+  subagents too. See "Measured" below.
+- **QA audit reports** `docs/reports/YYYY-MM-DD-*.md` in the main worktree,
+  dated on or after the window start, capped by `--max-qa-reports` (default
+  10, `0` disables). The format is defined in `agents/reviewer.md` (the QA
+  agent; `qa-guard.md` is the CI gate and writes no report). The extractor
+  reads the `**Severity Summary:**` line and falls back to counting
+  `### [SEVERITY]` headings. It emits counts only, never finding titles.
+- Not yet read: the learning trail and auto-memory.
+
+**Measured** on one machine, 14-day window, aggregate counts only:
+
+| | Parent transcripts | Subagent transcripts |
+|---|---|---|
+| Files | 65 sessions | 412 files in 47 of those sessions |
+| Bytes | 175 MB | 181 MB |
+| Parse time (warm cache) | about 1 s | about 1 s |
+| Tool errors (rejections excluded) | 214 | 369 |
+| Distinct error signatures | not compared | 188, of which only 20 also appear in a parent transcript and 26 recur in 2+ sessions |
+| Identical Bash reruns | not measured | 64, in 47 files |
+| Test-command runs | not measured | 1,329 (about 3 per subagent) |
+
+So subagent transcripts are worth reading. Most of a builder's friction (a
+failing command, a retry, a shell trap) never reaches the parent, which sees
+only the final report. The read roughly doubles the bytes, which is why it is
+capped per session. A 60-day window gave the same numbers, so transcript
+retention, not the window, bounds the input on this machine. 25 of the 412
+files had no `meta.json`.
+
+QA reports: the five reports in this repo all carry the summary line (0
+Critical, 8 Major, 36 Minor, 26 Info in total). Audits are sparse, about one
+every two weeks, so a single dream window usually holds zero or one. The
+severity counts are useful as a trend across dreams, not as a per-dream
+recurring pattern, so the extractor reports them as a table and not under
+"Recurring patterns".
 
 ### 4b. Signals (extractor)
 
@@ -360,8 +399,11 @@ The minimal data model has three parts, all machine-local under
 - `commands/dream.md` holds the `/dream` reviewer steps: run the extractor,
   triage each pattern into memory nomination, held prompt diff, or drop, and
   apply the privacy gate.
-- `tests/test_dream.py` covers the extractor on synthetic JSONL fixtures. No
-  real transcripts are used.
+- `scripts/_dream_inputs.py` reads the extra inputs of section 4a: subagent
+  transcripts (errors, reruns and recovered reports) and QA report severity
+  counts. `scripts/_dream_aggregate.py` folds sessions into the proposal data.
+- `tests/test_dream.py` and `tests/test_dream_inputs.py` cover the extractor
+  on synthetic fixtures. No real transcripts are used.
 
 ## 9. Open
 
@@ -377,8 +419,26 @@ The minimal data model has three parts, all machine-local under
   ranking before `/dream` is pleasant to review.
 - User-rejected tool calls are excluded from tool errors. A rejection that
   carries a reason now counts as a correction; a bare rejection does not.
-- Reading subagent transcripts, which hold the builder's own tool errors and
-  retries, and QA reports (severity counts per audit).
+- Subagent transcripts and QA reports are read now (section 4a). Still open:
+  - **Verdicts from subagent transcripts: done.** A subagent transcript is
+    named `agent-<agentId>.jsonl`, and that id matched the parent's `agentId`
+    in every joinable case (409 of 409). When the parent has no report for an
+    agent id, the extractor takes the last assistant text block with a
+    `<verdict>` from the subagent transcript, marks it `source: "subagent"`,
+    and inserts its report event right after that agent's dispatch, so
+    escalation detection sees it. The parent's copy wins on a duplicate. On
+    one machine this took parsed reports from 245 to 302 of 443 dispatches
+    (57 recovered); only 3 of the recovered verdicts were PARTIAL or BLOCKED,
+    so escalations stay rare. The "dispatches but no reports" drift warning
+    still counts parent reports only, so subagent files cannot hide a parent
+    format change. Still open: the remaining gap is mostly agents without a
+    verdict contract (explore, general-purpose), and why about half of the
+    builder transcripts carry no verdict is not known.
+  - **Test reruns after a failure.** The extractor counts identical Bash
+    reruns. It does not yet pair a failing test command with its rerun, which
+    would separate "fixed and re-verified" from "retried blindly".
+  - **QA trend.** Severity counts per audit are reported, but nothing yet
+    compares them across dreams or links a finding category to a memory note.
 - **Detecting successful workflows automatically.** Measured on one machine's
   last 60 days (870 main transcripts, aggregate counts only). The counts were taken
   from foreground `toolUseResult` reports only, before the hand-back fix above,

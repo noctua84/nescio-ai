@@ -194,6 +194,15 @@ class ToolErrorTest(DreamTestBase):
         self.assertEqual(a, b)
         self.assertIn("<path>", a)
 
+    def test_bare_exit_code_has_no_signature(self):
+        self.assertEqual(dp.error_signature("Exit code 1"), "")
+        self.assertEqual(dp.error_signature("Exit code 1\n\n"), "")
+        self.assertNotEqual(dp.error_signature("Exit code 2\nmake: failed"), "")
+
+    def test_bare_exit_code_tool_error_is_not_counted(self):
+        s = self.parse("a", [assistant(("t1", "Bash", {})), tool_error("t1", "Exit code 1")])
+        self.assertEqual(len(s["errors"]), 0)
+
     def test_recurrence_across_two_sessions_meets_threshold(self):
         agg = dream.aggregate([self._session("a", "/p/one.py"), self._session("b", "/q/two.py")])
         errs = [r for r in agg["recurring"] if r["kind"] == "tool-error"]
@@ -284,7 +293,7 @@ class CliTest(DreamTestBase):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 1 (dispatches seen: 1)", text)
+        self.assertIn("Agent reports parsed: 1, of which 0 from subagent transcripts (dispatches seen: 1)", text)
         self.assertNotIn("report shape may have changed", text)
 
     def test_dispatches_without_reports_warn_in_format_check(self):
@@ -292,7 +301,7 @@ class CliTest(DreamTestBase):
         out_path = self.tmp / "p.md"
         self.run_main("--no-stamp", "--out", str(out_path))
         text = out_path.read_text(encoding="utf-8")
-        self.assertIn("Agent reports parsed: 0 (dispatches seen: 1)", text)
+        self.assertIn("Agent reports parsed: 0, of which 0 from subagent transcripts (dispatches seen: 1)", text)
         self.assertIn("## Format check\n\n- Agent dispatches seen but no agent reports parsed", text)
 
     def test_sessions_without_agents_do_not_warn(self):

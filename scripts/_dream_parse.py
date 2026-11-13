@@ -57,7 +57,9 @@ TASK_ID_RE = re.compile(r"<task-id>\s*([^<\s]+)\s*</task-id>")
 TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 # A tool result the *user* declined; an `is_error` flag on it is a decision, not a failure.
 REJECTION_RE = re.compile(r"^\s*(the user doesn'?t want to|user rejected|\[request interrupted by user)", re.IGNORECASE)
-# Per-session transcript-shape counters; ``dream.drift_warnings`` reads their sum to catch a silent format change.
+# A Bash failure line with no output after it: carries no signature of its own.
+EXIT_ONLY_RE = re.compile(r"Exit code \d+")
+# Per-session transcript-shape counters; ``_dream_aggregate.drift_warnings`` reads their sum to catch a silent format change.
 SHAPE_COUNTS = (
     "entries", "typed", "with_message", "tool_uses", "tool_results", "result_dicts", "agent_results",
 )
@@ -108,9 +110,16 @@ def split_tier(agent_type: str) -> tuple[str, int]:
 
 
 def error_signature(text: str) -> str:
-    """First line of an error with paths, hex and numbers collapsed."""
+    """First line of an error with paths, hex and numbers collapsed.
+
+    Returns "" when there is no usable signature: the text is empty or only an
+    ``Exit code N`` line (a command that printed nothing). An empty string means
+    "skip": callers do not count that error at all.
+    """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    first = " ".join(lines[:2]) if lines and lines[0].startswith("Exit code") else (lines[0] if lines else "")
+    if not lines or (len(lines) == 1 and EXIT_ONLY_RE.fullmatch(lines[0])):
+        return ""
+    first = " ".join(lines[:2]) if lines[0].startswith("Exit code") else lines[0]
     first = PATH_RE.sub("<path>", first)
     first = HEX_RE.sub("<hex>", first)
     return scrub(DIGITS_RE.sub("<n>", first), 120)
@@ -157,7 +166,7 @@ def _new_session(path: Path) -> dict:
         "humans": 0, "last_ask": False,
         "shape": {**dict.fromkeys(SHAPE_COUNTS, 0), "typed_keys": Counter()},
         # Parse-time bookkeeping, dropped before the summary is returned.
-        "_sub": {}, "_agents": {}, "_seen_reports": set(),
+        "_sub": {}, "_agents": {}, "_seen_reports": set(), "_dispatch_at": {}, "_agent_dispatch": {},
     }
 
 
@@ -197,6 +206,7 @@ def _on_assistant(entry: dict, s: dict, tools: dict, seen: set) -> None:
         if name in ("Agent", "Task") and isinstance(inp.get("subagent_type"), str):
             s["_sub"][uid] = inp["subagent_type"]
             s["events"].append(("dispatch", inp["subagent_type"]))
+            s["_dispatch_at"][uid] = len(s["events"]) - 1
         cmd = inp.get("command")
         if name == "Bash" and isinstance(cmd, str) and REVERT_RE.search(cmd):
             s["reverts"] += 1
@@ -245,6 +255,10 @@ def _on_user_reports(entry: dict, s: dict, result, text: str, tool_ids: list) ->
         agent = agent or next((s["_sub"][t] for t in tool_ids if t in s["_sub"]), None)
         if agent and agent_id:
             s["_agents"][agent_id] = agent
+        if agent_id:
+            at = next((s["_dispatch_at"][t] for t in tool_ids if t in s["_dispatch_at"]), None)
+            if at is not None:
+                s["_agent_dispatch"][agent_id] = at
         if isinstance(result.get("agentType"), str) and not result.get("isAsync"):
             add_report(s, agent, _text_of(result.get("content")), agent_id, ts)
             return True
@@ -285,7 +299,9 @@ def _on_user(entry: dict, s: dict, tools: dict) -> None:
         if REJECTION_RE.match(text) and "the user said:" in text.lower():  # a rejection with a reason
             s["corrections"] += 1
         if block.get("is_error") is True and not REJECTION_RE.match(text):
-            s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), error_signature(text))] += 1
+            sig = error_signature(text)
+            if sig:
+                s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), sig)] += 1
     if not results and result is None and not entry.get("isMeta") and not agent_traffic:
         _on_human(text, s)
 
@@ -310,6 +326,9 @@ def parse_session(path: Path) -> dict:
             elif entry.get("type") == "user":
                 _on_user(entry, s, tools)
     s["escalations"] = find_escalations(s["events"])
-    for private in ("_sub", "_agents", "_seen_reports"):
+    # Public: lets ``_dream_inputs.merge_subagent_reports`` tell which agents the parent already reported.
+    s["reported_ids"] = sorted({aid for aid, _ in s["_seen_reports"] if aid})
+    s["agent_dispatch"] = dict(s["_agent_dispatch"])
+    for private in ("_sub", "_agents", "_seen_reports", "_dispatch_at", "_agent_dispatch"):
         del s[private]
     return s
