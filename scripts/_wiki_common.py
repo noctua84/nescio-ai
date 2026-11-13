@@ -152,9 +152,9 @@ def _unquote_scalar(v: str) -> str:
 def split_frontmatter(text: str) -> tuple[dict[str, object], str]:
     """Split a note into (frontmatter dict, body).
 
-    Supports flat scalars and simple `- ` lists. Quoted scalars (as written by
-    `yaml_scalar`) are unquoted; plain ones are returned as-is. Returns
-    ({}, text) when no frontmatter block opens at the start or it never closes.
+    Supports flat scalars and simple `- ` lists. Quoted scalars and list items
+    (as written by `yaml_scalar`) are unquoted; plain ones are returned as-is.
+    Returns ({}, text) when no frontmatter block opens at the start or it never closes.
     """
     if not text.startswith("---\n"):
         return {}, text
@@ -170,7 +170,7 @@ def split_frontmatter(text: str) -> tuple[dict[str, object], str]:
         if raw.startswith("  - ") and key is not None:
             bucket = fm.setdefault(key, [])
             if isinstance(bucket, list):
-                bucket.append(raw[4:].strip())
+                bucket.append(_unquote_scalar(raw[4:].strip()))
             continue
         if ":" in raw:
             k, _, v = raw.partition(":")
