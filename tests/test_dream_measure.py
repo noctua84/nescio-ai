@@ -92,6 +92,7 @@ class SidecarTest(DreamTestBase):
             report("b-simple", verdict_text("BLOCKED", deviations=pins)),
             dispatch("d2", "b"),
             report("b", verdict_text("PARTIAL")),
+            human("Please tidy the build script"),  # the opening message is never a correction
             human("No, use the other file"),
             human("[Request interrupted by user]"),
             assistant(("r1", "Bash", {"command": "git reset --hard"})),
