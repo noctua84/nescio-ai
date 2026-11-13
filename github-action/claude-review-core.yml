@@ -93,9 +93,14 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          PR_NUMBER='${{ inputs.pr_number }}'
-          META=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+          # Inputs arrive via env; nothing is interpolated into run:.
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::pr_number must be a positive integer"
+            exit 1
+          fi
+          META=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
             --jq '{title, user: .user.login, base_ref: .base.ref, base_sha: .base.sha, head_ref: .head.ref, head_sha: .head.sha}')
           {
             echo "number=$PR_NUMBER"
