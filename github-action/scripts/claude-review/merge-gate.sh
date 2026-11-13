@@ -111,8 +111,11 @@ if [ "$EVENT" != "REQUEST_CHANGES" ]; then
   done
 fi
 
+# `--jq` runs once per page under `--paginate`, so the newest review is
+# taken from the streamed matches with `tail -n 1`, not with jq's `last`.
 PRIOR_STATE=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
-  --jq "[.[] | select(.user.login == \"$BOT_LOGIN\")] | last | .state // \"NONE\"")
+  --jq ".[] | select(.user.login == \"$BOT_LOGIN\") | .state" | tail -n 1)
+PRIOR_STATE="${PRIOR_STATE:-NONE}"
 
 echo "Prior bot review state: $PRIOR_STATE"
 echo "Desired state:          $DESIRED_STATE"
