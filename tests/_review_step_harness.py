@@ -1,7 +1,8 @@
 """Shared harness for behaviour tests of the review core's shell steps.
 
-A step's `run:` script is extracted from `github-action/claude-review-core.yml`
-and executed with bash against a fake `gh` on PATH. The fake logs every call
+A step's script (`github-action/scripts/claude-review/<name>.sh`, the source the
+generator inlines into the shipped core) is executed directly with bash against
+a fake `gh` on PATH. The fake logs every call
 and serves canned JSON for GET calls, applying the `--jq` filter with the real
 `jq` and printing strings raw like `gh` does. Tests assert on the logged WRITE
 calls (method + endpoint + fields), never on log wording.
@@ -10,7 +11,7 @@ Pagination is emulated the way `gh` does it: a response can be configured as
 several pages; `--paginate` walks all of them and applies `--jq` to EACH page
 separately, while a call without `--paginate` sees page 1 only.
 
-Used by test_review_publish_step.py and test_review_merge_gate.py. Skipped
+Used by the test_review_*_step.py / test_review_merge_gate.py behaviour tests. Skipped
 unless `bash` and `jq` are on PATH.
 """
 import json
@@ -22,10 +23,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
-
 ROOT = Path(__file__).resolve().parent.parent
-CORE = ROOT / "github-action" / "claude-review-core.yml"
+SCRIPTS = ROOT / "github-action" / "scripts" / "claude-review"
 
 BASH = shutil.which("bash")
 JQ = shutil.which("jq")
@@ -118,27 +117,24 @@ def split_pages(data, pages):
     return out
 
 
-def step_script(job, name):
-    """The `run:` text of the uniquely named step in `job`, LF-normalised."""
-    doc = yaml.safe_load(CORE.read_text(encoding="utf-8"))
-    steps = [s for s in doc["jobs"][job]["steps"] if s.get("name") == name]
-    assert len(steps) == 1, f"expected exactly one {name!r} step in job {job!r}"
-    return steps[0]["run"].replace("\r\n", "\n")
+def step_script(name):
+    """Text of `scripts/claude-review/<name>.sh`, LF-normalised."""
+    return (SCRIPTS / f"{name}.sh").read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 @unittest.skipUnless(BASH and JQ, "bash and jq are required on PATH")
 class StepHarness(unittest.TestCase):
     """Runs one workflow step's script against the fake gh.
 
-    Subclasses set JOB and STEP; `run_step(env)` executes it.
+    Subclasses set SCRIPT (the file stem, e.g. "merge-gate"); `run_step(env)`
+    executes it.
     """
 
-    JOB = None
-    STEP = None
+    SCRIPT = None
 
     @classmethod
     def setUpClass(cls):
-        cls.script_text = step_script(cls.JOB, cls.STEP)
+        cls.script_text = step_script(cls.SCRIPT)
         cls.crlf_jq = jq_writes_crlf()
 
     def setUp(self):

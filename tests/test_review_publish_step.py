@@ -1,8 +1,7 @@
 """Behaviour tests for the "Publish review comments" step of the review core.
 
-The step's `run:` script is extracted from
-`github-action/claude-review-core.yml` and executed with bash against a fake
-`gh` on PATH (see _review_step_harness.py). The tests assert on the logged
+`github-action/scripts/claude-review/publish-comments.sh` is executed directly
+with bash against a fake `gh` on PATH (see _review_step_harness.py). The tests assert on the logged
 WRITE calls (method + endpoint + fields), never on log wording.
 
 Skipped unless `bash` and `jq` are on PATH.
@@ -14,8 +13,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _review_step_harness import StepHarness, comment as _comment, posix as _posix  # noqa: E402
-
-PUBLISH_STEP = "Publish review comments"
 
 PR = "7"
 REPO = "o/r"
@@ -30,8 +27,7 @@ REVIEW_MARKER = "<!-- claude-comprehensive-review -->"
 
 
 class _PublishHarness(StepHarness):
-    JOB = "review"
-    STEP = PUBLISH_STEP
+    SCRIPT = "publish-comments"
 
     def setUp(self):
         super().setUp()

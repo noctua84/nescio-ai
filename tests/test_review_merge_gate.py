@@ -1,8 +1,7 @@
 """Behaviour tests for the merge gate's verdict trust in the review core.
 
-The `merge-gate` job's "Submit formal review based on Claude's verdict" step is
-extracted from `github-action/claude-review-core.yml` and run with bash against
-the fake `gh` from _review_step_harness.py. The contract under test:
+`github-action/scripts/claude-review/merge-gate.sh` (the merge-gate job's step)
+is run directly with bash against the fake `gh` from _review_step_harness.py. The contract under test:
 
 * The verdict comes ONLY from the newest issue comment that is authored by a
   trusted login (`github-actions[bot]` or `claude[bot]`, the publish step's
@@ -31,9 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _review_step_harness import StepHarness, comment  # noqa: E402
 
-GATE_JOB = "merge-gate"
-GATE_STEP = "Submit formal review based on Claude's verdict"
-
 PR = "7"
 REPO = "o/r"
 
@@ -58,8 +54,7 @@ def review(line2, *rest, nl="\n"):
 
 
 class _GateHarness(StepHarness):
-    JOB = GATE_JOB
-    STEP = GATE_STEP
+    SCRIPT = "merge-gate"
 
     def setUp(self):
         super().setUp()
@@ -335,6 +330,76 @@ class NoCommentsTest(_GateHarness):
     def test_no_comments_at_all_fails_closed(self):
         self.run_gate()
         self.assertSubmitted("REQUEST_CHANGES", NO_COMMENT_REASON)
+
+
+BOT = "github-actions[bot]"
+
+
+def bot_review(rid, state, login=BOT):
+    return {"id": rid, "user": {"login": login}, "state": state}
+
+
+class PriorStateTest(_GateHarness):
+    """Idempotency and the stale fail-closed block, driven by prior reviews."""
+
+    def gate_with(self, v, reviews):
+        self.respond(REVIEWS, reviews)
+        self.comments([comment(100, "octocat", "hi"),
+                       comment(101, BOT, review(verdict(v)))])
+        self.run_gate()
+
+    def dismissal(self, rid):
+        return ("PUT", f"{REVIEWS}/{rid}/dismissals")
+
+    def test_matching_prior_state_submits_nothing(self):
+        for v, state in (("APPROVE", "APPROVED"),
+                         ("COMMENT", "COMMENTED"),
+                         ("CHANGES_REQUESTED", "CHANGES_REQUESTED")):
+            with self.subTest(verdict=v):
+                self.clear_calls()
+                self.gate_with(v, [bot_review(9, state)])
+                self.assertEqual(self.write_keys(), [])
+
+    def test_changed_verdict_submits_a_new_review(self):
+        self.gate_with("APPROVE", [bot_review(9, "COMMENTED")])
+        self.assertEqual(self.write_keys(), [("POST", REVIEWS)])
+        self.assertSubmitted("APPROVE")
+
+    def test_only_the_bots_own_reviews_count_as_prior_state(self):
+        self.gate_with("APPROVE", [bot_review(9, "APPROVED", login="octocat")])
+        self.assertSubmitted("APPROVE")
+
+    def test_only_the_latest_bot_review_counts(self):
+        self.gate_with("COMMENT", [bot_review(8, "COMMENTED"), bot_review(9, "APPROVED")])
+        self.assertSubmitted("COMMENT")
+
+    def test_stale_block_is_dismissed_before_a_non_blocking_verdict(self):
+        self.gate_with("COMMENT", [bot_review(5, "CHANGES_REQUESTED")])
+        self.assertEqual(self.write_keys(), [self.dismissal(5), ("POST", REVIEWS)])
+        self.assertSubmitted("COMMENT")
+
+    def test_stale_block_is_dismissed_even_when_already_in_desired_state(self):
+        # An old fail-closed block is still on the PR, but the newest bot
+        # review already matches: heal the block, submit nothing new.
+        self.gate_with("COMMENT", [bot_review(5, "CHANGES_REQUESTED"),
+                                   bot_review(6, "COMMENTED")])
+        self.assertEqual(self.write_keys(), [self.dismissal(5)])
+
+    def test_a_blocking_verdict_never_dismisses(self):
+        self.gate_with("CHANGES_REQUESTED", [bot_review(5, "APPROVED")])
+        self.assertEqual(self.write_keys(), [("POST", REVIEWS)])
+        self.assertSubmitted("REQUEST_CHANGES")
+
+    def test_dismissal_failure_is_not_fatal(self):
+        self.refuse("PUT", f"{REVIEWS}/5/dismissals")
+        self.gate_with("COMMENT", [bot_review(5, "CHANGES_REQUESTED")])
+        self.assertSubmitted("COMMENT")
+
+    def test_fail_closed_is_idempotent_across_reruns(self):
+        # No review comment at all, bot already blocking: no new review.
+        self.respond(REVIEWS, [bot_review(5, "CHANGES_REQUESTED")])
+        self.run_gate()
+        self.assertEqual(self.write_keys(), [])
 
 
 if __name__ == "__main__":
