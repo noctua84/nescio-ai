@@ -1217,5 +1217,124 @@ class CheckHooksTest(unittest.TestCase):
             self.assertIn(f"MISSING Stop: {gone}", out.getvalue())
 
 
+class WireCheckFileGuardHookTest(unittest.TestCase):
+    """install.wire_check_file_guard_hook wires a synchronous PreToolUse guard
+    scoped by an exact tool-name matcher, with `onFailure`/`timeout` options
+    that are part of the entry's identity (options drift re-wires in place)."""
+
+    MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell"
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        self.install = importlib.import_module("install")
+        _pin_not_a_venv(self)  # assertions below compare against sys.executable
+        self.out = io.StringIO()
+        self.enterContext(contextlib.redirect_stdout(self.out))
+
+    def _local(self, config_dir: Path) -> Path:
+        return config_dir / "settings.json"
+
+    def _script(self, config_dir: Path) -> str:
+        return str(config_dir / "hooks" / "check_file_guard.py")
+
+    def _seed_script(self, config_dir: Path) -> None:
+        hooks = config_dir / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        (hooks / "check_file_guard.py").write_text("# stub\n", encoding="utf-8")
+
+    def _groups(self, config_dir: Path) -> list:
+        data = json.loads(self._local(config_dir).read_text(encoding="utf-8"))
+        return data["hooks"]["PreToolUse"]
+
+    def test_fresh_wiring_writes_group_with_matcher_and_options(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(list(groups[0]), ["matcher", "hooks"])
+            self.assertEqual(groups[0]["matcher"], self.MATCHER)
+            entry = groups[0]["hooks"][0]
+            self.assertEqual(entry["type"], "command")
+            self.assertEqual(entry["command"], sys.executable)
+            self.assertEqual(entry["args"], [self._script(cfg)])
+            self.assertEqual(entry["onFailure"], "block")
+            self.assertEqual(entry["timeout"], 10)
+            self.assertNotIn("async", entry)
+
+    def test_rerun_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            first = self._local(cfg).read_text(encoding="utf-8")
+            self.out.truncate(0)
+            self.out.seek(0)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), first)
+            self.assertIn("already wired", self.out.getvalue())
+
+    def test_entry_missing_on_failure_is_rewired_as_options_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            stale = {"type": "command", "command": sys.executable,
+                     "args": [self._script(cfg)], "timeout": 10}
+            self._local(cfg).write_text(json.dumps(
+                {"hooks": {"PreToolUse": [
+                    {"matcher": self.MATCHER, "hooks": [stale]}]}}), encoding="utf-8")
+
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+
+            groups = self._groups(cfg)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(len(groups[0]["hooks"]), 1)
+            entry = groups[0]["hooks"][0]
+            self.assertEqual(entry["onFailure"], "block")
+            self.assertEqual(entry["timeout"], 10)
+            self.assertIn("(options changed)", self.out.getvalue())
+
+    def test_changed_option_value_is_rewired(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            data = json.loads(self._local(cfg).read_text(encoding="utf-8"))
+            data["hooks"]["PreToolUse"][0]["hooks"][0]["onFailure"] = "continue"
+            self._local(cfg).write_text(json.dumps(data), encoding="utf-8")
+
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            self.assertEqual(self._groups(cfg)[0]["hooks"][0]["onFailure"], "block")
+
+    def test_dry_run_reports_options_drift_without_writing(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            stale = {"type": "command", "command": sys.executable,
+                     "args": [self._script(cfg)]}
+            text = json.dumps({"hooks": {"PreToolUse": [
+                {"matcher": self.MATCHER, "hooks": [stale]}]}})
+            self._local(cfg).write_text(text, encoding="utf-8")
+
+            self.install.wire_check_file_guard_hook(cfg, dry_run=True)
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), text)
+            self.assertIn("options", self.out.getvalue())
+
+    def test_no_extra_leaves_existing_entry_keys_alone(self):
+        # Callers that pass no `extra` must neither require nor strip options.
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            self._seed_script(cfg)
+            self.install.wire_check_file_guard_hook(cfg, dry_run=False)
+            before = self._local(cfg).read_text(encoding="utf-8")
+            self.install._wire_command_hook(
+                cfg, event_name="PreToolUse", script_name="check_file_guard.py",
+                use_async=False, dry_run=False, matcher=self.MATCHER)
+            self.assertEqual(self._local(cfg).read_text(encoding="utf-8"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

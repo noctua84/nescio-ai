@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "cwd": "C:\\work\\proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "agent_id": "agent-1",
+  "agent_type": "qa-guard",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "C:\\work\\proj\\.github\\workflows\\ci.yml",
+    "content": "name: ci\n"
+  },
+  "tool_use_id": "toolu_01"
+}

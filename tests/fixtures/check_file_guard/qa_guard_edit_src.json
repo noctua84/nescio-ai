@@ -1,0 +1,15 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "agent_id": "agent-1",
+  "agent_type": "qa-guard",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/work/proj/src/app.py",
+    "old_string": "import os\n",
+    "new_string": ""
+  },
+  "tool_use_id": "toolu_05"
+}
