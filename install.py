@@ -832,6 +832,30 @@ def wire_check_file_guard_hook(config_dir: Path, *, dry_run: bool) -> None:
     )
 
 
+def wire_planner_spawn_guard_hook(config_dir: Path, *, dry_run: bool) -> None:
+    """Wire the PreToolUse planner spawn guard (``planner_spawn_guard.py``) into settings.json.
+
+    Same shape as ``wire_check_file_guard_hook``: synchronous so it can deny,
+    ``onFailure: "block"`` so a crashed hook does not fail open, ``timeout`` in
+    seconds.
+
+    The matcher is ``Agent`` alone, so the hook only fires on subagent spawns:
+    no other tool call pays the latency of a synchronous hook. It also does not
+    overlap the check-file guard's matcher, so no single call pays for two hook
+    processes. The script itself returns immediately for any agent other than
+    the planner.
+    """
+    _wire_command_hook(
+        config_dir,
+        event_name="PreToolUse",
+        script_name="planner_spawn_guard.py",
+        use_async=False,
+        dry_run=dry_run,
+        matcher="Agent",
+        extra={"onFailure": "block", "timeout": 10},
+    )
+
+
 def check_hooks(settings_path: Path) -> int:
     """Report every hook in ``settings_path`` whose command or args path is gone.
 
@@ -983,6 +1007,7 @@ def do_relink(stamp: str, dry_run: bool, ledger: dict, parts: frozenset[str], cl
         wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
         wire_check_file_guard_hook(CLAUDE_DIR, dry_run=dry_run)
+        wire_planner_spawn_guard_hook(CLAUDE_DIR, dry_run=dry_run)
 
     if dry_run:
         print(f"\nWould relink {relinked} target(s). Backups kept as *.pre-adopt-*.bak.")
@@ -1044,6 +1069,7 @@ def do_default(dry_run: bool, ledger: dict, parts: frozenset[str], claudemd_choi
             wire_stop_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_sessionstart_hook(CLAUDE_DIR, dry_run=dry_run)
             wire_check_file_guard_hook(CLAUDE_DIR, dry_run=dry_run)
+            wire_planner_spawn_guard_hook(CLAUDE_DIR, dry_run=dry_run)
         elif parts:
             print("  skipping hooks: hooks/ link was not created")
         print("Done. Restart Claude Code / Desktop to pick up changes.")
