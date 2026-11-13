@@ -5,8 +5,9 @@
 # reusable core: it carries no repo-specific knowledge — repo-specific
 # pitfalls are read at review time from `.claude/memory/review-learnings/`
 # and `CLAUDE.md` in the target repo (see check 3f), and grown over time by
-# a high-bar note-PR (see Step 7). Never triggered directly — two callers
-# invoke it:
+# a high-bar note-PR: Claude only stages a candidate note (Step 4b); the
+# "Open review-learning PRs" step turns it into a PR. Never triggered
+# directly — two callers invoke it:
 #
 #   1. The target's CI workflow (named `CI` by convention) calls it as a
 #      final job gated on `needs: [<your CI job ids>]`. GitHub holds a
@@ -92,9 +93,14 @@ jobs:
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          PR_NUMBER='${{ inputs.pr_number }}'
-          META=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+          # Inputs arrive via env; nothing is interpolated into run:.
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::pr_number must be a positive integer"
+            exit 1
+          fi
+          META=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
             --jq '{title, user: .user.login, base_ref: .base.ref, base_sha: .base.sha, head_ref: .head.ref, head_sha: .head.sha}')
           {
             echo "number=$PR_NUMBER"
@@ -104,6 +110,9 @@ jobs:
             echo "base_sha=$(echo "$META" | jq -r .base_sha)"
             echo "head_ref=$(echo "$META" | jq -r .head_ref)"
             echo "head_sha=$(echo "$META" | jq -r .head_sha)"
+            # Claude has no date tool in its allow-list; hand it the date
+            # for the learning-note frontmatter (Step 4b).
+            echo "today=$(date -u +%F)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR head
@@ -135,9 +144,19 @@ jobs:
           #   bodies to /tmp/*.md and post via `--body-file` / `-F
           #   body=@file`. The `$(cat <<'EOF')` subshell pattern is
           #   rejected by the Bash allow-list matcher.
+          # - Claude is deliberately READ-ONLY with respect to git: no
+          #   fetch / checkout / add / commit / push and no
+          #   `gh pr create`. It reads untrusted PR content while the
+          #   token holds contents:write, so only the prompt would stand
+          #   between an injected instruction and a push. Learning notes
+          #   are therefore staged to /tmp/review-learnings/ and the
+          #   "Open review-learning PRs" step below does the git work.
+          #   (Claude could not write them into `.claude/` itself anyway:
+          #   Claude Code treats that directory as protected and denies
+          #   the write in a headless run even with `Write` allowed.)
           claude_args: >-
             --max-turns ${{ inputs.max_turns }}
-            --allowed-tools "Bash(gh api:*),Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(cat:*),Write,Bash(git fetch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Read,Grep,Glob"
+            --allowed-tools "Bash(gh api:*),Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(cat:*),Write,Read,Grep,Glob"
           prompt: |
             You are performing a mandatory code review for PR #${{ steps.pr.outputs.number }} in ${{ github.repository }}.
 
@@ -229,11 +248,10 @@ jobs:
             Read all changed files fully (not just the diff hunks) to understand context.
             Read CLAUDE.md for project coding guidelines and architecture rules.
 
-            You do NOT need `git fetch` for the diff. The checkout step
-            already set up base/head at `fetch-depth: 0`, so the diff and
-            log commands below resolve directly — running `git fetch` here
-            just burns a turn. (`git fetch` is allow-listed only so Step 7,
-            the optional learning-capture flow, can branch off the base.)
+            You do NOT need `git fetch` for the diff (and it is not
+            available to you). The checkout step already set up base/head
+            at `fetch-depth: 0`, so the diff and log commands above
+            resolve directly.
 
             ---
 
@@ -441,6 +459,62 @@ jobs:
 
             ---
 
+            ## Step 4b: High-bar learning capture (rare — ONE turn)
+
+            Run this right after posting the review (Step 4), BEFORE the
+            inline findings in Step 5: inline comments cost about two
+            turns each and a max-turns cut-off must not be what decides
+            whether a learning is kept. Spend at most one turn on it.
+
+            Decide whether the review surfaced a DURABLE, LIKELY-TO-RECUR
+            learning of kind `regression | security | architecture` — a
+            pitfall the next unrelated PR in this repo could plausibly
+            hit again. Usually it did NOT: a one-off bug, a style point or
+            anything specific to this PR is not a learning. In that case
+            do nothing and move on to Step 5.
+
+            Only if it did, check it is not already recorded. Compare
+            against BOTH:
+            - the notes already in `.claude/memory/review-learnings/`
+              (you read them in check 3f), and
+            - notes still pending in open learning PRs. List those PRs
+              with
+              `gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" --jq '.[] | select(.head.ref | startswith("claude/review-learning/")) | .number'`
+              and read each with `gh pr diff <n>`.
+
+            If an equivalent note exists in either place, do nothing.
+            Otherwise stage ONE note (at most 2 per run, only if they are
+            genuinely distinct) with `Write` to
+            `/tmp/review-learnings/<slug>.md`. `<slug>` is lowercase
+            kebab-case, characters `[a-z0-9-]` only, at most 50
+            characters, and names the pitfall (e.g.
+            `config-key-renamed-in-one-place`). Exact format — the note
+            must be self-contained, with no links to this PR's
+            conversation:
+
+            ```
+            ---
+            kind: regression | security | architecture
+            origin: PR <number>
+            date: ${{ steps.pr.outputs.today }}
+            ---
+            **What it is:** <the pitfall, in one or two sentences>
+            **Signal to watch:** <what in a diff indicates a recurrence>
+            **Where:** <the files / modules / contracts involved>
+            ```
+
+            Pick exactly one `kind`, `origin` is `PR ${{ steps.pr.outputs.number }}`,
+            and describe the pattern in your own words — do not paste
+            PR text, tokens or other secrets into the note.
+
+            Do NOT run any git command or `gh pr create`, and do not try
+            to write under `.claude/`: you cannot. A separate workflow
+            step after this review validates each staged file, branches
+            off the base branch and opens the note PR. Never stage a file
+            for anything other than a learning.
+
+            ---
+
             ## Step 5: Handle Inline Findings (Incremental)
 
             This is the most important step for avoiding comment spam. Follow these rules precisely.
@@ -566,44 +640,13 @@ jobs:
 
             ---
 
-            ## Step 7: High-bar learning capture (rare)
-
-            After posting the review, decide whether it surfaced a
-            DURABLE, LIKELY-TO-RECUR learning of kind
-            `regression | security | architecture`. Usually it did NOT —
-            do nothing. Only if it did, AND no equivalent note already
-            exists in `.claude/memory/review-learnings/`, record it as a
-            note PR:
-
-            ```
-            git fetch origin "${{ steps.pr.outputs.base_ref }}"
-            git checkout -b "claude/review-learning/${{ steps.pr.outputs.number }}" "origin/${{ steps.pr.outputs.base_ref }}"
-            # Write .claude/memory/review-learnings/<slug>.md:
-            #   ---
-            #   kind: regression | security | architecture
-            #   ---
-            #   **What it is:** ... **Signal to watch:** ... **Where:** ... **Origin:** PR #<number>
-            git add .claude/memory/review-learnings/<slug>.md
-            git commit -m "chore: record review learning"
-            git push -u origin "claude/review-learning/${{ steps.pr.outputs.number }}"
-            gh pr create --title "chore: record review learning" --base "${{ steps.pr.outputs.base_ref }}" --body "Records a <kind> learning from PR #<number> so future reviews watch for it."
-            ```
-
-            Branching off `origin/<base_ref>` (NOT the checked-out head)
-            keeps the note PR limited to the note file. Never push to the
-            default branch directly. This is the ONLY step permitted to
-            commit or push, and only ever to the
-            `claude/review-learning/<number>` branch — never to the PR
-            under review and never to the base branch.
-
-            ---
-
             ## Important Rules
 
-            - Do NOT commit or push to the PR under review or to any base /
-              default branch. This review is read-only EXCEPT for the
-              optional Step 7 note PR, which commits a single learning file
-              on its own `claude/review-learning/<number>` branch.
+            - Do NOT commit, push, branch or open PRs — you have no git
+              write access. This review is read-only EXCEPT for the PR
+              comments it posts and the optional Step 4b learning note,
+              which you only STAGE under `/tmp/review-learnings/`; a
+              later workflow step opens the note PR.
             - Do NOT skip any of the six checks (3a–3f) — all are mandatory even if findings are empty.
             - Do NOT tail or truncate test output — you are not running tests; reason from source.
             - Do NOT create duplicate comments. Always check prior state first.
@@ -612,6 +655,167 @@ jobs:
             - Follow the project's CLAUDE.md guidelines when evaluating code quality.
             - The HTML markers MUST be present in every comment you create or edit.
               Without them, future runs cannot find your comments.
+
+      # Opens the review-learning PRs that Claude staged in Step 4b.
+      #
+      # Why a plain shell step instead of letting Claude run git:
+      #   - Claude Code treats `.claude/` as a protected directory and
+      #     denies writes there in a headless run, so Claude cannot write
+      #     the note into the repo. A shell `cp` is not subject to that.
+      #   - Claude reads untrusted PR content while this job's token has
+      #     contents:write. Keeping git / `gh pr create` out of its
+      #     allow-list means a prompt injection cannot push anywhere.
+      #   - One deterministic pass can name each branch after the PR AND
+      #     the slug (`claude/review-learning/<pr>-<slug>`). The review
+      #     runs on every push, so a per-PR branch name would collide on
+      #     the second learning; per-slug names make a re-run a no-op.
+      #
+      # `!cancelled()`: a candidate written before Claude hit max turns is
+      # still saved. `continue-on-error`: a learning failure must never
+      # fail this job, because the fail-closed merge-gate below treats a
+      # failed review job as "no verdict". Failures surface as warnings.
+      #
+      # PR-controlled data is never interpolated into the script; values
+      # reach the shell only through `env:`.
+      - name: Open review-learning PRs
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          STAGE_DIR=/tmp/review-learnings
+          NOTE_DIR=.claude/memory/review-learnings
+          MAX_NOTES=2
+          MAX_BYTES=8192
+          SLUG_RE='^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$'
+          WORK_DIR="${RUNNER_TEMP:-/tmp}"
+          BOT_NAME="github-actions[bot]"
+          BOT_EMAIL="41898283+github-actions[bot]@users.noreply.github.com"
+
+          if [ ! -d "$STAGE_DIR" ]; then
+            echo "No staged review learnings."
+            exit 0
+          fi
+
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*)
+              echo "::warning::Review learnings skipped: PR number '$PR_NUMBER' is not numeric."
+              exit 0
+              ;;
+          esac
+          if [ -z "$BASE_REF" ]; then
+            echo "::warning::Review learnings skipped: base ref is empty."
+            exit 0
+          fi
+
+          if ! git fetch --quiet origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "::warning::Review learnings skipped: could not fetch origin/$BASE_REF."
+            exit 0
+          fi
+
+          shopt -s nullglob
+          # MAX_NOTES bounds the PRs opened per run; MAX_FILES bounds how
+          # many staged files are even looked at, so a flood of candidates
+          # cannot turn this step into a long loop of API calls.
+          MAX_FILES=10
+          SEEN=0
+          OPENED=0
+          for FILE in "$STAGE_DIR"/*.md; do
+            SEEN=$((SEEN + 1))
+            if [ "$SEEN" -gt "$MAX_FILES" ] || [ "$OPENED" -ge "$MAX_NOTES" ]; then
+              echo "::warning::More review learnings staged than the limit ($MAX_NOTES per run); ignoring the rest."
+              break
+            fi
+
+            SLUG=$(basename "$FILE" .md)
+            # Claude chose this name and it ends up in a branch name and a
+            # path: accept the narrow shape only.
+            if ! [[ "$SLUG" =~ $SLUG_RE ]]; then
+              echo "::warning::Review learning rejected: invalid slug '$SLUG' (need kebab-case [a-z0-9-], at most 50 chars)."
+              continue
+            fi
+            if [ -L "$FILE" ] || [ ! -f "$FILE" ]; then
+              echo "::warning::Review learning '$SLUG' rejected: not a regular file."
+              continue
+            fi
+            if [ ! -s "$FILE" ] || [ "$(wc -c < "$FILE")" -gt "$MAX_BYTES" ]; then
+              echo "::warning::Review learning '$SLUG' rejected: empty or larger than $MAX_BYTES bytes."
+              continue
+            fi
+            if [ "$(head -n 1 "$FILE")" != "---" ]; then
+              echo "::warning::Review learning '$SLUG' rejected: missing frontmatter."
+              continue
+            fi
+            KIND=$(sed -n 's/^kind: *//p' "$FILE" | head -n 1 | tr -d '[:space:]')
+            case "$KIND" in
+              regression|security|architecture) ;;
+              *)
+                echo "::warning::Review learning '$SLUG' rejected: kind '$KIND' is not regression, security or architecture."
+                continue
+                ;;
+            esac
+
+            BRANCH="claude/review-learning/$PR_NUMBER-$SLUG"
+
+            # Dedup against what is already merged on the base ...
+            if git cat-file -e "origin/$BASE_REF:$NOTE_DIR/$SLUG.md" 2>/dev/null; then
+              echo "Review learning '$SLUG' already exists on $BASE_REF — skipping."
+              continue
+            fi
+            # ... and against a branch a previous push of this PR created.
+            if ! REMOTE=$(git ls-remote --heads origin "refs/heads/$BRANCH"); then
+              echo "::warning::Review learning '$SLUG' skipped: could not query origin for $BRANCH."
+              continue
+            fi
+            if [ -n "$REMOTE" ]; then
+              echo "Branch $BRANCH already exists — skipping."
+              continue
+            fi
+
+            OPENED=$((OPENED + 1))
+
+            # Separate worktree: the main checkout is the PR head and must
+            # stay untouched. Branch off the BASE so the PR holds only the note.
+            WT="$WORK_DIR/review-learning-$SLUG"
+            if ! git worktree add --quiet -b "$BRANCH" "$WT" "origin/$BASE_REF"; then
+              echo "::warning::Review learning '$SLUG' failed: could not create a worktree for $BRANCH."
+              continue
+            fi
+
+            if ! { mkdir -p "$WT/$NOTE_DIR" \
+                   && cp "$FILE" "$WT/$NOTE_DIR/$SLUG.md" \
+                   && git -C "$WT" add -- "$NOTE_DIR/$SLUG.md" \
+                   && git -C "$WT" -c "user.name=$BOT_NAME" -c "user.email=$BOT_EMAIL" \
+                        commit --quiet -m "chore: record review learning ($SLUG)" \
+                   && git -C "$WT" push --quiet -u origin "$BRANCH"; }; then
+              echo "::warning::Review learning '$SLUG' failed: could not commit or push $BRANCH."
+              git worktree remove --force "$WT" >/dev/null 2>&1 || true
+              continue
+            fi
+
+            BODY_FILE="$WORK_DIR/review-learning-$SLUG-body.md"
+            {
+              echo "Records a $KIND learning from PR $PR_NUMBER so future reviews of this repository watch for it."
+              echo
+              echo "Source PR: $GITHUB_SERVER_URL/$REPO/pull/$PR_NUMBER"
+              echo
+              echo "Proposed by the automated review and opened by the workflow. Read the note, edit or close it as you see fit; once merged, check 3f of every later review reads it."
+            } > "$BODY_FILE"
+
+            if gh pr create --repo "$REPO" --base "$BASE_REF" --head "$BRANCH" \
+                 --title "chore: record review learning ($SLUG)" --body-file "$BODY_FILE"; then
+              echo "Opened review-learning PR for '$SLUG'."
+            else
+              echo "::warning::Review learning '$SLUG' failed: pushed $BRANCH but could not open the PR; removing the branch so a later run can retry."
+              git push --quiet origin --delete "$BRANCH" || true
+            fi
+            git worktree remove --force "$WT" >/dev/null 2>&1 || true
+          done
 
   # ---------------------------------------------------------------------------
   # Merge gate

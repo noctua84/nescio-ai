@@ -24,36 +24,13 @@ Create a secure design specification that delivers actionable, measurable result
 
 ## Context
 
-Before starting, read the repo's `CLAUDE.md` and any relevant notes under `memory/` (e.g. `memory/repo/<repo>/`, `memory/feedback/`) for prior decisions and constraints.
+Check the brain's notes for prior decisions and constraints on this repo: `~/.claude/memory/repo/<repo>/` and `~/.claude/memory/feedback/`.
 
 ## Process
 
-### Step 1: Context & Research
-- Review any existing secure design specification documents in the project
-- Identify key stakeholders and their requirements
-- Select the most appropriate framework: OWASP Secure Design Principles, Microsoft SDL, NIST SSDF (SP 800-218)
+Build on any existing secure design specification documents in the project and pick the framework that fits (OWASP Secure Design Principles, Microsoft SDL, NIST SSDF (SP 800-218)). Define security requirements before functional requirements. Structure the deliverable in the output format below, and state your assumptions and dependencies. Measure it with: Security Requirements Coverage, Threat Mitigation Coverage, Design Review Findings, Crypto Standard Compliance.
 
-### Step 2: Analysis & Framework Application
-- Apply the selected framework to structure the secure design specification
-- Identify gaps, opportunities, and risks
-- Define success metrics: Security Requirements Coverage, Threat Mitigation Coverage, Design Review Findings, Crypto Standard Compliance
-- Document assumptions and dependencies
-- Validate approach against industry best practices
-
-### Step 3: Build the Deliverable
-- Structure the secure design specification using the output format below
-- Include specific, actionable recommendations — not generic advice
-- Add concrete numbers, timelines, and benchmarks where applicable
-- Cross-reference with existing project documents for consistency
-- Ensure every section adds value — remove filler
-
-### Step 4: Quality Validation
-- [ ] All required inputs have been addressed
-- [ ] Recommendations are specific and actionable (not vague)
-- [ ] Numbers and benchmarks are realistic and sourced
-- [ ] Output format matches the specification below
-- [ ] No contradictions with CLAUDE.md or memory/ constraints
-- [ ] Follows best practice: Define security requirements before functional requirements
+Recommendations must be specific to this system rather than generic advice, and any number you cite needs a source or a stated basis.
 
 ## Output Format
 

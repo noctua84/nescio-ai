@@ -45,7 +45,12 @@ crew imposes nothing.
 - Never write a bare `#N` in a commit message or PR body unless you mean to
   close that issue — GitHub's closing keywords bind to whatever number follows
   them, and alert numbers, line numbers and versions all parse as issue
-  references. Write `alert 2` or `line 2`; `Refs #2` references without closing.
+  references. Write `alert 2` or `line 2`.
+- A `Refs #N` footer is **not** a safe non-closing form in this repo:
+  release-please rewrites it into a closing reference when it generates the
+  changelog, the release PR inherits the keyword, and merging fires it. It has
+  auto-closed two issues this way. Reference an issue in prose (`issue 42`) or
+  by full URL until that is fixed — see issue 242.
 
 ## Secrets
 

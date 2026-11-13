@@ -87,20 +87,54 @@ its `secrets:` line the same way (the snippet's header comment shows the
 
 ## The review-learnings loop
 
-The reviewer's Step 7 (in `claude-review-core.yml`) is a high bar: only
+The reviewer's Step 4b (in `claude-review-core.yml`) is a high bar: only
 when a finding is a DURABLE, likely-to-recur regression, security, or
-architecture issue — and no equivalent note already exists — it branches
-off the base ref, writes one file under
-`.claude/memory/review-learnings/<slug>.md`, and opens a
-`chore: record review learning` PR. This is the *only* thing the reviewer
-is ever allowed to commit or push, and only to a
-`claude/review-learning/<pr-number>` branch — never to the PR under review
-or the default branch.
+architecture issue — and no equivalent note exists, either in
+`.claude/memory/review-learnings/` or in an open learning PR — does Claude
+stage a candidate note at `/tmp/review-learnings/<slug>.md` (at most two
+per run). Claude never touches git: it has no `fetch`, `checkout`, `add`,
+`commit`, `push` or `gh pr create` in its allow-list, and it could not
+write into `.claude/` itself, which Claude Code treats as a protected
+directory in headless runs.
+
+A plain shell step after the review (`Open review-learning PRs`) does the
+git work. For each staged file it checks the slug (lowercase kebab-case,
+at most 50 characters) and the frontmatter, skips notes that already exist
+on the base branch or already have a branch, then branches off the base
+ref as `claude/review-learning/<pr-number>-<slug>`, copies the file to
+`.claude/memory/review-learnings/<slug>.md`, commits as
+`github-actions[bot]`, pushes, and opens a `chore: record review learning
+(<slug>)` PR against the base branch. The branch name carries the slug so
+a review that runs on every push can record several learnings per PR and a
+re-run is a no-op. The step runs even if Claude hit its turn limit, and a
+failure in it only produces a warning — it never fails the review job or
+the merge gate.
+
+Each note is self-contained:
+
+    ---
+    kind: regression | security | architecture
+    origin: PR <number>
+    date: YYYY-MM-DD
+    ---
+    **What it is:** ... **Signal to watch:** ... **Where:** ...
+
+Requirements in the target repo:
+
+- Enable *Settings → Actions → General → Allow GitHub Actions to create and
+  approve pull requests*. Without it `gh pr create` fails and the step only
+  warns.
+- PRs opened with `GITHUB_TOKEN` do not trigger other workflows, so a
+  learning PR gets no CI run. If the base branch requires status checks,
+  push a commit to the learning branch or merge as an admin.
 
 Every subsequent review (check 3f) reads all notes under
 `.claude/memory/review-learnings/` before reviewing, so the bar the target
 repo has already crossed once doesn't get crossed again silently.
 
-Learnings stay local to each target repo. To pull them into this brain
-later, use the `adopt-config` / `harvest-memory` flow (see the
-`adopt-config` skill, tier-2: harvesting a target repo's review-learnings).
+The reviewer stores learnings in the target repo itself, through these
+PRs, because writing to another repository from an Actions runner would
+need cross-repo credentials. The brain can still harvest them into its own
+memory store later: `/harvest-memory` reads the current project's
+`.claude/memory/review-learnings/` as a source, and the `adopt-config` skill
+(tier-2) covers pulling them from a target repo.

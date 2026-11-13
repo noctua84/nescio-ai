@@ -2,6 +2,12 @@
 # your CI job IDs so the review runs only after CI is green — GitHub holds a
 # `needs:` job without a runner, so there is no idle-poll cost.
 #
+# Skipped: drafts, dependabot / github-actions[bot] authors, release-please
+# release PRs, `claude/*` branches (this includes the review-learning PRs the
+# core opens), and PRs labelled `skip-claude-review`. Because drafts are
+# skipped, list `ready_for_review` in your CI workflow's
+# `on.pull_request.types` so a review starts when a draft is marked ready.
+#
 # For API-key installs, replace the `secrets:` line below with:
 #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 claude-review:
@@ -9,7 +15,10 @@ claude-review:
   needs: [<your-ci-job-ids>]        # e.g. [lint, typecheck, test, build]
   if: >-
     github.event_name == 'pull_request' &&
+    github.event.pull_request.draft == false &&
     github.event.pull_request.user.login != 'dependabot[bot]' &&
+    github.event.pull_request.user.login != 'github-actions[bot]' &&
+    !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
     !startsWith(github.event.pull_request.head.ref, 'claude/') &&
     !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
   permissions:
