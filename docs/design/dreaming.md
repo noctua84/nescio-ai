@@ -468,9 +468,11 @@ The minimal data model has three parts, all machine-local under
   ask what the brief got right. First measure verdict coverage again with the
   hand-back parser, because the 3% above came from foreground reports only. Any
   separate model call stays a decision for the user.
-- The effectiveness tracker shipped (section 7a). Still open: a `/dream`
-  step that runs `--link` after each promotion and `--compare` before
-  triage, and listing `ineffective` notes as removal candidates.
+- The effectiveness tracker shipped (section 7a), and `/dream` runs it:
+  `--compare` before triage, with `ineffective` notes reported as removal or
+  rewrite candidates, and `--link` after each promotion. Still open: linking is
+  a manual step, because `promote_learnings.py` prints no hash. If promotion
+  returned the hash, `/dream` could link without reading the ledger.
 - **User corrections are a lower bound, not a rate.** Measured on one
   machine's real transcripts (871 sessions, 5,669 human messages; labels by
   one reviewer, counts only):
