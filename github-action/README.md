@@ -117,7 +117,11 @@ The work is split into three stages instead:
    only for a file that is part of the PR. It runs even if Claude hit its
    turn limit. A summary, finding or reply that cannot be published is a
    warning; a staged review that cannot be published fails the job. The
-   `merge-gate` job still submits the formal review.
+   `merge-gate` job still submits the formal review. The merge gate only
+   trusts the review comment authored by the workflow's own logins
+   (`github-actions[bot]`, and `claude[bot]` for earlier versions) and reads
+   its verdict only from line 2, so a comment from anyone else, or a marker
+   quoted elsewhere in the review, cannot change the outcome.
 
 Comments are now authored by `github-actions[bot]`. One-time transition:
 summaries and reviews posted earlier by `claude[bot]` are still recognised

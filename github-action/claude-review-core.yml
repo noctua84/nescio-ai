@@ -538,7 +538,11 @@ jobs:
             Use `Write` to write the full review body to
             `/tmp/review-outbox/review.md`. Line 1 must be exactly
             `<!-- claude-comprehensive-review -->`, line 2 the
-            `<!-- claude-verdict: ... -->` marker (see Step 6). The publish
+            `<!-- claude-verdict: ... -->` marker (see Step 6), and that
+            marker must appear nowhere else in the file: if a finding has
+            to quote one, write it without the `<!-- -->` delimiters. The
+            publish step rejects a review whose line 2 is not a valid
+            verdict marker, and the merge gate reads only line 2. The publish
             step edits the existing review comment in place or creates it,
             exactly as for the summary — you never need a comment id. The
             `merge-gate` job reads this comment, so always stage it.
@@ -737,8 +741,10 @@ jobs:
 
             Place this marker on its own line immediately after the
             `<!-- claude-comprehensive-review -->` marker at the top of
-            the Comprehensive Review comment body. The verdict marker
-            must agree with the "Verdict" section you wrote.
+            the Comprehensive Review comment body: it must be exactly
+            line 2 of the file, with nothing else on the line, and it
+            must appear nowhere else in the review body. The verdict
+            marker must agree with the "Verdict" section you wrote.
 
             You have no GitHub write tools and cannot submit a formal PR
             review. The publish step posts the review file you staged in
@@ -812,6 +818,8 @@ jobs:
           SUMMARY_MARKER='<!-- claude-pr-summary -->'
           REVIEW_MARKER='<!-- claude-comprehensive-review -->'
           FINDING_RE='^<!-- claude-finding: [^>]+ -->$'
+          # Line 2 of review.md. The merge-gate job uses the same pattern.
+          VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
 
           case "$PR_NUMBER" in
             ''|*[!0-9]*)
@@ -859,14 +867,22 @@ jobs:
               --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"$1\"))) | .id" | tail -n 1
           }
 
-          # publish_top <file> <marker>: edit the existing comment in place, or create it.
+          # publish_top <file> <marker> [line-2 regex]: edit the existing comment in
+          # place, or create it. With a line-2 regex (review.md only: the verdict
+          # the merge gate reads) a file whose line 2 does not match is rejected.
           publish_top() {
-            local file="$1" marker="$2" lab id
+            local file="$1" marker="$2" line2_re="${3:-}" lab id
             lab=$(label "$file")
             check_file "$file" "$MAX_BODY" "$lab" || return 1
             if [ "$(head -n 1 "$file")" != "$marker" ]; then
               echo "::warning::Staged file '$lab' rejected: line 1 is not $marker."
               return 1
+            fi
+            if [ -n "$line2_re" ]; then
+              if ! [[ "$(sed -n '2p' "$file" | tr -d '\r')" =~ $line2_re ]]; then
+                echo "::warning::Staged file '$lab' rejected: line 2 is not a valid verdict marker."
+                return 1
+              fi
             fi
             if ! id=$(find_comment "$marker"); then
               echo "::warning::Staged file '$lab' not published: could not list the existing comments."
@@ -920,7 +936,7 @@ jobs:
           fi
 
           if [ -e "$OUT/review.md" ] || [ -L "$OUT/review.md" ]; then
-            if ! publish_top "$OUT/review.md" "$REVIEW_MARKER"; then
+            if ! publish_top "$OUT/review.md" "$REVIEW_MARKER" "$VERDICT_RE"; then
               # Remembered, not fatal yet: findings and replies below are still
               # published. The step fails at the very end so it is visible.
               echo "::error::The comprehensive review was staged but could not be published."
@@ -1246,6 +1262,14 @@ jobs:
   # directly. This job runs outside that sandbox with a plain
   # GITHUB_TOKEN, which can submit reviews freely.
   #
+  # Trust: the verdict is read only from a Comprehensive Review comment
+  # authored by the workflow's own logins (the same filter the publish step
+  # uses), and only from its line 2. Any PR commenter can post the marker
+  # text, and a review can legitimately quote a verdict marker in a finding,
+  # so "the first marker anywhere in any comment" is attacker-influenced.
+  # The publish step refuses to post a review.md whose line 2 is not a valid
+  # verdict, so line 2 is where a genuine verdict always sits.
+  #
   # FAIL-CLOSED: if the review comment or verdict marker is missing
   # (Claude run terminated mid-pipeline), submit REQUEST_CHANGES rather
   # than silently leaving the PR unblocked. The idempotency check means
@@ -1276,20 +1300,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          REVIEW_BODY=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '[.[] | select(.body | contains("<!-- claude-comprehensive-review -->"))] | last | .body // ""')
+          # Must match the publish step's TRUSTED_JQ exactly: the gate may only
+          # trust the logins that step publishes (and edits) review comments as.
+          TRUSTED_JQ='(.user.login == "github-actions[bot]" or .user.login == "claude[bot]")'
+          VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
+
+          # The newest Comprehensive Review comment by a trusted login, across ALL
+          # pages. `--paginate` runs --jq once per page, so the matches are streamed
+          # one JSON string per line (@json keeps a multi-line body on one line)
+          # and the last line overall is the newest comment.
+          LAST_REVIEW_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"<!-- claude-comprehensive-review -->\"))) | .body | @json" | tail -n 1)
+          REVIEW_BODY=""
+          if [ -n "$LAST_REVIEW_JSON" ]; then
+            REVIEW_BODY=$(printf '%s' "$LAST_REVIEW_JSON" | jq -r .)
+          fi
 
           if [ -z "$REVIEW_BODY" ]; then
-            echo "No Comprehensive Review comment found — submitting REQUEST_CHANGES (fail-closed)."
+            echo "No Comprehensive Review comment from the review workflow — submitting REQUEST_CHANGES (fail-closed)."
             VERDICT="CHANGES_REQUESTED"
-            FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment found). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+            FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment from the review workflow). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
           else
-            VERDICT=$(echo "$REVIEW_BODY" | grep -oE '<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->' | head -1 | sed -E 's/.*claude-verdict: ([A-Z_]+) .*/\1/')
+            # The verdict is read ONLY from line 2 (the publish step enforces
+            # that position); a marker anywhere else in the body is ignored.
+            VERDICT_LINE=$(printf '%s\n' "$REVIEW_BODY" | sed -n '2p' | tr -d '\r')
+            VERDICT=""
+            if [[ "$VERDICT_LINE" =~ $VERDICT_RE ]]; then
+              VERDICT="${BASH_REMATCH[1]}"
+            fi
 
             if [ -z "${VERDICT:-}" ]; then
-              echo "No verdict marker in Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+              echo "No verdict marker on line 2 of the Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
               VERDICT="CHANGES_REQUESTED"
-              FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+              FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing or is not on line 2. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
             fi
           fi
 
