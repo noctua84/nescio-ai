@@ -392,6 +392,8 @@ VALID_SCOPE_BUCKETS = {
 # The ledger's fourth field is `<verb> <name>`. `promoted:` has always been the
 # only verb; `superseded:` is the second, and it exists so that supersession is
 # a recorded EVENT rather than something inferred from a line's absence.
+# `frontmatter:` is the third: a frontmatter-only update (issue 10) of a note
+# whose body, and therefore hash, is unchanged. See its note below.
 #
 # This is the open decision #180 asked to be made and stated rather than
 # buried. A superseded unit's hash **stays in the dedup set**: `parse_ledger`
@@ -411,6 +413,16 @@ VALID_SCOPE_BUCKETS = {
 # the date, so neither the extra line nor the newer date moves its number.
 LEDGER_VERB_PROMOTED = "promoted:"
 LEDGER_VERB_SUPERSEDED = "superseded:"
+# A frontmatter-only update (a corroboration bump) appends a line under the
+# SAME hash and target as the original promotion, and typically the same date
+# and name too. Composed with `promoted:` that line would be byte-identical to
+# the original and `_append_ledger_event`'s exact-duplicate guard would drop it,
+# so the update happened and nothing recorded it. A distinct verb makes the line
+# differ by construction. `parse_ledger` never reads the verb, so the hash stays
+# in the dedup set exactly as it does for `superseded:`. Residual, accepted: two
+# different bumps with the same date, target, hash and name still compose one
+# line, so the second is suppressed - one line per (date, target, hash, verb).
+LEDGER_VERB_FRONTMATTER = "frontmatter:"
 
 # The promotion receipt. Filename is fixed and lives beside the manifest so the
 # next step in the harvest flow can find it from the manifest path alone, with no
@@ -693,10 +705,14 @@ def _append_ledger_event(ledger_path: Path, line: str) -> None:
     retraction* and lose the fact that the unit was ever promoted. Two facts,
     two lines.
 
-    Exact duplicates are skipped so a replayed manifest cannot stack identical
-    events. `parse_ledger` reads both lines — same hash, same target — so the
-    hash stays in the dedup set and the later event supplies the date; see
-    ``LEDGER_VERB_SUPERSEDED`` for why that is the intended outcome.
+    The events recorded this way are `superseded:` and `frontmatter:` (a
+    frontmatter-only update). Exact duplicates are skipped so a replayed
+    manifest cannot stack identical events; the distinct verb is what keeps a
+    `frontmatter:` line from being mistaken for the original `promoted:` line
+    when date, target, hash and name all match. `parse_ledger` reads both
+    lines — same hash, same target — so the hash stays in the dedup set and
+    the later event supplies the date; see ``LEDGER_VERB_SUPERSEDED`` for why
+    that is the intended outcome.
     """
     lines = ledger_path.read_text(encoding="utf-8").splitlines()
     if line in lines:
@@ -1100,10 +1116,8 @@ def promote(
         else:
             verb = "write"
 
-        ledger_line = (
-            f"- {nom['date']} | {nom['target']} | {h} | "
-            f"{LEDGER_VERB_PROMOTED} {nom['name']}"
-        )
+        ledger_verb = LEDGER_VERB_FRONTMATTER if frontmatter_only else LEDGER_VERB_PROMOTED
+        ledger_line = f"- {nom['date']} | {nom['target']} | {h} | {ledger_verb} {nom['name']}"
         detail = f"{h} ({source}, frontmatter only)" if frontmatter_only else f"{h} ({source})"
 
         if dry_run:
@@ -1121,8 +1135,11 @@ def promote(
             # Appended, never pruned or updated in place: `_record_ledger`
             # would replace the original promotion line (same hash, same
             # target) and lose it, and the audit trail is meant to show both
-            # events. The repeated hash is harmless — dedup is set membership,
-            # as it already is for a superseded unit's hash.
+            # events. The line carries `frontmatter:`, not `promoted:`, so it
+            # cannot be byte-identical to the original line and be dropped by
+            # `_append_ledger_event`'s duplicate guard. The repeated hash is
+            # harmless — dedup is set membership, as it already is for a
+            # superseded unit's hash.
             _append_ledger_event(ledger_path, ledger_line)
         else:
             _record_ledger(
