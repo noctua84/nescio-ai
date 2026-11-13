@@ -86,6 +86,8 @@ class SidecarTest(DreamTestBase):
     def test_every_signal_kind_has_a_stable_key(self):
         pins = "- Inverted pin: test_x state S via path P"
         self.write("a", [
+            # The opening message is never a correction (signal-quality rule).
+            human("Please fix the parser"),
             dispatch("d1", "b-simple"),
             report("b-simple", verdict_text("BLOCKED", deviations=pins)),
             dispatch("d2", "b"),
