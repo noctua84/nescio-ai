@@ -84,19 +84,71 @@ _UNIT_ANCHOR_RE = re.compile(
 )
 
 
+MANAGED_KEYS = ("name", "description", "type")
+
+# The optional nomination field carrying extra frontmatter keys: a flat dict
+# whose values are scalars or lists of scalars (`seen_in`, `corroboration`,
+# ...). `promote_learnings.validate_frontmatter_values` owns rejecting anything
+# else in phase 1; by the time a nomination reaches this module it is sound.
+FRONTMATTER_FIELD = "frontmatter"
+
+
+def declared_frontmatter(nom: dict) -> dict:
+    """The extra frontmatter keys ``nom`` declares, in insertion order.
+
+    Absent, `null` and `{}` all mean "declares nothing" - the same reading
+    `is_units_shaped` gives a `null` `units`, so a generator that emits the key
+    unconditionally keeps working. Non-dict values never get this far: phase 1
+    refuses them.
+    """
+    declared = nom.get(FRONTMATTER_FIELD)
+    return declared if isinstance(declared, dict) else {}
+
+
+def _frontmatter_scalar(value: object) -> str:
+    """One scalar as YAML, by its type: only a string needs quoting.
+
+    A ``str`` goes through `yaml_scalar` (quoted when it would not parse or
+    would be retyped, so the string ``"3"`` stays ``"3"``). A ``bool`` is the
+    YAML literal ``true``/``false`` - tested before ``int``, since ``bool`` is a
+    subclass of it. An ``int``/``float`` is written bare, so the number ``3``
+    reads back as a number to an external parser, matching the repo's own
+    ``corroboration: 1`` convention. Phase 1 refuses every other type.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return yaml_scalar(value)
+
+
+def _frontmatter_lines(key: str, value: object) -> list[str]:
+    """The column-0 line(s) that write ``key: value`` into a frontmatter block.
+
+    A scalar is one line; a list is ``key:`` followed by one ``  - item`` line
+    per item (the only list shape `_wiki_common.split_frontmatter` reads).
+    Each scalar and list item is emitted by `_frontmatter_scalar`: strings are
+    quoted where needed, numbers and booleans are written as YAML literals.
+    Raw interpolation here is the bug #230 repaired.
+    """
+    if isinstance(value, list):
+        return [f"{key}:"] + [f"  - {_frontmatter_scalar(item)}" for item in value]
+    return [f"{key}: {_frontmatter_scalar(value)}"]
+
+
 def render_frontmatter(nom: dict) -> str:
     """The YAML frontmatter block promote manages (name/description/type).
 
     Values go through `yaml_scalar`: plain when safe, double-quoted when a bare
     value would not parse (`name: a: b`) or would be retyped (`description: no`).
+
+    Any keys the nomination declares under `frontmatter` follow the three
+    managed ones, in the order the nomination gave them.
     """
-    return (
-        "---\n"
-        f"name: {yaml_scalar(nom['name'])}\n"
-        f"description: {yaml_scalar(nom['description'])}\n"
-        f"type: {yaml_scalar(nom['type'])}\n"
-        "---\n"
-    )
+    keys = {k: nom[k] for k in MANAGED_KEYS}
+    keys.update(declared_frontmatter(nom))
+    lines = [ln for k, v in keys.items() for ln in _frontmatter_lines(k, v)]
+    return "---\n" + "\n".join(lines) + "\n---\n"
 
 
 def render_block(nom: dict) -> str:
@@ -308,9 +360,6 @@ def _split_raw_frontmatter(text: str) -> tuple[str, str]:
     return text[: end + 5], text[end + 5:]
 
 
-MANAGED_KEYS = ("name", "description", "type")
-
-
 def _top_level_key(ln: str) -> str | None:
     """The frontmatter key ``ln`` opens, or ``None`` if it opens none.
 
@@ -341,12 +390,16 @@ def _value_span_end(lines: list[str], i: int) -> int:
     Interior blank lines belong to a block scalar, so a blank run is consumed
     only when a more-indented line follows it; a blank line that merely
     precedes the next key is left where the author put it.
+
+    A column-0 ``- item`` line also continues the value: YAML allows a block
+    sequence to sit at its key's own indentation, and a human may have written
+    one. The closing ``---`` is not one (it has no space after the dash).
     """
     j = end = i + 1
     while j < len(lines):
         if not lines[j].strip():
             j += 1
-        elif lines[j][0].isspace():
+        elif lines[j][0].isspace() or lines[j] == "-" or lines[j].startswith("- "):
             j += 1
             end = j
         else:
@@ -360,13 +413,22 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     Extra keys, ordering, and formatting are kept; managed keys absent from the
     block are inserted before the closing ``---``.
 
+    The keys the nomination *declares* under `frontmatter` are managed for this
+    run too, so they are rewritten (or inserted) exactly like the three fixed
+    ones. That is what makes a corroboration bump work: were they left
+    unmanaged, the old `corroboration` would be preserved and the update would
+    change the body while exiting 0 with the stale count. A key the nomination
+    does NOT declare is untouched, so a hand-added key still survives.
+
     A managed key is replaced *with its whole value* — see `_value_span_end`
     for why its continuation lines have to go too, and `_top_level_key` for why
     an indented one is not a managed key in the first place. Together they also
-    make the function idempotent for free: what it writes is one column-0 line
-    per managed key, which a second pass rewrites to the same bytes.
+    make the function idempotent: what it writes is the key's column-0 line
+    plus, for a list, its indented ``- item`` lines, and a second pass consumes
+    exactly those continuation lines and rewrites them to the same bytes.
     """
     managed = {k: nom[k] for k in MANAGED_KEYS}
+    managed.update(declared_frontmatter(nom))
     lines = fm_raw.splitlines()
     seen: set[str] = set()
     out: list[str] = []
@@ -374,18 +436,19 @@ def _refresh_frontmatter(fm_raw: str, nom: dict) -> str:
     while i < len(lines):
         key = _top_level_key(lines[i])
         if key in managed:
-            out.append(f"{key}: {yaml_scalar(managed[key])}")
+            out.extend(_frontmatter_lines(key, managed[key]))
             seen.add(key)
             i = _value_span_end(lines, i)
             continue
         out.append(lines[i])
         i += 1
-    missing = [k for k in MANAGED_KEYS if k not in seen]
+    missing = [k for k in managed if k not in seen]
     if missing and out and out[-1].strip() == "---":
         insert_at = len(out) - 1
         for k in missing:
-            out.insert(insert_at, f"{k}: {yaml_scalar(managed[k])}")
-            insert_at += 1
+            for ln in _frontmatter_lines(k, managed[k]):
+                out.insert(insert_at, ln)
+                insert_at += 1
     return "\n".join(out) + "\n"
 
 

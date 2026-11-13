@@ -32,7 +32,11 @@ want it, a tripwire override:
   The `modular-design` skill defines each one; `layered-api-design` covers the
   layered case in full, and applies *only* when a project declares it here.
 - **Tripwire** — a line such as `Module tripwire: <N> lines.` overrides the
-  400-line default used by `scripts/module_scan.py`.
+  400-line default used by `scripts/module_scan.py`. `Test tripwire: <N> lines.`
+  overrides the 800-line bar for test files, and `Module growth: <N> lines.` /
+  `Module growth: <P>%.` override how much net growth (default
+  min(150 lines, 25%)) an already-over-tripwire file needs before the CI gate
+  asks for a verdict.
 
 Nothing in the crew infers an architecture. If this section declares nothing, the
 crew imposes nothing.
@@ -45,7 +49,12 @@ crew imposes nothing.
 - Never write a bare `#N` in a commit message or PR body unless you mean to
   close that issue — GitHub's closing keywords bind to whatever number follows
   them, and alert numbers, line numbers and versions all parse as issue
-  references. Write `alert 2` or `line 2`; `Refs #2` references without closing.
+  references. Write `alert 2` or `line 2`.
+- A `Refs #N` footer is **not** a safe non-closing form in this repo:
+  release-please rewrites it into a closing reference when it generates the
+  changelog, the release PR inherits the keyword, and merging fires it. It has
+  auto-closed two issues this way. Reference an issue in prose (`issue 42`) or
+  by full URL until that is fixed — see issue 242.
 
 ## Secrets
 

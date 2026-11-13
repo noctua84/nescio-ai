@@ -44,7 +44,7 @@ is shared with `commands/harvest-memory.md` and `memory/CONVENTIONS.md`:
 
     {
       "scope":       "repo/<name>" | "projects/<name>" | "context" | "feedback"
-                     | "people" | "glossary",   # mirrors the top-level memory/ bucket
+                     | "people" | "glossary" | "concepts",   # mirrors the top-level memory/ bucket
       "target":      "<real path under memory/, e.g. repo/myrepo/foo.md"
                      "or feedback/bar.md>",
       "name":        "<slug>",
@@ -52,13 +52,39 @@ is shared with `commands/harvest-memory.md` and `memory/CONVENTIONS.md`:
       "type":        "feedback" | "context" | "adr" | ...,  # the note's frontmatter type
       "body":        "<markdown>",
       "source":      "user override" | "empirical" | "agent inference",
-      "date":        "YYYY-MM-DD"
+      "date":        "YYYY-MM-DD",
+      "frontmatter": {"<key>": <scalar> | [<scalar>, ...], ...}   # OPTIONAL
     }
 
 ``scope`` mirrors the top-level ``memory/`` bucket the note lands in; ``target``
 is the real relative path under ``memory/``; ``type`` is the note's frontmatter
 type. ``scope``'s bucket is validated against the canonical set; ``type`` is
 open-ended and only checked for presence.
+
+``frontmatter`` is the one optional field: extra frontmatter keys for the note,
+so a ``concepts/`` note can carry the ``seen_in`` / ``corroboration`` keys
+``memory/CONVENTIONS.md`` requires of one. Absent, ``null`` and ``{}`` all mean
+"declares nothing"; ``REQUIRED_FIELDS`` is unchanged. It is a flat dict whose
+values are a scalar (``str``, ``int``, ``float``, ``bool``) or a list of
+scalars, e.g. ``{"seen_in": ["repo/x", "repo/y"], "corroboration": 2}``.
+Rejected in phase 1 (rc 1, the key named, nothing written): a ``frontmatter``
+that is not an object; a nested object or list member; a ``null`` member; a key
+not matching ``[A-Za-z_][A-Za-z0-9_-]*``; and a key equal to ``name``,
+``description`` or ``type``, which promote already writes from the nomination's
+own fields and would otherwise emit twice.
+
+  * **Emission is type-aware.** A ``str`` goes through ``yaml_scalar`` (quoted
+    only when a bare value would misparse or be retyped); a ``bool`` writes
+    ``true`` / ``false``; an ``int`` or ``float`` writes bare. So JSON ``3``
+    writes ``corroboration: 3`` while JSON ``"3"`` writes
+    ``corroboration: "3"`` — the distinction is deliberate.
+  * **On create**, declared keys follow ``name`` / ``description`` / ``type``,
+    in insertion order.
+  * **On update**, the keys the nomination declares are rewritten; keys already
+    in the note that it does *not* declare are preserved untouched. That is
+    what lets a corroboration bump leave hand-added keys alone.
+  * **Reading back:** ``split_frontmatter`` does no type inference, so every
+    value reads back as a string (``corroboration: 3`` reads as ``"3"``).
 
 **Two payload shapes, and exactly one per nomination** (#180 stage 1,
 ADR 0007 *Decision 2*). The schema above is the canonical, agent-facing one and
@@ -224,6 +250,8 @@ from _wiki_common import find_surrogate
 # module's own code below, and `tests/test_promote_learnings*.py`, which
 # reach these as `pl.<name>` — keeps working unchanged.
 from _promoted_block import (  # noqa: F401  (re-exported)
+    FRONTMATTER_FIELD,
+    MANAGED_KEYS,
     PROMOTED_BEGIN,
     PROMOTED_END,
     Unit,
@@ -455,6 +483,68 @@ def validate_frontmatter_values(nom: dict, label: str) -> str | None:
                 f"(U+{ord(bad):04X}), which cannot be written to a note. "
                 f"Remove it or replace it with the intended character."
             )
+    return validate_extra_frontmatter(nom, label)
+
+
+# What an extra frontmatter key may look like. `render_frontmatter` writes the
+# key bare, and `_top_level_key` reads it back as everything before the first
+# colon, so a key with a colon, a space, a newline or a leading `#`/`-` would
+# write YAML that parses as something else. Narrower than YAML allows on
+# purpose: the keys this field exists for (`seen_in`, `corroboration`) are
+# identifiers, and refusing the rest costs nothing.
+_FRONTMATTER_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+
+def validate_extra_frontmatter(nom: dict, label: str) -> str | None:
+    """Error message for a malformed optional `frontmatter` field, or None.
+
+    The field is a flat dict: scalar values, or lists of scalars (and nothing
+    nests deeper - `split_frontmatter` reads only flat scalars and `- ` lists,
+    so a nested value would be written and then never read back). Absent and
+    `null` are fine. A key that is one of `MANAGED_KEYS` is refused rather than
+    silently duplicated or overridden: the nomination already carries
+    `name`/`description`/`type` as top-level fields, and two sources for one
+    key is ambiguous. Each value and list item is then scanned for a lone
+    surrogate, the same phase-1 rejection the three fixed fields get.
+    """
+    declared = nom.get(FRONTMATTER_FIELD)
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        return (
+            f"error: {label!r}: '{FRONTMATTER_FIELD}' must be an object of "
+            f"scalar or list-of-scalar values, got {type(declared).__name__}"
+        )
+    for key, value in declared.items():
+        if not isinstance(key, str) or not _FRONTMATTER_KEY_RE.fullmatch(key):
+            return (
+                f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} is not a "
+                f"plain identifier (letters, digits, '_' and '-', not starting "
+                f"with a digit or '-')"
+            )
+        if key in MANAGED_KEYS:
+            return (
+                f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} is one of "
+                f"the keys promote already writes from the nomination's own "
+                f"'{key}' field. Set it there, not under '{FRONTMATTER_FIELD}'."
+            )
+        members = value if isinstance(value, list) else [value]
+        for member in members:
+            if not isinstance(member, (str, int, float)):
+                return (
+                    f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} holds a "
+                    f"{type(member).__name__}, but values must be scalars or "
+                    f"lists of scalars - nested objects and lists, and null, "
+                    f"cannot be written to a note."
+                )
+            bad = find_surrogate(member)
+            if bad is not None:
+                return (
+                    f"error: {label!r}: {FRONTMATTER_FIELD} key {key!r} contains "
+                    f"a lone surrogate (U+{ord(bad):04X}), which cannot be "
+                    f"written to a note. Remove it or replace it with the "
+                    f"intended character."
+                )
     return None
 
 

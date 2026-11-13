@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "acceptEdits",
+  "agent_id": "agent-2",
+  "agent_type": "cato",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/work/proj/tests/conftest.py",
+    "content": "import pytest\n"
+  },
+  "tool_use_id": "toolu_02"
+}
