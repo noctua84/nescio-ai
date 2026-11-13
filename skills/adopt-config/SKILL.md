@@ -96,3 +96,13 @@ and re-run `python install.py` (which detects the conflict and stages it for rev
 - **Copy-and-catalogue only** — scripts never edit `~/.claude`; you decide what merges.
 - **Secrets never enter tracked files** — tokens/keys/hostnames go to `CLAUDE.local.md` / keychain.
 - **Don't hand-delete `eval/adopted/`** — it's the local audit trail; the ledger is the synced record.
+
+## Tier-2: harvesting a target repo's review-learnings
+
+Repos wired with the Claude PR-review action (see `github-action/`) accumulate
+learnings in their own `.claude/memory/review-learnings/`. To pull the
+non-employer-specific ones into this brain: clone/pull the target repo, then
+treat its `.claude/memory/review-learnings/` as a source — copy the worthwhile
+notes into `memory/repo/<repo>/` here (curate, don't bulk-copy), the same way
+`/harvest-memory` promotes per-project memory. Employer-specific learnings stay
+in the target repo.

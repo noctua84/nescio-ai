@@ -132,5 +132,9 @@ Every subsequent review (check 3f) reads all notes under
 `.claude/memory/review-learnings/` before reviewing, so the bar the target
 repo has already crossed once doesn't get crossed again silently.
 
-Learnings are per repo: they stay in the target repo's
-`.claude/memory/review-learnings/` and are not imported anywhere else.
+The reviewer stores learnings in the target repo itself, through these
+PRs, because writing to another repository from an Actions runner would
+need cross-repo credentials. The brain can still harvest them into its own
+memory store later: `/harvest-memory` reads the current project's
+`.claude/memory/review-learnings/` as a source, and the `adopt-config` skill
+(tier-2) covers pulling them from a target repo.
