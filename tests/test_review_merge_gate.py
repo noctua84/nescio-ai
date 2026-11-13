@@ -14,7 +14,12 @@ the fake `gh` from _review_step_harness.py. The contract under test:
 * Anything else fails CLOSED: a REQUEST_CHANGES review is submitted.
 
 Tests assert on the event of the logged `POST pulls/N/reviews` call. Prior bot
-reviews are empty, so every case submits exactly one review.
+reviews are empty by default, so those cases submit exactly one review.
+
+PriorReviewStateAcrossPagesTest covers the idempotency check: the gate skips
+the POST when the bot's NEWEST formal review, across ALL pages of the reviews
+list, already has the desired state (APPROVE->APPROVED,
+CHANGES_REQUESTED->CHANGES_REQUESTED, COMMENT->COMMENTED).
 
 Skipped unless `bash` and `jq` are on PATH.
 """
@@ -236,6 +241,94 @@ class VerdictLineTest(_GateHarness):
                                comment(101, "github-actions[bot]", review(verdict(v)))])
                 self.run_gate()
                 self.assertSubmitted(event)
+
+
+def pr_review(rid, login, state):
+    return {"id": rid, "user": {"login": login}, "state": state}
+
+
+BOT = "github-actions[bot]"
+
+
+class PriorReviewStateAcrossPagesTest(_GateHarness):
+    """The idempotency check reads the bot's NEWEST formal review across ALL pages.
+
+    `--paginate` applies `--jq` per page, so a per-page `last` yields one state
+    per page; the gate must take the newest bot review over the whole stream,
+    and default to NONE only when the bot has no review at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.comments([comment(100, "octocat", "hi"),
+                       comment(101, BOT, review(verdict("APPROVE")))])
+
+    def reviews(self, *pages):
+        self.respond_pages(REVIEWS, list(pages))
+
+    def review_posts(self):
+        return [c for c in self.writes()
+                if c["method"] == "POST" and c["endpoint"] == REVIEWS]
+
+    def assertNoReviewPosted(self):
+        self.assertEqual(self.review_posts(), [],
+                         f"writes: {self.write_keys()}\noutput:\n{self.output}")
+
+    # 1
+    def test_bot_approved_then_other_user_page_is_idempotent(self):
+        self.reviews([pr_review(1, BOT, "APPROVED")],
+                     [pr_review(2, "octocat", "COMMENTED")])
+        self.run_gate()
+        self.assertNoReviewPosted()
+
+    # 2
+    def test_newest_bot_review_on_later_page_wins(self):
+        self.reviews([pr_review(1, BOT, "APPROVED")],
+                     [pr_review(2, BOT, "COMMENTED")])
+        self.run_gate()
+        self.assertSubmitted("APPROVE")
+
+    # 3
+    def test_bot_approved_on_last_page_is_idempotent(self):
+        self.reviews([pr_review(1, BOT, "COMMENTED")],
+                     [pr_review(2, BOT, "APPROVED")])
+        self.run_gate()
+        self.assertNoReviewPosted()
+
+    # 4
+    def test_no_bot_reviews_on_any_page_submits(self):
+        self.reviews([pr_review(1, "octocat", "APPROVED")],
+                     [pr_review(2, "mallory", "COMMENTED")])
+        self.run_gate()
+        self.assertSubmitted("APPROVE")
+
+    # 5
+    def test_empty_last_page_keeps_state_from_earlier_page(self):
+        self.reviews([pr_review(1, "octocat", "COMMENTED"),
+                      pr_review(2, BOT, "APPROVED")],
+                     [])
+        self.run_gate()
+        self.assertNoReviewPosted()
+
+    def test_empty_last_page_with_different_state_submits(self):
+        self.reviews([pr_review(1, BOT, "COMMENTED")], [])
+        self.run_gate()
+        self.assertSubmitted("APPROVE")
+
+    def test_each_desired_state_is_matched_across_pages(self):
+        for v, state in (("APPROVE", "APPROVED"),
+                         ("CHANGES_REQUESTED", "CHANGES_REQUESTED"),
+                         ("COMMENT", "COMMENTED")):
+            with self.subTest(verdict=v):
+                self.clear_calls()
+                self.comments([comment(100, "octocat", "hi"),
+                               comment(101, BOT, review(verdict(v)))])
+                self.reviews([pr_review(1, BOT, "DISMISSED"),
+                              pr_review(2, "octocat", "APPROVED")],
+                             [pr_review(3, BOT, state),
+                              pr_review(4, "mallory", "COMMENTED")])
+                self.run_gate()
+                self.assertNoReviewPosted()
 
 
 class NoCommentsTest(_GateHarness):
