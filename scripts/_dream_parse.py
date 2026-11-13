@@ -45,6 +45,8 @@ TASK_ID_RE = re.compile(r"<task-id>\s*([^<\s]+)\s*</task-id>")
 TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 # A tool result the *user* declined; an `is_error` flag on it is a decision, not a failure.
 REJECTION_RE = re.compile(r"^\s*(the user doesn'?t want to|user rejected|\[request interrupted by user)", re.IGNORECASE)
+# A Bash failure line with no output after it: carries no signature of its own.
+EXIT_ONLY_RE = re.compile(r"Exit code \d+")
 
 
 def _tag_lines(text: str, tag: str) -> list[str]:
@@ -92,9 +94,16 @@ def split_tier(agent_type: str) -> tuple[str, int]:
 
 
 def error_signature(text: str) -> str:
-    """First line of an error with paths, hex and numbers collapsed."""
+    """First line of an error with paths, hex and numbers collapsed.
+
+    Returns "" when there is no usable signature: the text is empty or only an
+    ``Exit code N`` line (a command that printed nothing). An empty string means
+    "skip": callers do not count that error at all.
+    """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    first = " ".join(lines[:2]) if lines and lines[0].startswith("Exit code") else (lines[0] if lines else "")
+    if not lines or (len(lines) == 1 and EXIT_ONLY_RE.fullmatch(lines[0])):
+        return ""
+    first = " ".join(lines[:2]) if lines[0].startswith("Exit code") else lines[0]
     first = PATH_RE.sub("<path>", first)
     first = HEX_RE.sub("<hex>", first)
     return scrub(DIGITS_RE.sub("<n>", first), 120)
@@ -237,7 +246,9 @@ def _on_user(entry: dict, s: dict, tools: dict) -> None:
     for block in results:
         text = _text_of(block.get("content"))
         if block.get("is_error") is True and not REJECTION_RE.match(text):
-            s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), error_signature(text))] += 1
+            sig = error_signature(text)
+            if sig:
+                s["errors"][(str(tools.get(block.get("tool_use_id"), "unknown")), sig)] += 1
     if not results and result is None and not entry.get("isMeta") and not agent_traffic:
         _on_human(text, s)
 

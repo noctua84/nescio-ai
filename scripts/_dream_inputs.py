@@ -123,7 +123,9 @@ def parse_subagent(path: Path, agent: str) -> dict:
                     text = _text_of(b.get("content"))
                     if not REJECTION_RE.match(text):
                         tool = str(tools.get(b.get("tool_use_id"), "unknown"))
-                        errors[(agent, tool, error_signature(text))] += 1
+                        sig = error_signature(text)
+                        if sig:
+                            errors[(agent, tool, sig)] += 1
     return {"errors": errors, "reruns": sum(n - 1 for n in commands.values() if n > 1), "malformed": malformed}
 
 

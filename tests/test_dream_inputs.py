@@ -85,6 +85,16 @@ class ParseSubagentTest(SubTestBase):
         self.assertIn(("builder", "unknown", "mystery"), r["errors"])
         self.assertEqual(len(r["errors"]), 2)
 
+    def test_bare_exit_code_is_not_counted_but_output_is(self):
+        path = self.write_sub("a", "1", [
+            assistant(BASH("t1", "grep x"), BASH("t2", "make")),
+            tool_error("t1", "Exit code 1"),
+            tool_error("t2", "Exit code 2\nmake: failed at /p/one.py"),
+        ])
+        r = di.parse_subagent(path, "builder")
+        self.assertEqual(list(r["errors"].values()), [1])
+        self.assertEqual([(a, t) for a, t, _ in r["errors"]], [("builder", "Bash")])
+
     def test_malformed_lines_counted_and_skipped(self):
         path = self.write_sub("a", "1", [assistant(BASH("t1", "x")), tool_error("t1", "bad")], raw=["{nope", "[1]"])
         r = di.parse_subagent(path, "a")

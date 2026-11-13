@@ -193,6 +193,15 @@ class ToolErrorTest(DreamTestBase):
         self.assertEqual(a, b)
         self.assertIn("<path>", a)
 
+    def test_bare_exit_code_has_no_signature(self):
+        self.assertEqual(dp.error_signature("Exit code 1"), "")
+        self.assertEqual(dp.error_signature("Exit code 1\n\n"), "")
+        self.assertNotEqual(dp.error_signature("Exit code 2\nmake: failed"), "")
+
+    def test_bare_exit_code_tool_error_is_not_counted(self):
+        s = self.parse("a", [assistant(("t1", "Bash", {})), tool_error("t1", "Exit code 1")])
+        self.assertEqual(len(s["errors"]), 0)
+
     def test_recurrence_across_two_sessions_meets_threshold(self):
         agg = dream.aggregate([self._session("a", "/p/one.py"), self._session("b", "/q/two.py")])
         errs = [r for r in agg["recurring"] if r["kind"] == "tool-error"]
