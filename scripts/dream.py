@@ -52,7 +52,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _dream_parse import MAX_EXCERPTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
+from _dream_parse import MAX_EXCERPTS, SHAPE_COUNTS, parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
@@ -60,6 +60,43 @@ TOP_ERRORS = 5
 STATE_NAME = "last-dream.json"
 VERDICTS = ("COMPLETE", "PARTIAL", "BLOCKED")
 TIER_NAMES = ("simple", "standard", "complex")
+# Top-level transcript-entry keys seen in practice; a key outside this set on most entries is reported as drift.
+KNOWN_KEYS = frozenset({
+    "type", "message", "uuid", "parentUuid", "isSidechain", "userType", "cwd", "sessionId", "version", "gitBranch",
+    "timestamp", "requestId", "toolUseResult", "sourceToolAssistantUUID", "isMeta", "promptId", "entrypoint", "slug",
+    "effort", "perTurnEffort", "advisorModel", "apiBlockIndex", "rendered", "renderedRole", "requestedModel",
+    "serverClassifierRequest", "serverClassifierContext", "wireToolInputs", "requestRef", "isCompactSummary",
+    "isVisibleInTranscriptOnly", "thinkingMetadata", "todos", "permissionMode", "level", "subtype", "content",
+    "isApiErrorMessage", "error", "origin", "imagePasteIds",
+})
+
+
+def drift_warnings(shape: dict) -> list[str]:
+    """One-line warnings when the transcript shapes the parser relies on look different.
+
+    ``shape`` is ``aggregate()["shape"]``. A format change must not read as "zero signals".
+    """
+    typed = shape["typed"]
+    found = []
+    if shape["entries"] > 0 and typed == 0:
+        found.append("No user/assistant entries found; the `type` field may have changed.")
+    if typed > 0 and shape["with_message"] < typed / 2:
+        found.append("Most user/assistant entries lack `message.content`; the message shape may have changed.")
+    if typed >= 50 and shape["tool_uses"] == 0:
+        found.append("No `tool_use` blocks found in a large transcript sample; the content-block shape may have changed.")
+    if shape["tool_results"] > 0 and shape["result_dicts"] == 0:
+        found.append("Tool results seen but no `toolUseResult` dicts; the field may have changed.")
+    if shape["agent_dispatches"] > 0 and shape["agent_reports"] == 0:
+        found.append("Agent dispatches seen but no agent reports parsed; the report shape may have changed.")
+    if shape["agent_results"] > 0 and shape["agent_dispatches"] == 0:
+        found.append("Agent results seen but no Agent/Task dispatches; the dispatch tool may have been renamed.")
+    if shape["unknown_keys"]:
+        found.append(f"New top-level keys on most entries: {', '.join(shape['unknown_keys'])} (informational).")
+    return found
+
+
+def total_shape(sessions: list[dict], key: str) -> int:
+    return sum(s["shape"][key] for s in sessions)
 
 
 def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) -> dict:
@@ -98,12 +135,19 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0) 
             ("inverted-pins", "inverted test pins in builder reports", pins),
         )
     ]
+    shape = {k: total_shape(sessions, k) for k in SHAPE_COUNTS}
+    keys = sum((s["shape"]["typed_keys"] for s in sessions), Counter())
+    shape["agent_dispatches"] = sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch")
+    shape["agent_reports"] = sum(len(s["reports"]) for s in sessions)
+    shape["unknown_keys"] = sorted(k for k, n in keys.items() if n * 2 > shape["typed"] and k not in KNOWN_KEYS)
     return {
         "sessions_read": len(sessions),
         "sessions_skipped": skipped,
         "malformed_lines": total("malformed"),
-        "agent_reports": sum(len(s["reports"]) for s in sessions),
-        "agent_dispatches": sum(1 for s in sessions for e in s["events"] if e[0] == "dispatch"),
+        "agent_reports": shape["agent_reports"],
+        "agent_dispatches": shape["agent_dispatches"],
+        "shape": shape,
+        "drift": drift_warnings(shape),
         "min_sessions": min_sessions,
         "recurring": [r for r in recurring if r["sessions"] >= min_sessions],
         "verdicts": {a: dict(c) for a, c in sorted(verdicts.items())},
@@ -144,8 +188,7 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         f"- Agent reports parsed: {agg['agent_reports']} (dispatches seen: {agg['agent_dispatches']})",
         f"- Recurring means seen in at least {agg['min_sessions']} distinct sessions",
     ]
-    if agg["sessions_read"] and not agg["agent_reports"]:
-        out.append("- Note: sessions were read but no agent reports were parsed; transcript format may have changed.")
+    out += _section("Format check", [f"- {w}" for w in agg["drift"]], "Transcript shapes look as expected.")
     empty = "None met the threshold." if agg["sessions_read"] else "No transcripts found in the window; nothing to review."
     rec = [f"- [{r['kind']}] {r['summary']} ({r['sessions']} sessions)" for r in agg["recurring"]]
     rec += [f"  - correction excerpt: {x}" for x in agg["corrections"]["excerpts"]]
