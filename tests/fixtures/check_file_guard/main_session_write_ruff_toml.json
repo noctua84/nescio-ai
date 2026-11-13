@@ -1,0 +1,12 @@
+{
+  "session_id": "abc123",
+  "cwd": "/work/proj",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/work/proj/ruff.toml",
+    "content": "line-length = 100\n"
+  },
+  "tool_use_id": "toolu_04"
+}
