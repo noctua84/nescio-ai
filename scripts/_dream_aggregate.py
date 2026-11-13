@@ -109,7 +109,6 @@ def _session_kind_counts(sub: dict) -> dict:
 def _test_rollup(sessions: list[dict]) -> tuple[dict, dict]:
     """``(subagent_tests, {kind: (session ids, count)})`` over the sessions' optional ``sub`` summaries."""
     totals, by_agent, red_agents = empty_counts(), {}, Counter()
-    red_ids: set = set()
     per_kind: dict[str, tuple[set, int]] = {k: (set(), 0) for k, _ in TEST_KINDS}
     for s in sessions:
         sub = s.get("sub")
