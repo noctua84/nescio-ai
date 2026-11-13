@@ -543,6 +543,31 @@ class TestAgentFrontmatter(TestFrontmatterMixin, unittest.TestCase):
                     f"{sorted(ALLOWED_EFFORTS)}",
                 )
 
+    def test_auto_compact_window_is_a_plain_token_count_in_range(self):
+        """`autoCompactWindow` takes a plain integer token count, not a suffix.
+
+        Claude Code accepts 100000..1000000 and rejects `400k`. `_frontmatter`
+        returns raw strings with no validation, so a typo in the value would
+        otherwise reach the host unchecked. Only agents that declare the key
+        are checked; the key is optional.
+        """
+        for path in _agent_files():
+            with self.subTest(agent=path.stem):
+                value = self._frontmatter(path).get("autoCompactWindow")
+                if value is None:
+                    continue
+                self.assertRegex(
+                    value,
+                    r"\A[0-9]+\Z",
+                    f"{path.name}: autoCompactWindow {value!r} is not a plain "
+                    f"integer token count (write 400000, not 400k)",
+                )
+                self.assertTrue(
+                    100000 <= int(value) <= 1000000,
+                    f"{path.name}: autoCompactWindow {value!r} is outside the "
+                    f"100000..1000000 range Claude Code accepts",
+                )
+
     def test_description_is_substantive(self):
         paths = _agent_files()
         self.assertTrue(paths, "no agent files found — nothing asserted")

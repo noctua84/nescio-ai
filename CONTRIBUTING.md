@@ -27,7 +27,7 @@ and it is **a courtesy, not a gate**.
    showing up later is granted silently instead of reviewed. Add
    `omitClaudeMd: true` when the agent's work does not depend on the project's
    own rules (e.g. it only reads external docs or searches the codebase). Keep
-   the name functional and the mission single-purpose.
+   the name functional and the mission single-purpose. Set `autoCompactWindow` only when an agent should compact earlier, as a plain integer token count from 100000 to 1000000 (`400000`, not `400k`; Claude Code 2.1.296 or later), kept identical across the builder tiers that `TestBuilderTierParity` compares.
 2. **Register it in `scripts/_crew_common.py`.** Add it to `PAIRS` if the
    philosopher theme should rename it, or to `THEME_INVARIANT_ROSTER` if the
    name stays put. Then add it to whichever write-policy set applies:
