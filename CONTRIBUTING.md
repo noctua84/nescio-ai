@@ -154,6 +154,21 @@ the `agent-evaluation`, `prompt-testing-plan`, and `prompt-evaluation-harness`
 skills help. See `docs/specs/` for worked example design specs (the brainstorm →
 spec format).
 
+### Editing the builder tiers
+
+`agents/builder.md`, `builder-standard.md` and `builder-simple.md` are generated.
+Edit `agents/_src/tiers.md.tmpl`, then run `python scripts/render_tiers.py`;
+`tests/test_render_tiers.py` fails on a hand edit to a charter. Text outside a
+`<!-- tier: ... -->` block reaches all three tiers. Tier blocks may appear only
+above `## Your Purpose`, because everything below it is the shared contract. See
+`docs/design/builder-tiers.md` for what may differ between tiers and why.
+
+Inside Claude Code, the project hook `scripts/tier_hook.py` (registered in
+`.claude/settings.json`) regenerates the charters after every template edit and
+refuses a direct edit to a charter. It needs `python` on PATH, and Claude Code
+asks you to trust the project's hooks the first time. Edits made outside Claude
+Code still need `python scripts/render_tiers.py`; CI catches a stale charter.
+
 ## Running the tests
 
 ```
