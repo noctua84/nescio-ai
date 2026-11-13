@@ -18,6 +18,10 @@ Deliberate design decisions, each with a failure mode behind it:
     goes through ``error_signature`` (paths, hex and numbers collapsed, secrets
     redacted); commands are compared in memory and only the *count* is kept.
 
+  * **Test runs are classified, not just counted.** What a subagent does after
+    a failing test run (and whether a COMPLETE report ended on a red run) comes
+    from ``_dream_testruns``; counts only, same contract.
+
   * **User rejections are not errors**, same rule as the parent parse.
 
   * **QA reports yield severity counts only -- never finding titles.** Titles
@@ -37,6 +41,7 @@ from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
+from _dream_testruns import TestTracker, add_counts, empty_counts
 from _dream_parse import LINE_MAX, REJECTION_RE, VERDICT_RE, _text_of, error_signature, find_escalations, parse_report, scrub
 
 UNKNOWN_AGENT = "unknown"
@@ -86,10 +91,12 @@ def parse_subagent(path: Path, agent: str) -> dict:
     re-emitted as results resolve is counted once (deduped by id), and a
     malformed line is counted and skipped. ``report`` is the parsed report of
     the last assistant text block carrying a ``<verdict>`` (flags and
-    out-of-scope lines scrubbed, no raw text), or ``None``.
+    out-of-scope lines scrubbed, no raw text), or ``None``. ``tests`` is the
+    ``_dream_testruns.TestTracker`` summary (counts only).
     """
     errors: Counter = Counter()
     commands: Counter = Counter()
+    tests = TestTracker()
     tools: dict = {}
     seen: set = set()
     malformed = 0
@@ -120,11 +127,16 @@ def parse_subagent(path: Path, agent: str) -> dict:
                         continue
                     seen.add(b.get("id"))
                     inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                    tests.on_tool_use(b.get("id"), b.get("name"), inp)
                     if b.get("name") == "Bash" and isinstance(inp.get("command"), str) and inp["command"].strip():
                         commands[_norm(inp["command"])] += 1
             elif entry.get("type") == "user":
                 for b in content:
-                    if not isinstance(b, dict) or b.get("type") != "tool_result" or b.get("is_error") is not True:
+                    if not isinstance(b, dict) or b.get("type") != "tool_result":
+                        continue
+                    if tests.tracks(b.get("tool_use_id")):
+                        tests.on_tool_result(b.get("tool_use_id"), _text_of(b.get("content")), b.get("is_error") is True)
+                    if b.get("is_error") is not True:
                         continue
                     text = _text_of(b.get("content"))
                     if not REJECTION_RE.match(text):
@@ -137,14 +149,15 @@ def parse_subagent(path: Path, agent: str) -> dict:
         last_report["out_of_scope"] = [scrub(ln, LINE_MAX) for ln in last_report["out_of_scope"]]
     return {
         "errors": errors, "reruns": sum(n - 1 for n in commands.values() if n > 1), "malformed": malformed,
-        "report": last_report,
+        "report": last_report, "tests": tests.summary(),
     }
 
 
 def parse_subagents(main_path: Path, cap: int) -> dict:
     """All (capped) subagent transcripts of one parent session, folded together."""
     files, skipped = subagent_files(main_path, cap)
-    out = {"files": len(files), "skipped": skipped, "malformed": 0, "errors": Counter(), "reruns": 0, "rerun_agents": Counter(), "reports": []}
+    out = {"files": len(files), "skipped": skipped, "malformed": 0, "errors": Counter(), "reruns": 0, "rerun_agents": Counter(), "reports": [],
+           "tests_by_agent": {}, "complete_on_red": 0, "complete_on_red_agents": Counter()}
     for path, agent in files:
         try:
             r = parse_subagent(path, agent)
@@ -154,6 +167,11 @@ def parse_subagents(main_path: Path, cap: int) -> dict:
         out["malformed"] += r["malformed"]
         out["errors"].update(r["errors"])
         out["reruns"] += r["reruns"]
+        if r["tests"]["runs"]:
+            add_counts(out["tests_by_agent"].setdefault(agent, empty_counts()), r["tests"])
+        if r["report"] and r["report"]["verdict"] == "COMPLETE" and r["tests"]["last_ok"] is False:
+            out["complete_on_red"] += 1
+            out["complete_on_red_agents"][agent] += 1
         if r["report"]:
             out["reports"].append((path.stem.removeprefix("agent-"), agent, r["report"]))
         if r["reruns"]:

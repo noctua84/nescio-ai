@@ -19,9 +19,17 @@ from collections import Counter, defaultdict
 
 from _dream_inputs import SEVERITIES
 from _dream_parse import MAX_EXCERPTS, SHAPE_COUNTS, scrub
+from _dream_testruns import AFTER_FAIL_KEYS, add_counts, empty_counts
 
 TOP_ERRORS = 5
 TIER_NAMES = ("simple", "standard", "complex")
+# Recurring subagent test-run kinds: (kind, summary template); the count comes from ``_session_kind_counts``.
+TEST_KINDS = (
+    ("test-retry-no-edit", "{} failing subagent test runs rerun with no edit seen between"),
+    ("test-not-rerun", "{} failing subagent test runs never rerun"),
+    ("test-failure-masked", "{} subagent test failures hidden by a zero exit status"),
+    ("complete-on-red", "{} COMPLETE subagent reports whose last test run failed"),
+)
 
 
 # Top-level transcript-entry keys seen in practice; a key outside this set on most entries is reported as drift.
@@ -87,6 +95,46 @@ def _subagent_rollup(sessions: list[dict]) -> tuple[list, dict, dict]:
     return top, reruns, totals
 
 
+def _session_kind_counts(sub: dict) -> dict:
+    """``{kind: n}`` for one session's ``sub`` summary; ``TEST_KINDS`` keys, zero when absent."""
+    tot = empty_counts()
+    for c in (sub.get("tests_by_agent") or {}).values():
+        add_counts(tot, c)
+    return {
+        "test-retry-no-edit": tot["after_fail"]["retried_no_edit"], "test-not-rerun": tot["after_fail"]["not_rerun"],
+        "test-failure-masked": tot["masked"], "complete-on-red": sub.get("complete_on_red", 0),
+    }
+
+
+def _test_rollup(sessions: list[dict]) -> tuple[dict, dict]:
+    """``(subagent_tests, {kind: (session ids, count)})`` over the sessions' optional ``sub`` summaries."""
+    totals, by_agent, red_agents = empty_counts(), {}, Counter()
+    red_ids: set = set()
+    per_kind: dict[str, tuple[set, int]] = {k: (set(), 0) for k, _ in TEST_KINDS}
+    for s in sessions:
+        sub = s.get("sub")
+        if not sub:
+            continue
+        for agent, c in (sub.get("tests_by_agent") or {}).items():
+            add_counts(totals, c)
+            add_counts(by_agent.setdefault(agent, empty_counts()), c)
+        red_agents.update(sub.get("complete_on_red_agents") or {})
+        for kind, n in _session_kind_counts(sub).items():
+            if n > 0:
+                ids, total_n = per_kind[kind]
+                ids.add(s["id"])
+                per_kind[kind] = (ids, total_n + n)
+    fix = lambda c: {**c, "after_fail": {k: c["after_fail"][k] for k in AFTER_FAIL_KEYS}}  # noqa: E731
+    tests = {
+        "totals": fix(totals), "by_agent": {a: fix(c) for a, c in sorted(by_agent.items())},
+        "complete_on_red": {
+            "count": per_kind["complete-on-red"][1], "sessions": len(per_kind["complete-on-red"][0]),
+            "by_agent": dict(sorted(red_agents.items())),
+        },
+    }
+    return tests, per_kind
+
+
 def signal_id(key: str) -> str:
     """Stable 8-hex id of a signal key; independent of counts, so it survives across runs."""
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
@@ -137,6 +185,9 @@ def signal_table(sessions: list[dict]) -> dict:
                 add(_sub_err_key(agent, tool, sig), s["id"], n)
             if sub["reruns"] > 0:
                 add("subagent-reruns", s["id"], sub["reruns"])
+            for kind, n in _session_kind_counts(sub).items():
+                if n > 0:
+                    add(kind, s["id"], n)
     return {signal_id(k): {"key": k, "sessions": len(ids), "count": n} for k, (ids, n) in sorted(seen.items())}
 
 
@@ -191,6 +242,12 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, 
             "kind": "subagent-reruns", "sessions": sub_reruns["sessions"],
             "summary": f"{sub_reruns['count']} identical Bash reruns in subagents", "id": signal_id("subagent-reruns"),
         })
+    sub_tests, test_kinds = _test_rollup(sessions)
+    recurring += [
+        {"kind": kind, "summary": template.format(test_kinds[kind][1]), "sessions": len(test_kinds[kind][0]), "id": signal_id(kind)}
+        for kind, template in TEST_KINDS
+        if test_kinds[kind][0]
+    ]
     recurring += [
         {"kind": kind, "summary": text, "sessions": len(ids), "id": signal_id(kind)}
         for kind, text, ids in (
@@ -225,6 +282,7 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, 
             {"agent": a, "tool": t, "signature": sig, "sessions": len(i), "count": n} for (a, t, sig), (i, n) in sub_top
         ],
         "subagent_reruns": sub_reruns,
+        "subagent_tests": sub_tests,
         "qa_reports": {
             "reports": list(qa or []),
             "totals": {sev: sum(r[sev] for r in qa or []) for sev in SEVERITIES},

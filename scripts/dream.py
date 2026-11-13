@@ -62,6 +62,7 @@ from _dream_aggregate import (  # noqa: E402,F401  (re-exported: tests and calle
     KNOWN_KEYS, TIER_NAMES, TOP_ERRORS, aggregate, drift_warnings, signal_id, signal_table, total_shape,
 )
 import _dream_measure as measure  # noqa: E402
+from _dream_testruns import AFTER_FAIL_KEYS  # noqa: E402
 import record_stop as rs  # noqa: E402
 
 DEFAULT_DAYS = 14
@@ -78,6 +79,22 @@ NEXT_STEPS = (
 
 def _section(title: str, lines: list[str], empty: str) -> list[str]:
     return ["", f"## {title}", "", *(lines or [empty])]
+
+
+def _test_lines(tests: dict) -> list[str]:
+    """Per-agent table of subagent test runs and what followed each failure, plus COMPLETE-on-red; ``[]`` if no runs."""
+    if not tests["totals"]["runs"]:
+        return []
+    head = ["| Agent | Runs | Known | Failed | Masked | Fixed after edit | Passed, no edit seen | Refailed after edit "
+            "| Retried, no edit | Not rerun |", "|---|---|---|---|---|---|---|---|---|---|"]
+    rows = [
+        f"| {a} | {c['runs']} | {c['known']} | {c['failed']} | {c['masked']} | "
+        + " | ".join(str(c["after_fail"][k]) for k in AFTER_FAIL_KEYS) + " |"
+        for a, c in tests["by_agent"].items()
+    ]
+    red = tests["complete_on_red"]
+    by = ", ".join(f"{a} {n}" for a, n in red["by_agent"].items())
+    return [*head, *rows, "", f"COMPLETE reports whose last test run failed: {red['count']}" + (f" (by agent: {by})" if by else "")]
 
 
 def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
@@ -114,6 +131,7 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         by = ", ".join(f"{a} {n}" for a, n in rr["by_agent"].items())
         sub.append(f"- Identical Bash reruns: {rr['count']} in {rr['sessions']} sessions (by agent: {by})")
     out += _section("Subagent tool errors", sub, "None found (or subagent transcripts not read).")
+    out += _section("Test runs in subagents", _test_lines(agg["subagent_tests"]), "No test runs found in subagent transcripts (or not read).")
     qa = agg["qa_reports"]
     rows = [
         f"| {r['name']} | {r['date']} | " + " | ".join(str(r[k]) for k in SEVERITIES) + " |" for r in qa["reports"]
