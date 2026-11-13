@@ -1,6 +1,7 @@
 # Tool-call guards: enforcing crew boundaries with hooks
 
-**Status:** exploration + one prototype (`hooks/check_file_guard.py`).
+**Status:** exploration + two prototype guards (`hooks/check_file_guard.py`,
+`hooks/planner_spawn_guard.py`).
 **Question:** which of the boundaries the agent prompts state can Claude Code
 hooks enforce in code, and how reliably?
 
@@ -21,9 +22,9 @@ call's structured input** — a path, a `subagent_type`. It is not
 enforceable when the effect has to be inferred from free-form text, which is
 what a shell command is.
 
-The prototype guards `qa-guard` because its boundary is the most precise and the
-orchestrator already names the Bash bypass. The `planner` spawn guard is the
-cheapest next step: it is exact, and the docs confirm the frontmatter allowlist
+The first prototype guards `qa-guard` because its boundary is the most precise
+and the orchestrator already names the Bash bypass. The second guards the
+`planner`'s spawns: it is exact, and the docs confirm the frontmatter allowlist
 does nothing when `planner` runs as a subagent.
 
 ## What the hooks docs establish
@@ -211,13 +212,27 @@ and nothing above is blocked on it.
   segment splitting, write-target extraction and read-only command
   recognition. The guard imports it; it knows nothing about which files are
   protected.
-- `install.py` — `wire_check_file_guard_hook` wires it as a synchronous
+- `hooks/planner_spawn_guard.py` — `PreToolUse` guard for `planner`/`plato`.
+  Denies an `Agent` call unless `tool_input.subagent_type` is `explore` or
+  `librarian`. A missing, blank or non-string type is denied, because it falls
+  back to a general-purpose agent. No parsing, so no bypass short of the tool
+  name itself (see below). Wired by `wire_planner_spawn_guard_hook` with matcher
+  `Agent` and the same `onFailure`/`timeout` keys. The two matchers do not
+  overlap, so no tool call pays for two hook processes, and only spawns pay for
+  this one.
+- `install.py` — `wire_check_file_guard_hook` wires the check-file guard as a synchronous
   `PreToolUse` hook with matcher `Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell`,
   `"onFailure": "block"` and `"timeout": 10`. `_wire_command_hook` gained an
   `extra` keyword for those entry keys and treats a mismatch as drift to repair.
-- Tests: `tests/test_check_file_guard.py` (hook-input JSON fixtures under
-  `tests/fixtures/check_file_guard/`) and new cases in
+- Tests: `tests/test_check_file_guard.py` and `tests/test_planner_spawn_guard.py`
+  (hook-input JSON fixtures under `tests/fixtures/<guard>/`), and new cases in
   `tests/test_install_hooks.py`.
+
+**Spawn-tool name.** The planner guard and its matcher key on `Agent`, the
+name the hooks docs give the spawning tool. Older Claude Code builds called it
+`Task`; I did not confirm which version renamed it. On such a build the guard
+would not fire. Adding `Task` to the matcher is a one-word change
+if a supported version turns out to still send it.
 
 **Scope comes from `agent_type` alone.** The settings hook fires for every
 agent's matched calls, and the first check in `evaluate` is what keeps it out
@@ -247,16 +262,14 @@ nothing, because `qa-guard` does not commit.
 
 ## Next steps (not done here)
 
-1. **`planner` spawn guard.** Deny `Agent` when `agent_type ∈ {planner, plato}`
-   and `subagent_type ∉ {explore, librarian}` (or is missing). Exact, small,
-   and closes the gap the review found.
-2. **`test-writer` / `doc-writer` path guards.** Both need a per-repo notion of
+1. **`test-writer` / `doc-writer` path guards.** Both need a per-repo notion of
    "test paths" / "doc paths". Read it from a small config, with a
    conservative default (`tests/`, `test_*.py`, `*_test.*`, `*.spec.*` /
    `docs/`, `*.md`, `*.rst`). Without that config the guard would be either
    useless or wrong.
-3. **One dispatcher, not N hooks.** Each guard as its own settings hook means one
-   Python spawn per guard per call. When there is more than one, route by
+2. **One dispatcher, not N hooks.** Each guard as its own settings hook means one
+   Python spawn per guard per call. The two guards so far have disjoint
+   matchers, so no call pays twice yet. Once two guards share a tool, route by
    `agent_type` inside a single `crew_guard.py`.
-4. **Read-only agents.** #240 forbade destructive shell commands in the
+3. **Read-only agents.** #240 forbade destructive shell commands in the
    read-only agents by prompt. The same tier-1 parser could back that.
