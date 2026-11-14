@@ -2,7 +2,7 @@
 
 # Commands
 
-Nescio ships 2 slash commands in `commands/`. Each one is a
+Nescio ships 3 slash commands in `commands/`. Each one is a
 Markdown file whose YAML frontmatter declares a `name`, a
 `description`, and whether it is `user-invocable`. The description and
 the command's own lead paragraph are reproduced verbatim below.
@@ -14,6 +14,7 @@ Command names are identifiers, and are set in mono throughout.
 | Command | What it does |
 |---|---|
 | `/assess-repo` | Read-only readiness scan of a target repo on two axes — brain memory depth and the repo's own AI-friendliness — producing the signal Phase 3's autonomy dial consumes. |
+| `/dream` | Review past session transcripts offline, find recurring mistakes and workflows that worked, and turn them into reviewed memory nominations or held prompt-tweak suggestions. |
 | `/harvest-memory` | Promote durable learnings from the machine-local per-project memory store into the version-controlled repo memory/ so they sync across machines. |
 
 ### `/assess-repo`
@@ -26,6 +27,20 @@ axes. It writes nothing — to the target repo or anywhere — and executes noth
 in the target; detection is purely by filesystem presence.
 
 **User-invocable** yes · [`commands/assess-repo.md`](https://github.com/noctua84/nescio-ai/blob/main/commands/assess-repo.md)
+
+### `/dream`
+
+Review past session transcripts offline, find recurring mistakes and workflows that worked, and turn them into reviewed memory nominations or held prompt-tweak suggestions.
+
+An offline review pass between sessions. A deterministic extractor
+(`scripts/dream.py`) reads this repo's past transcripts and writes a
+**proposal**; you then decide, item by item, what is worth keeping. Nothing is
+applied automatically — the proposal is a reading aid, not a source of truth.
+
+The extractor makes no model call and writes only under
+`<config>/dreams/<repo_key>/`, which is machine-local and never synced.
+
+**User-invocable** yes · [`commands/dream.md`](https://github.com/noctua84/nescio-ai/blob/main/commands/dream.md)
 
 ### `/harvest-memory`
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""SessionStart hook: nudge to harvest, surface a harvest left unstamped, and
-flag a fired ADR 0002 memory-revisit trigger.
+"""SessionStart hook: nudge to harvest, surface a harvest left unstamped, flag a
+fired ADR 0002 memory-revisit trigger, and say when a dream is due.
 
-Three reminders. The first two are priority-ordered against each other; the
-third is an independent subject and is printed *in addition* to whichever of
-the first two fires, never instead:
+Four reminders. The first two are priority-ordered against each other; the
+third and fourth are independent subjects, each printed *in addition* to
+whichever of the first two fires, never instead:
 
 1. **An unfinished harvest.** `scripts/mark_harvested.py` drops a
    ``.harvest-pending-<repo_key>`` marker when it refuses to stamp a watermark (a
@@ -40,6 +40,7 @@ import sys
 from pathlib import Path
 
 import record_stop as rs  # noqa: E402
+from dream_nudge import dream_nudge  # noqa: E402
 from memory_trigger_nudge import trigger_nudge  # noqa: E402
 
 try:
@@ -193,6 +194,10 @@ def main() -> int:
         trig = trigger_nudge(event)
         if trig:
             print(trig)
+        # Also independent, and last: the least urgent of the four.
+        dream = dream_nudge(event)
+        if dream:
+            print(dream)
     except Exception:
         return 0
     return 0

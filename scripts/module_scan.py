@@ -34,6 +34,7 @@ Deliberate design decisions, each of which has a failure mode behind it:
 Usage:
     python scripts/module_scan.py
     python scripts/module_scan.py --tripwire 500 --top 10
+    python scripts/module_scan.py --test-tripwire 1000
     python scripts/module_scan.py --exclude 'CHANGELOG.md' --exclude 'docs/**'
     python scripts/module_scan.py --json
 """
@@ -43,11 +44,43 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
+# A convention, not an empirical defect threshold: roughly "a file that stops
+# fitting in one comfortable read or one reviewable diff". It is a prompt to
+# ask the three questions in the `modular-design` skill, nothing more.
 DEFAULT_TRIPWIRE = 400
+
+# Test files get a higher bar. Each test case is independent of its siblings --
+# a 1,200-line test file is sixty twenty-line cases sharing a fixture, not 1,200
+# lines of tangled responsibilities. Length is a weak proxy for "too many
+# reasons to change" in production code and a weaker one here, and flagging
+# every cohesive test file at the production bar buries the real findings
+# (PR 251: three files flagged, one real -- and one of the noise was a test
+# file that had simply gained cases).
+DEFAULT_TEST_TRIPWIRE = 800
+
+# The CI gate asks for a verdict on an already-over-tripwire file only when it
+# grows by at least min(DEFAULT_GROWTH_LINES, ceil(base * DEFAULT_GROWTH_PERCENT
+# / 100)) net lines.
+#   * The percentage catches proportional ballooning of a mid-size file: a
+#     450-line file growing by 113 lines (25%) has changed character, even
+#     though 113 is well under the line cap.
+#   * The line cap means a very large file cannot absorb a whole new module's
+#     worth of code unnoticed: on a 1,000-line file 25% would be 250 lines, so
+#     the cap pulls the bar down to 150.
+#   * Below that, an edit to a large file is maintenance, not a new
+#     responsibility. Nagging about it teaches people to write the verdict
+#     without thinking, which is worse than no gate.
+# The percentage is rounded up (ceil) so the threshold is always a whole
+# number of lines, and the result is floored at 1 so a zero-line change can
+# never count as growth.
+DEFAULT_GROWTH_LINES = 150
+DEFAULT_GROWTH_PERCENT = 25
 
 # How much of a file to sniff for NUL bytes before calling it binary.
 _SNIFF_BYTES = 8192
@@ -139,6 +172,100 @@ def is_excluded(rel: str, excludes: tuple[str, ...]) -> bool:
     )
 
 
+# Filename globs that mark a test file regardless of directory.
+TEST_FILENAME_GLOBS = ("test_*.py", "*_test.py", "*.spec.*", "*.test.*")
+
+
+def is_test_file(rel: str) -> bool:
+    """True when `rel` lives under a `tests` directory or is named like a test.
+
+    The directory match is on whole path segments (`tests`, not `latests`); the
+    filename match is `fnmatch` on the final segment only, so a directory that
+    merely has `test_` in its name does not drag its non-test files in.
+    """
+    parts = rel.split("/")
+    if "tests" in parts[:-1]:
+        return True
+    name = parts[-1]
+    return any(fnmatch.fnmatch(name, pattern) for pattern in TEST_FILENAME_GLOBS)
+
+
+@dataclass(frozen=True)
+class TripwireConfig:
+    """Resolved thresholds. Every field falls back to its default on its own."""
+
+    tripwire: int = DEFAULT_TRIPWIRE
+    test_tripwire: int = DEFAULT_TEST_TRIPWIRE
+    growth_lines: int = DEFAULT_GROWTH_LINES
+    growth_percent: int = DEFAULT_GROWTH_PERCENT
+
+
+def growth_threshold(base_lines: int, growth_lines: int, growth_percent: int) -> int:
+    """Net lines an already-over-tripwire file must gain to need a verdict.
+
+    `min(growth_lines, ceil(base_lines * growth_percent / 100))`, floored at 1.
+    Integer arithmetic on purpose: a float product can round the wrong way
+    for large operands and move the threshold by a line.
+    """
+    by_percent = -(-(base_lines * growth_percent) // 100)  # integer ceil
+    return max(1, min(growth_lines, by_percent))
+
+
+# `## Architecture` up to the next `##` heading (or end of file). Searching
+# only inside this section means prose elsewhere (e.g. the skill's own
+# "Module tripwire: 500 lines." example) can never be mistaken for an override.
+_ARCHITECTURE_SECTION_RE = re.compile(
+    r"^##\s+Architecture\s*$(.*?)(?=^##\s|\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+
+# The literal placeholders documenting each syntax -- not real overrides.
+# Stripped before the digits-only patterns below run, so `<N>` / `<P>` never
+# get a chance to be read as anything.
+_PLACEHOLDER_RE = re.compile(
+    r"(?:Module tripwire|Test tripwire):\s*<[A-Za-z]+>\s*lines\."
+    r"|Module growth:\s*<[A-Za-z]+>\s*(?:lines|%)\.",
+    re.IGNORECASE,
+)
+
+# Real overrides: digits only.
+_TRIPWIRE_OVERRIDE_RE = re.compile(r"Module tripwire:\s*(\d+)\s*lines\.", re.IGNORECASE)
+_TEST_TRIPWIRE_OVERRIDE_RE = re.compile(r"Test tripwire:\s*(\d+)\s*lines\.", re.IGNORECASE)
+_GROWTH_LINES_OVERRIDE_RE = re.compile(r"Module growth:\s*(\d+)\s*lines\.", re.IGNORECASE)
+_GROWTH_PERCENT_OVERRIDE_RE = re.compile(r"Module growth:\s*(\d+)\s*%\.", re.IGNORECASE)
+
+
+def resolve_config(claude_md: Path) -> TripwireConfig:
+    """Read the `## Architecture` section of `claude_md` for threshold overrides.
+
+    Recognised lines: `Module tripwire: <N> lines.`, `Test tripwire: <N>
+    lines.`, `Module growth: <N> lines.` and `Module growth: <P>%.`. Each field
+    falls back to its default independently -- a project that only raises the
+    test tripwire keeps the production default. A missing file, a missing
+    `## Architecture` section, or one holding only the literal placeholders
+    (this repo's own case) yields the all-defaults config.
+    """
+    try:
+        text = claude_md.read_text(encoding="utf-8")
+    except OSError:
+        return TripwireConfig()
+
+    section_match = _ARCHITECTURE_SECTION_RE.search(text)
+    if not section_match:
+        return TripwireConfig()
+    section = _PLACEHOLDER_RE.sub("", section_match.group(1))
+
+    def pick(pattern: re.Pattern[str], default: int) -> int:
+        match = pattern.search(section)
+        return int(match.group(1)) if match else default
+
+    return TripwireConfig(
+        tripwire=pick(_TRIPWIRE_OVERRIDE_RE, DEFAULT_TRIPWIRE),
+        test_tripwire=pick(_TEST_TRIPWIRE_OVERRIDE_RE, DEFAULT_TEST_TRIPWIRE),
+        growth_lines=pick(_GROWTH_LINES_OVERRIDE_RE, DEFAULT_GROWTH_LINES),
+        growth_percent=pick(_GROWTH_PERCENT_OVERRIDE_RE, DEFAULT_GROWTH_PERCENT),
+    )
+
+
 def count_lines_from_bytes(data: bytes) -> int | None:
     """Physical line count of `data`, or None when it looks binary.
 
@@ -171,8 +298,17 @@ def count_lines(path: Path) -> int | None:
     return count_lines_from_bytes(data)
 
 
-def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:
-    """Count every eligible tracked file; return the ones over the tripwire.
+def scan(
+    repo: Path,
+    tripwire: int,
+    excludes: tuple[str, ...],
+    test_tripwire: int = DEFAULT_TEST_TRIPWIRE,
+) -> dict:
+    """Count every eligible tracked file; return the ones over their tripwire.
+
+    A test file (see `is_test_file`) is measured against `test_tripwire`, every
+    other file against `tripwire`; each `over` entry carries the `tripwire` that
+    applied to it so a reader never has to guess which bar a file crossed.
 
     `over` is sorted by size descending, ties broken by path ascending, so the
     report is stable across runs and across filesystems.
@@ -186,10 +322,16 @@ def scan(repo: Path, tripwire: int, excludes: tuple[str, ...]) -> dict:
         if lines is None:
             continue
         scanned += 1
-        if lines > tripwire:
-            over.append({"path": rel, "lines": lines})
+        applicable = test_tripwire if is_test_file(rel) else tripwire
+        if lines > applicable:
+            over.append({"path": rel, "lines": lines, "tripwire": applicable})
     over.sort(key=lambda entry: (-entry["lines"], entry["path"]))
-    return {"tripwire": tripwire, "scanned": scanned, "over": over}
+    return {
+        "tripwire": tripwire,
+        "test_tripwire": test_tripwire,
+        "scanned": scanned,
+        "over": over,
+    }
 
 
 def format_report(result: dict, top: int | None) -> str:
@@ -212,7 +354,10 @@ def format_report(result: dict, top: int | None) -> str:
         lines.append("")
         return "\n".join(lines)
 
-    lines.append(f"  over tripwire (>{result['tripwire']} lines)")
+    header = f"  over tripwire (>{result['tripwire']} lines"
+    if "test_tripwire" in result:
+        header += f"; test files >{result['test_tripwire']}"
+    lines.append(header + ")")
     lines.append("  " + "-" * 36)
     for entry in displayed:
         lines.append(f"  {entry['lines']:>5}  {entry['path']}")
@@ -250,6 +395,15 @@ def main(argv: list[str] | None = None) -> int:
         help=f"lines above which a file is reported (default {DEFAULT_TRIPWIRE})",
     )
     parser.add_argument(
+        "--test-tripwire",
+        type=int,
+        default=DEFAULT_TEST_TRIPWIRE,
+        help=(
+            "lines above which a test file is reported "
+            f"(default {DEFAULT_TEST_TRIPWIRE})"
+        ),
+    )
+    parser.add_argument(
         "--top", type=int, default=None, help="show only the N largest"
     )
     parser.add_argument(
@@ -273,8 +427,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--top must be at least 1")
     if args.tripwire < 0:
         parser.error("--tripwire must not be negative")
+    if args.test_tripwire < 0:
+        parser.error("--test-tripwire must not be negative")
 
-    result = scan(args.repo, args.tripwire, tuple(args.exclude))
+    result = scan(args.repo, args.tripwire, tuple(args.exclude), args.test_tripwire)
 
     if args.json:
         print(json.dumps(result, indent=2))

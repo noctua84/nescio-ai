@@ -8,7 +8,9 @@ adopt flow. Given a JSON manifest of nominations (see below), for each one it:
      inference;
   2. dedups by a content hash against `memory/learning-log.md` — of the note
      body on the `body` shape, of each learning unit on the `units` shape (a
-     nomination already promoted is skipped);
+     nomination already promoted is skipped — except a `body` nomination for
+     the same note whose declared ``frontmatter`` differs from what the note
+     holds, so a corroboration bump with an unchanged body still lands);
   3. resolves contradictions when the target note already exists — the incoming
      source overwrites only if it is strictly higher priority, or equal priority
      AND a newer date (user override > empirical > agent inference);
@@ -83,6 +85,12 @@ own fields and would otherwise emit twice.
   * **On update**, the keys the nomination declares are rewritten; keys already
     in the note that it does *not* declare are preserved untouched. That is
     what lets a corroboration bump leave hand-added keys alone.
+  * **Dedup still keys on the body alone** (issue 10). A ``body`` nomination
+    whose hash is already recorded *for this target* is let through only when
+    a declared key renders differently from what the note stores; identical
+    text declaring nothing, or declaring what is already on disk, still dedups.
+    The update appends a second ledger line under the same hash. See
+    ``_frontmatter_only_update``. The ``units`` shape has no such exemption.
   * **Reading back:** ``split_frontmatter`` does no type inference, so every
     value reads back as a string (``corroboration: 3`` reads as ``"3"``).
 
@@ -271,6 +279,8 @@ from _promoted_block import (  # noqa: F401  (re-exported)
     _split_unit_chunk,
     _supersession_allowed,
     block_is_anchored,
+    declared_frontmatter,
+    declared_frontmatter_changed,
     existing_provenance,
     incoming_wins,
     plan_units,
@@ -382,6 +392,8 @@ VALID_SCOPE_BUCKETS = {
 # The ledger's fourth field is `<verb> <name>`. `promoted:` has always been the
 # only verb; `superseded:` is the second, and it exists so that supersession is
 # a recorded EVENT rather than something inferred from a line's absence.
+# `frontmatter:` is the third: a frontmatter-only update (issue 10) of a note
+# whose body, and therefore hash, is unchanged. See its note below.
 #
 # This is the open decision #180 asked to be made and stated rather than
 # buried. A superseded unit's hash **stays in the dedup set**: `parse_ledger`
@@ -401,6 +413,16 @@ VALID_SCOPE_BUCKETS = {
 # the date, so neither the extra line nor the newer date moves its number.
 LEDGER_VERB_PROMOTED = "promoted:"
 LEDGER_VERB_SUPERSEDED = "superseded:"
+# A frontmatter-only update (a corroboration bump) appends a line under the
+# SAME hash and target as the original promotion, and typically the same date
+# and name too. Composed with `promoted:` that line would be byte-identical to
+# the original and `_append_ledger_event`'s exact-duplicate guard would drop it,
+# so the update happened and nothing recorded it. A distinct verb makes the line
+# differ by construction. `parse_ledger` never reads the verb, so the hash stays
+# in the dedup set exactly as it does for `superseded:`. Residual, accepted: two
+# different bumps with the same date, target, hash and name still compose one
+# line, so the second is suppressed - one line per (date, target, hash, verb).
+LEDGER_VERB_FRONTMATTER = "frontmatter:"
 
 # The promotion receipt. Filename is fixed and lives beside the manifest so the
 # next step in the harvest flow can find it from the manifest path alone, with no
@@ -683,16 +705,53 @@ def _append_ledger_event(ledger_path: Path, line: str) -> None:
     retraction* and lose the fact that the unit was ever promoted. Two facts,
     two lines.
 
-    Exact duplicates are skipped so a replayed manifest cannot stack identical
-    events. `parse_ledger` reads both lines — same hash, same target — so the
-    hash stays in the dedup set and the later event supplies the date; see
-    ``LEDGER_VERB_SUPERSEDED`` for why that is the intended outcome.
+    The events recorded this way are `superseded:` and `frontmatter:` (a
+    frontmatter-only update). Exact duplicates are skipped so a replayed
+    manifest cannot stack identical events; the distinct verb is what keeps a
+    `frontmatter:` line from being mistaken for the original `promoted:` line
+    when date, target, hash and name all match. `parse_ledger` reads both
+    lines — same hash, same target — so the hash stays in the dedup set and
+    the later event supplies the date; see ``LEDGER_VERB_SUPERSEDED`` for why
+    that is the intended outcome.
     """
     lines = ledger_path.read_text(encoding="utf-8").splitlines()
     if line in lines:
         return
     lines.append(line)
     ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _frontmatter_only_update(
+    nom: dict, h: str, ledger: dict[str, tuple[str, str]], note_path: Path
+) -> bool:
+    """May a `body` nomination whose hash ``h`` is in the ledger skip the dedup?
+
+    Issue 10: a corroboration bump changes only frontmatter, so its body hash
+    is already recorded and the dedup used to skip it - the bump silently did
+    not happen. The dedup key stays body-only on purpose (every existing ledger
+    entry was hashed that way; folding frontmatter in would re-promote them all),
+    so this is a narrow exemption from the *skip*, not a change to the key.
+    True only when all of these hold:
+
+      * the ledger records ``h`` against this nomination's own ``target`` - a
+        body promoted to one note is not let into another, where the update
+        path would replace that note's body with it;
+      * the nomination declares `frontmatter` at all - identical text that
+        declares nothing still dedups, and the note is not even read;
+      * the note still exists - a deleted note is not resurrected by a bump;
+      * `declared_frontmatter_changed` says a declared key's rendered lines
+        differ from what the note stores - so re-declaring what is already on
+        disk still dedups.
+
+    Runs in phase 2, per nomination, and reads only: phase 1's
+    validate-everything-before-any-write is untouched.
+    """
+    recorded = ledger.get(h)
+    if recorded is None or recorded[1] != nom["target"]:
+        return False
+    if not declared_frontmatter(nom) or not note_path.is_file():
+        return False
+    return declared_frontmatter_changed(note_path.read_text(encoding="utf-8"), nom)
 
 
 def stamp_command(staging_dir: Path, receipt_path: Path | None = None) -> str:
@@ -980,12 +1039,24 @@ def promote(
         source = nom["source"]
         h = content_hash12(nom[BODY_FIELD])
         ledger = parse_ledger(ledger_path)
-        if h in ledger or h in would_write:
-            skipped += 1
-            summary.append(f"skip (dedup)   {nom['target']} — {h} already promoted")
-            continue
-
         note_path = memory_dir / nom["target"]
+        # Body already promoted: skip, unless this is a frontmatter-only update
+        # of that same note (issue 10) — see `_frontmatter_only_update`. A hash
+        # seen only in `would_write` is a --dry-run repeat within this
+        # manifest; the disk does not yet show the earlier would-write, so
+        # there is nothing truthful to compare against and it dedups as before.
+        frontmatter_only = False
+        if h in ledger or h in would_write:
+            if h in would_write or not _frontmatter_only_update(
+                nom, h, ledger, note_path
+            ):
+                skipped += 1
+                summary.append(
+                    f"skip (dedup)   {nom['target']} — {h} already promoted"
+                )
+                continue
+            frontmatter_only = True
+
         existing = note_path.read_text(encoding="utf-8") if note_path.is_file() else None
 
         # Compute what writing would produce before deciding anything else
@@ -1027,8 +1098,9 @@ def promote(
         if prov is not None:
             old_source, old_date = prov
             # Same-source refinement: the same source correcting its own note
-            # (body already differs — dedup let it through). Allow it even at
-            # equal priority / same day, which incoming_wins would reject.
+            # (body already differs, or declared frontmatter does — dedup let
+            # it through). Allow it even at equal priority / same day, which
+            # incoming_wins would reject.
             if old_source == source or incoming_wins(
                 source, nom["date"], old_source, old_date
             ):
@@ -1044,15 +1116,14 @@ def promote(
         else:
             verb = "write"
 
-        ledger_line = (
-            f"- {nom['date']} | {nom['target']} | {h} | "
-            f"{LEDGER_VERB_PROMOTED} {nom['name']}"
-        )
+        ledger_verb = LEDGER_VERB_FRONTMATTER if frontmatter_only else LEDGER_VERB_PROMOTED
+        ledger_line = f"- {nom['date']} | {nom['target']} | {h} | {ledger_verb} {nom['name']}"
+        detail = f"{h} ({source}, frontmatter only)" if frontmatter_only else f"{h} ({source})"
 
         if dry_run:
             would_write.add(h)
             touched_dirs.add(note_path.parent)
-            summary.append(f"would {verb}  {nom['target']} — {h} ({source})")
+            summary.append(f"would {verb}  {nom['target']} — {detail}")
             promoted += 1
             promoted_targets.append(nom["target"])
             continue
@@ -1060,12 +1131,23 @@ def promote(
         note_path.parent.mkdir(parents=True, exist_ok=True)
         note_path.write_text(new_text, encoding="utf-8")
         touched_dirs.add(note_path.parent)
-        _record_ledger(
-            ledger_path, nom["target"], h, ledger_line, overwrite=(verb == "overwrite")
-        )
+        if frontmatter_only:
+            # Appended, never pruned or updated in place: `_record_ledger`
+            # would replace the original promotion line (same hash, same
+            # target) and lose it, and the audit trail is meant to show both
+            # events. The line carries `frontmatter:`, not `promoted:`, so it
+            # cannot be byte-identical to the original line and be dropped by
+            # `_append_ledger_event`'s duplicate guard. The repeated hash is
+            # harmless — dedup is set membership, as it already is for a
+            # superseded unit's hash.
+            _append_ledger_event(ledger_path, ledger_line)
+        else:
+            _record_ledger(
+                ledger_path, nom["target"], h, ledger_line, overwrite=(verb == "overwrite")
+            )
         promoted += 1
         promoted_targets.append(nom["target"])
-        summary.append(f"{verb:<9} {nom['target']} — {h} ({source})")
+        summary.append(f"{verb:<9} {nom['target']} — {detail}")
 
     prefix = "[dry-run] " if dry_run else ""
     tail = f", unrouted {unrouted}" if unrouted else ""

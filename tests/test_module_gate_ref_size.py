@@ -145,6 +145,46 @@ class TestWorkingTreeDisagreesWithHead(ModuleGateRefSizeTestCase):
         self.assertIn("450 lines", out)
 
 
+class TestBaseSizeComesFromTheMergeBase(ModuleGateRefSizeTestCase):
+    """The "before" size is the merge-base blob -- not base's tip, not the
+    working tree."""
+
+    def _fork(self) -> tuple[str, str]:
+        """big.py is 1000 lines at the fork. main then grows it to 1140 on its
+        own; the feature branch grows it to 1150. Returns (main_tip, head)."""
+        _write_text(self.repo, "big.py", 1000)
+        _commit(self.repo, "feat: add big.py")
+        _git(self.repo, "checkout", "-b", "feature")
+        _write_text(self.repo, "big.py", 1150)
+        head_sha = _commit(self.repo, "feat: grow big.py by 150")
+        _git(self.repo, "checkout", "main")
+        _write_text(self.repo, "big.py", 1140)
+        main_tip = _commit(self.repo, "feat: main grows big.py on its own")
+        return main_tip, head_sha
+
+    def test_growth_is_measured_from_the_merge_base_not_base_tip(self):
+        main_tip, head_sha = self._fork()
+
+        rc, out = _run_gate(self.repo, base=main_tip, head=head_sha)
+
+        # +150 from the 1000-line merge base is required; +10 from main's tip
+        # would not have been.
+        self.assertEqual(rc, 1, f"expected FAIL, got rc={rc}, output:\n{out}")
+        self.assertIn("[grew]", out)
+        self.assertIn("1000 -> 1150", out)
+
+    def test_working_tree_size_does_not_stand_in_for_the_base(self):
+        main_tip, head_sha = self._fork()
+        # Checkout is on main with the 1140-line copy; overwrite it further so
+        # the working tree agrees with neither ref.
+        (self.repo / "big.py").write_text("x\n" * 1149, encoding="utf-8")
+
+        rc, out = _run_gate(self.repo, base=main_tip, head=head_sha)
+
+        self.assertEqual(rc, 1, f"expected FAIL, got rc={rc}, output:\n{out}")
+        self.assertIn("1000 -> 1150", out)
+
+
 class TestReadBlobAtRef(ModuleGateRefSizeTestCase):
     def test_a_binary_file_at_head_is_skipped_not_counted(self):
         blob_path = self.repo / "image.bin"

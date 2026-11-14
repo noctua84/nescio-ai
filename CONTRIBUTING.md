@@ -154,6 +154,21 @@ the `agent-evaluation`, `prompt-testing-plan`, and `prompt-evaluation-harness`
 skills help. See `docs/specs/` for worked example design specs (the brainstorm →
 spec format).
 
+### Editing the builder tiers
+
+`agents/builder.md`, `builder-standard.md` and `builder-simple.md` are generated.
+Edit `agents/_src/tiers.md.tmpl`, then run `python scripts/render_tiers.py`;
+`tests/test_render_tiers.py` fails on a hand edit to a charter. Text outside a
+`<!-- tier: ... -->` block reaches all three tiers. Tier blocks may appear only
+above `## Your Purpose`, because everything below it is the shared contract. See
+`docs/design/builder-tiers.md` for what may differ between tiers and why.
+
+Inside Claude Code, the project hook `scripts/tier_hook.py` (registered in
+`.claude/settings.json`) regenerates the charters after every template edit and
+refuses a direct edit to a charter. It needs `python` on PATH, and Claude Code
+asks you to trust the project's hooks the first time. Edits made outside Claude
+Code still need `python scripts/render_tiers.py`; CI catches a stale charter.
+
 ## Running the tests
 
 ```
@@ -209,10 +224,23 @@ forgot.
 ### The module gate
 
 `.github/workflows/module-gate.yml` runs `scripts/module_gate.py` on every PR.
-It trips when your PR **adds lines** to a file that is **already over the
-module-size tripwire** (400 lines by default; see `## Architecture` above for
-how a project overrides that). A file you only shrink never trips it, and
-neither does a file that stays under the tripwire.
+It asks for a verdict when a file your PR **adds lines to** is over the
+module-size tripwire (400 lines by default; 800 for test files; see
+`## Architecture` above for how a project overrides either) **and** one of
+these holds:
+
+- the file is **new** and born over the tripwire;
+- the file **crossed** the tripwire in this PR (at or under it at the merge
+  base, over it now); or
+- the file was already over it and **grew substantially**: net growth of at
+  least `min(150 lines, 25% of its merge-base size)`. Override with
+  `Module growth: <N> lines.` and/or `Module growth: <P>%.` in `## Architecture`.
+
+A small edit to a file that was already over the tripwire is *listed* in the
+gate output ("over tripwire, small change: no verdict needed") but passes. A
+file you only shrink never trips it, and neither does one that stays under the
+tripwire. Growth is measured net (head minus merge base), so a rewrite that
+churns lines without growing the file does not count.
 
 **Splitting is never required.** The obligation is to look and say what you
 found — the `modular-design` skill's three tests (reasons to change, shared

@@ -61,7 +61,7 @@ copy. To stop the hook firing at all, remove the `Stop` entry that
 
 Fires synchronously at session start (on `startup`/`resume`, never on
 `clear`/`compact`), and whatever it prints to stdout is injected as session
-context. It can surface up to three independent things:
+context. It can surface up to four independent things:
 
 - **An unfinished harvest.** If a previous `/harvest-memory` run finished
   without stamping its watermark, a `.harvest-pending-<repo_key>` marker is
@@ -75,6 +75,13 @@ context. It can surface up to three independent things:
   `scripts/check_memory_triggers.py` against the current repo's `memory/` and
   prints at most two lines naming any trigger that has fired, or — only when
   none has — any trigger nearing its threshold.
+- **A dream is due** (`hooks/dream_nudge.py`). One line when the last `/dream`
+  for this repo is at least `CLAUDE_DREAM_NUDGE_DAYS` days old (7 if unset)
+  and at least `CLAUDE_DREAM_NUDGE_SESSIONS` sessions (10 if unset) have
+  ended since. If `/dream` has never run here, it speaks only once
+  `CLAUDE_DREAM_NUDGE_FIRST_SESSIONS` sessions (30 if unset) ended in the
+  last 14 days. Sessions are counted from transcript file times; no transcript
+  is opened.
 
 Every one of these degrades to silence on its own failure (a missing marker,
 an unreadable trail, a trigger-script timeout) rather than raising or
@@ -83,7 +90,8 @@ suppressing the others.
 ### Tuning and disabling it
 
 Set `CLAUDE_HARVEST_NUDGE_THRESHOLD` in the environment to change the
-un-harvested-record threshold; it defaults to `20` if unset or unparseable. To
+un-harvested-record threshold; it defaults to `20` if unset or unparseable.
+Set `CLAUDE_DREAM_NUDGE=0` to silence only the dream reminder. To
 stop the hook firing at all, remove the `SessionStart` entry that
 `install.py` wrote into `~/.claude/settings.json`.
 
@@ -93,6 +101,7 @@ stop the hook firing at all, remove the `SessionStart` entry that
 |---|---|---|---|
 | Learning trail | `<$CLAUDE_CONFIG_DIR or ~/.claude>/learning-trail/<repo_key>.jsonl` | Never | Floor of 14 days; un-harvested records survive longer, up to an absolute record cap |
 | Harvest watermark | `<config>/learning-trail/<repo_key>.watermark` | Never | Until the next harvest stamps it |
+| Dream watermark | `<config>/dreams/<repo_key>/last-dream.json` | Never | Until the next `scripts/dream.py` run stamps it |
 | Unfinished-harvest marker | `<config>/learning-trail/.harvest-pending-<repo_key>` | Never | Until `scripts/mark_harvested.py` or `/harvest-memory` succeeds |
 
 ## Source
