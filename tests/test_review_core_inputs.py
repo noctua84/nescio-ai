@@ -14,6 +14,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "github-action" / "claude-review-core.yml"
+TEMPLATE = ROOT / "github-action" / "claude-review-core.template.yml"
+SCRIPTS = ROOT / "github-action" / "scripts" / "claude-review"
 
 PR_STEP_ID = "pr"
 PR_STEP_NAME = "Resolve PR context"
@@ -57,6 +59,23 @@ class NoInterpolationInAnyRunTest(_CoreBase):
             offenders, [],
             "run: scripts must not interpolate ${{ }} expressions; pass values "
             f"through env: instead. Offending steps: {offenders}")
+
+    def test_no_expression_interpolation_in_template_runs(self):
+        # The template is the wiring source of the shipped core: its run:
+        # blocks hold only `# @inline` markers, never an expression.
+        doc = _load(TEMPLATE)
+        runs = [str(s["run"]) for j in doc["jobs"].values()
+                for s in j.get("steps", []) if "run" in s]
+        self.assertGreater(len(runs), 0)
+        self.assertEqual([r for r in runs if "${{" in r], [])
+
+    def test_no_expression_interpolation_in_scripts(self):
+        # A script is inlined verbatim into a run: block, so an expression in
+        # it would be evaluated by Actions before bash ever parses it.
+        scripts = sorted(SCRIPTS.glob("*.sh"))
+        self.assertGreater(len(scripts), 0, "no scripts found; the check would pass vacuously")
+        self.assertEqual(
+            [s.name for s in scripts if "${{" in s.read_text(encoding="utf-8")], [])
 
 
 class ResolvePrContextTest(_CoreBase):

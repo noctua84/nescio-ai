@@ -57,7 +57,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from _dream_parse import parse_session, scrub  # noqa: E402  (also puts hooks/ on sys.path)
-from _dream_inputs import SEVERITIES, merge_subagent_reports, parse_subagents, qa_reports  # noqa: E402
+from _dream_inputs import QA_HISTORY_CAP, SEVERITIES, merge_subagent_reports, parse_subagents, qa_reports, qa_trend  # noqa: E402
 from _dream_aggregate import (  # noqa: E402,F401  (re-exported: tests and callers use ``dream.<name>``)
     KNOWN_KEYS, TIER_NAMES, TOP_ERRORS, aggregate, drift_warnings, signal_id, signal_table, total_shape,
 )
@@ -98,6 +98,23 @@ def _test_lines(tests: dict) -> list[str]:
     red = tests["complete_on_red"]
     by = ", ".join(f"{a} {n}" for a, n in red["by_agent"].items())
     return [*head, *rows, "", f"COMPLETE reports whose last test run failed: {red['count']}" + (f" (by agent: {by})" if by else "")]
+
+
+def _qa_trend_lines(trend: dict | None) -> list[str]:
+    """Trend table (last k, previous k, all; mean per audit) and its note; ``[]`` if not read or no audits."""
+    if not trend or not trend["audits"]:
+        return []
+    k = trend["k"]
+    head = ["| Audits | Count | Critical | Major | Minor | Info |", "|---|---|---|---|---|---|"]
+    rows = [
+        f"| {label} | {m['audits'] if m else 0} | " + " | ".join(str(m[s]) if m else "—" for s in SEVERITIES) + " |"
+        for label, m in ((f"Last {k}", trend["recent"]), (f"Previous {k}", trend["previous"]), ("All", trend["all"]))
+    ]
+    prev = trend["previous"]
+    note = "- Mean findings per audit; reports are counted by date in their filename."
+    if prev is None or prev["audits"] < k:
+        note += f' Fewer than {2 * k} audits means "previous" is partial.'
+    return [*head, *rows, note]
 
 
 def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
@@ -143,6 +160,8 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
         rows = ["| Report | Date | Critical | Major | Minor | Info |", "|---|---|---|---|---|---|", *rows,
                 "| **Total** | | " + " | ".join(f"**{qa['totals'][k]}**" for k in SEVERITIES) + " |"]
     out += _section("QA audits", rows, "No QA reports in the window (or reading disabled).")
+    trend = agg["qa_trend"]
+    out += _section("QA trend", _qa_trend_lines(trend), "QA reading disabled." if trend is None else "No QA audits found.")
     out += _section("To confirm", confirm, "No inverted pins or deferred reds.")
     fu = agg["follow_ups"]
     follow = [f"- {f['text']} ({f['sessions']} sessions)" for f in fu[:MAX_FOLLOW_UPS]]
@@ -260,7 +279,8 @@ def main(argv: list[str] | None = None) -> int:
             s["sub"] = parse_subagents(f, args.max_subagents)
             s["sub"]["merged"] = merge_subagent_reports(s, s["sub"])
     qa = qa_reports(root, since, args.max_qa_reports) if args.max_qa_reports > 0 else None
-    agg = aggregate(sessions, min_sessions=args.min_sessions, skipped=skipped, qa=qa)
+    trend = qa_trend(qa_reports(root, None, QA_HISTORY_CAP)) if args.max_qa_reports > 0 else None
+    agg = aggregate(sessions, min_sessions=args.min_sessions, skipped=skipped, qa=qa, qa_trend=trend)
     since_s, until_s = since.strftime("%Y-%m-%dT%H:%M:%SZ"), start.strftime("%Y-%m-%dT%H:%M:%SZ")
     out = args.out or state_dir / f"{start.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
