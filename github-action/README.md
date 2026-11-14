@@ -35,7 +35,7 @@ so future reviews watch for them.
 - `claude-review-core.template.yml` — the **source** of the core's wiring
   (inputs, jobs, steps). Each shell step's `run: |` holds a single
   `# @inline scripts/claude-review/<name>.sh` marker instead of the script.
-- `scripts/claude-review/*.sh` — the shell steps themselves
+- `scripts/claude-review/*.sh` (next to this README) — the shell steps themselves
   (`resolve-pr-context`, `restore-trusted-config`, `snapshot-state`,
   `scrub-staged`, `publish-comments`, `open-learning-prs`, `merge-gate`),
   each tested directly by `tests/`.
@@ -74,8 +74,9 @@ If you trim the caller's `permissions:` further, remember that permissions
 must nest: every job in the core has to ask for a subset of what the caller
 grants, otherwise GitHub refuses to start the run and no `merge-gate` runs at
 all. Make the merge-gate check a **required status check** on the protected
-branch, so a run that does not start blocks merging instead of passing
-silently.
+branch (it is named after the caller's job, for example
+`claude-review / merge-gate` for the pasted snippet), so a run that does
+not start blocks merging instead of passing silently.
 
 Pass `--ci-workflow-name` if the target's CI workflow isn't named `CI`; the
 installer rewrites the manual wrapper's polling `select(.name == "CI")`
@@ -96,11 +97,16 @@ is stale; use it in CI or a pre-commit hook (`tests/test_build_review_core.py`
 enforces the same).
 
 The scripts are inlined rather than shipped as files for two reasons. Claude
-has a `Write` tool during the review and could rewrite a script file in the
-workspace before a later step that holds a write token runs it; inline YAML
-can't be changed at runtime. And a fork consuming the workflow cross-repo
-can't read script files from a private central repo without an extra
-credential, so the core stays a single YAML file.
+has a `Write` tool during the review, and the `review` job checks out the PR
+head, so a script file in the workspace is something Claude could rewrite
+before a later step in that job runs it; inline YAML is fixed when the core
+is built and can't be changed at runtime, so every step runs exactly the code
+that was reviewed and committed. (Steps that hold a write token run in the
+separate `publish` and `merge-gate` jobs, which never see the review job's
+workspace; see [What Claude can and cannot do](#what-claude-can-and-cannot-do).)
+And a fork consuming the workflow cross-repo can't read script files from a
+private central repo without an extra credential, so the core stays a single
+YAML file.
 
 ## Wire up the automatic path
 
@@ -177,11 +183,14 @@ The workflow is split into three jobs. Claude only ever runs in the first.
      `in_reply_to` frontmatter key), plus candidate learning notes under
      `/tmp/review-learnings/`.
    - **Prune and upload.** A `Prune staged files before upload` step keeps
-     only publishable regular `.md` files and removes anything else,
-     including any file containing a credential-shaped string. The staged
-     files are then uploaded as one artifact, `review-staged`, kept for one
-     day. Artifacts of a public repository are downloadable by signed-in
-     users while they are retained, which is why the pruning exists.
+     only the files the publish job can use: regular `.md` files in the
+     expected places (`summary.md` and `review.md`, one level of
+     `findings/` and `replies/`, and top-level learning notes). It removes
+     everything else, including links, special files, nested paths and any
+     file containing a credential-shaped string. The staged files are then
+     uploaded as one artifact, `review-staged`, kept for one day. Artifacts
+     of a public repository are downloadable by signed-in users while they
+     are retained, which is why the pruning exists.
 
    Steps that run after Claude in this job cannot be fully protected from
    Claude. The pruning is therefore hygiene for the accidental case, not a
@@ -241,18 +250,19 @@ protected directory in headless runs.
 
 A plain shell step in the `publish` job (`Open review-learning PRs`) does the
 git work, on a checkout of the base branch. The branch push is authenticated
-with the publish job's `GITHUB_TOKEN`. For each staged file it checks the slug (lowercase kebab-case,
-at most 50 characters) and the frontmatter, skips notes that already exist
+with the publish job's `GITHUB_TOKEN`. For each staged file it checks the
+slug (lowercase kebab-case, at most 50 characters) and the frontmatter,
+skips notes that already exist
 on the base branch or already have a branch, then branches off the base
 ref as `claude/review-learning/<pr-number>-<slug>`, copies the file to
 `.claude/memory/review-learnings/<slug>.md`, commits as
 `github-actions[bot]`, pushes, and opens a `chore: record review learning
 (<slug>)` PR against the base branch. The branch name carries the slug so
 a review that runs on every push can record several learnings per PR and a
-re-run is a no-op. The step treats the staged notes as untrusted input like the rest of the
-artifact: it re-checks each one and skips any that contains a
+re-run is a no-op. The step treats the staged notes as untrusted input like
+the rest of the artifact: it re-checks each one and skips any that contains a
 credential-shaped string. It runs even if Claude hit its turn limit, and a
-failure in it only produces a warning — it never fails the review job or
+failure in it only produces a warning — it never fails the `publish` job or
 the merge gate.
 
 Each note is self-contained:
