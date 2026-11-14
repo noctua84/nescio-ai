@@ -3,9 +3,10 @@
 # `needs:` job without a runner, so there is no idle-poll cost.
 #
 # Skipped: drafts, dependabot / github-actions[bot] authors, release-please
-# release PRs, `claude/*` branches (this includes the review-learning PRs the
-# core opens), and PRs labelled `skip-claude-review`. Because drafts are
-# skipped, list `ready_for_review` in your CI workflow's
+# release PRs, and PRs labelled `skip-claude-review`. The review-learning PRs
+# the core opens need no skip rule: PRs opened with `GITHUB_TOKEN` trigger no
+# workflows, and they are authored by github-actions[bot], which is skipped.
+# Because drafts are skipped, list `ready_for_review` in your CI workflow's
 # `on.pull_request.types` so a review starts when a draft is marked ready.
 #
 # For API-key installs, replace the `secrets:` line below with:
@@ -19,7 +20,6 @@ claude-review:
     github.event.pull_request.user.login != 'dependabot[bot]' &&
     github.event.pull_request.user.login != 'github-actions[bot]' &&
     !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
-    !startsWith(github.event.pull_request.head.ref, 'claude/') &&
     !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
   permissions:
     contents: write
