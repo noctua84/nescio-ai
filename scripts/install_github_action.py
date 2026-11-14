@@ -50,7 +50,7 @@ def _write_guarded(dst: Path, content: str, force: bool) -> bool:
         if existing != content:
             print(f"  ! {dst} exists and differs — pass --force to overwrite, skipping.")
             return False
-    dst.write_text(content, encoding="utf-8")
+    dst.write_text(content, encoding="utf-8", newline="")
     return True
 
 def install_files(target: Path, auth: str, ci_workflow_name: str = "CI", force: bool = False) -> list[Path]:

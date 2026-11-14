@@ -313,7 +313,7 @@ def install_settings(parts: frozenset[str], dry_run: bool) -> None:
         print(f"  settings: would write {target} — parts {label} "
               f"(keys: {', '.join(sorted(overlay)) or 'none'})")
         return
-    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8", newline="")
     print(f"  settings: wrote {target} (parts: {label})")
 
 
@@ -414,7 +414,7 @@ def install_claude_md(choice: str, dry_run: bool) -> None:
     if dry_run:
         print(f"  CLAUDE.md: would add `{import_line}` to {target} (import)")
         return
-    target.write_text(new_text, encoding="utf-8")
+    target.write_text(new_text, encoding="utf-8", newline="")
     print(f"  CLAUDE.md: wrote {target} importing the framework (import)")
 
 
@@ -748,7 +748,7 @@ def _wire_command_hook(
                 existing_group.update(rest)
         hooks[event_name] = group_list
         settings["hooks"] = hooks
-        local_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        local_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8", newline="")
         print(f"  re-wired {event_name} hook in {local_path} ({reason}): "
               f"{interpreter} {script_str}")
         return
@@ -774,7 +774,7 @@ def _wire_command_hook(
     group_list.append(block)
     hooks[event_name] = group_list
     settings["hooks"] = hooks
-    local_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    local_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8", newline="")
     print(f"  wired {event_name} hook into {local_path}: {interpreter} {script_str}")
 
 

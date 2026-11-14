@@ -203,7 +203,7 @@ def write_read(out_dir: Path, payload: dict) -> Path:
     """Write ``payload`` as ``read.json`` under ``out_dir``; return its path."""
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / READ_NAME
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="")
     return path
 
 

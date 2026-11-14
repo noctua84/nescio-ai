@@ -80,7 +80,7 @@ def main() -> int:
                 break
         else:
             lines.append(new)        # new content — append
-    LEDGER.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    LEDGER.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
     # Archive the run.
     ADOPTED.mkdir(parents=True, exist_ok=True)

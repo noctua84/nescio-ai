@@ -108,7 +108,7 @@ def main() -> int:
         print("\nNothing new to adopt — every source is already recorded terminal in the ledger.")
         return 0
 
-    (run_dir / "sources.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    (run_dir / "sources.json").write_text(json.dumps(records, indent=2), encoding="utf-8", newline="")
 
     rows = "\n".join(
         f"| `{r['label']}` | `{r['source']}` | {r['kind']} | {r['files']} | `{r['sha8']}` | {r['state']} |"
@@ -124,6 +124,7 @@ def main() -> int:
         + ("\n## Skipped (already done)\n\n| Item | sha8 | Status |\n|------|------|--------|\n"
            + "\n".join(skipped) + "\n" if skipped else ""),
         encoding="utf-8",
+        newline="",
     )
 
     print(f"\nStaged {len(records)} item(s) into {run_dir}")
