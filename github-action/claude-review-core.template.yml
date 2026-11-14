@@ -66,7 +66,7 @@
 #                           comments as files under /tmp/review-outbox/
 #                           (summary.md, review.md, findings/, replies/)
 #                handoff  — the staged files are pruned and uploaded as the
-#                           one-day artifact `review-staged`
+#                           one-day artifact `review-staged-<attempt>`
 #   publish    — write token, never runs Claude. This job boundary is the
 #                security boundary: the artifact's content is untrusted,
 #                and "Publish review comments" re-validates every file
@@ -125,6 +125,10 @@ jobs:
       number: ${{ steps.pr.outputs.number }}
       base_ref: ${{ steps.pr.outputs.base_ref }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      # The artifact name carries the run attempt, so `publish` can only
+      # download what THIS attempt staged. The upload step uses the same
+      # expression.
+      artifact_name: review-staged-${{ github.run_attempt }}
 
     steps:
       - name: Resolve PR context
@@ -800,9 +804,12 @@ jobs:
       # Hands the staged files to the `publish` job as ONE artifact. With
       # two paths the artifact root is their common parent (/tmp), so they
       # arrive as review-outbox/ and review-learnings/. One day of
-      # retention; `overwrite` replaces the artifact on a re-run of this
-      # job. Nothing staged uploads nothing: `publish` then has nothing to
-      # publish and the merge-gate fails closed. Same `env:` blanks as the
+      # retention. The name carries the run attempt: a re-run of this job
+      # replaces an artifact only when it has something to upload, so a
+      # fixed name could leave an earlier attempt's artifact for `publish`
+      # to pick up. Nothing staged uploads nothing: `publish` then finds no
+      # artifact for this attempt, has nothing to publish and the
+      # merge-gate fails closed. Same `env:` blanks as the
       # prune step (defence in depth).
       - name: Upload staged review
         if: ${{ !cancelled() && steps.scrub.outcome == 'success' }}
@@ -814,7 +821,7 @@ jobs:
           LD_AUDIT: ""
           LD_LIBRARY_PATH: ""
         with:
-          name: review-staged
+          name: review-staged-${{ github.run_attempt }}
           path: |
             /tmp/review-outbox
             /tmp/review-learnings
@@ -830,7 +837,7 @@ jobs:
   #
   # This job boundary is the security boundary. Nothing Claude can change
   # in the review job's runner carries over into this job; only the
-  # `review-staged` artifact does, and its content is UNTRUSTED (the
+  # `review-staged-<attempt>` artifact does, and its content is UNTRUSTED (the
   # pruning before upload is hygiene, not a guarantee). Each script here
   # re-validates every file itself: a regular file, within the size limit,
   # with the expected markers and frontmatter, and no credential-shaped
@@ -866,7 +873,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
-          name: review-staged
+          name: ${{ needs.review.outputs.artifact_name }}
           path: ${{ runner.temp }}/review-staged
 
       # Publishes the comments Claude staged under /tmp/review-outbox/ in the

@@ -53,6 +53,7 @@ TOKEN_WORDS = ("GH_TOKEN", "GITHUB_TOKEN", "github.token", "secrets.")
 SECRET_RE = ("(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}"
              "|sk-ant-[A-Za-z0-9_-]{20,})")
 SECRET_SCRIPTS = ("publish-comments.sh", "open-learning-prs.sh", "scrub-staged.sh")
+ARTIFACT_NAME = "review-staged-${{ github.run_attempt }}"
 READ_ONLY = {"contents": "read", "pull-requests": "read", "issues": "read"}
 
 
@@ -248,8 +249,8 @@ def upload_problems(doc):
         with_ = step.get("with") or {}
         if not re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", str(step.get("uses"))):
             p.append("upload must use actions/upload-artifact pinned to a 40-hex SHA")
-        if with_.get("name") != "review-staged":
-            p.append("upload artifact name must be review-staged")
+        if with_.get("name") != ARTIFACT_NAME:
+            p.append(f"upload artifact name must be {ARTIFACT_NAME}")
         paths = [x.strip() for x in str(with_.get("path", "")).splitlines() if x.strip()]
         if paths != ["/tmp/review-outbox", "/tmp/review-learnings"]:
             p.append(f"upload paths must be outbox then learnings, are {paths}")
@@ -268,6 +269,8 @@ def outputs_problems(doc):
     for key in ("number", "base_ref", "head_sha"):
         if outs.get(key) != _expr(f"steps.pr.outputs.{key}"):
             p.append(f"review output {key} must map to steps.pr.outputs.{key}")
+    if outs.get("artifact_name") != ARTIFACT_NAME:
+        p.append(f"review output artifact_name must be {ARTIFACT_NAME}")
     return p
 
 
@@ -303,8 +306,11 @@ def publish_problems(doc):
         if step.get("continue-on-error") is not True:
             p.append("download must be continue-on-error: true")
         name = (step.get("with") or {}).get("name")
-        if up is None or name != (up.get("with") or {}).get("name"):
-            p.append("download name must equal the upload name")
+        if name != _expr("needs.review.outputs.artifact_name"):
+            p.append("download name must come from needs.review.outputs.artifact_name")
+        outs = (_jobs(doc).get("review") or {}).get("outputs") or {}
+        if up is None or outs.get("artifact_name") != (up.get("with") or {}).get("name"):
+            p.append("review output artifact_name must equal the upload name")
         path = str((step.get("with") or {}).get("path", ""))
         for label, found, var in (("publish", pub, "REVIEW_OUTBOX"),
                                   ("learning", learn, "REVIEW_LEARNINGS")):
@@ -558,6 +564,20 @@ def _m_download_name(d):
     _job_step(d, "publish", DOWNLOAD)["with"]["name"] = "something-else"
 
 
+def _m_fixed_artifact_name(d):
+    _job_step(d, "review", UPLOAD)["with"]["name"] = "review-staged"
+    d["jobs"]["review"]["outputs"]["artifact_name"] = "review-staged"
+    _job_step(d, "publish", DOWNLOAD)["with"]["name"] = "review-staged"
+
+
+def _m_upload_name_fixed_only(d):
+    _job_step(d, "review", UPLOAD)["with"]["name"] = "review-staged"
+
+
+def _m_download_not_from_output(d):
+    _job_step(d, "publish", DOWNLOAD)["with"]["name"] = ARTIFACT_NAME
+
+
 def _m_download_path(d):
     _job_step(d, "publish", DOWNLOAD)["with"]["path"] = "/tmp/elsewhere"
 
@@ -635,6 +655,9 @@ MUTATIONS = (
     ("upload", "upload unpinned", _m_upload_unpinned),
     ("upload", "upload retention 7 days", _m_upload_retention),
     ("publish", "download name differs from upload", _m_download_name),
+    ("upload", "fixed artifact name in upload, output and download", _m_fixed_artifact_name),
+    ("upload", "upload name loses the run attempt", _m_upload_name_fixed_only),
+    ("publish", "download name not taken from the review output", _m_download_not_from_output),
     ("publish", "download path is not the REVIEW_* prefix", _m_download_path),
     ("publish", "download not continue-on-error", _m_download_hard_fail),
     ("publish", "claude step added to publish", _m_publish_runs_claude),

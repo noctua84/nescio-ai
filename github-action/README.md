@@ -188,7 +188,7 @@ The workflow is split into three jobs. Claude only ever runs in the first.
      `findings/` and `replies/`, and top-level learning notes). It removes
      everything else, including links, special files, nested paths and any
      file containing a credential-shaped string. The staged files are then
-     uploaded as one artifact, `review-staged`, kept for one day. Artifacts
+     uploaded as one artifact, `review-staged-<run attempt>`, kept for one day. Artifacts
      of a public repository are downloadable by signed-in users while they
      are retained, which is why the pruning exists.
 
