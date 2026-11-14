@@ -155,6 +155,15 @@ class RestoreConfigTest(unittest.TestCase):
         self.assertExit(self.run_step(), 0)
         self.assertRestored()
 
+    def test_restored_bytes_ignore_the_pr_heads_attributes(self):
+        # The PR head's .gitattributes must not re-encode or filter files restored
+        # from the base branch: they are the base blob's bytes, exactly.
+        self._write(self.clone, {".gitattributes": b"CLAUDE.md working-tree-encoding=UTF-16\n"})
+        self.git(self.clone, "add", ".gitattributes")
+        self.git(self.clone, "commit", "-q", "-m", "attributes")
+        self.assertExit(self.run_step(), 0)
+        self.assertEqual((self.clone / "CLAUDE.md").read_bytes(), BASE_FILES["CLAUDE.md"])
+
     def test_index_matches_the_work_tree_for_config_paths(self):
         self.assertExit(self.run_step(), 0)
         tracked = set(self.git(self.clone, "ls-files", "--", *CONFIG_PATHS).split())

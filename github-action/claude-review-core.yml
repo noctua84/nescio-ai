@@ -238,7 +238,9 @@ jobs:
             # ls-tree rather than `cat-file -e "$BASE:$P"`: no "ref:path" argument, which
             # Git Bash on Windows rewrites as a path list.
             if [ -n "$(git ls-tree --name-only "$BASE" -- "$P")" ]; then
-              git checkout "$BASE" -- "$P"
+              # --attr-source: the base branch's attributes decide any conversion, not the
+              # .gitattributes of the checked-out PR head (git 2.40 or newer).
+              git --attr-source="$BASE" checkout "$BASE" -- "$P"
               echo "restored $P from the base branch"
             elif [ "$present" = 1 ]; then
               echo "removed $P (not on the base branch)"
