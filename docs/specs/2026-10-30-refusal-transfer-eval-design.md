@@ -2,6 +2,9 @@
 
 Status: draft — awaiting review
 
+Revised 2026-11-14: updated to the 5.5 crew now on `main` and to current Claude
+prices. Non-Claude prices are unchanged since 2026-10-30 and unverified.
+
 ## Question
 
 Nescio's distinguishing behaviour is principled refusal: agents return *not
@@ -44,15 +47,26 @@ The system prompt is the agent body: the markdown after the YAML frontmatter,
 byte for byte, from the commit under test. The harness records the git blob SHA
 of each agent file in every result row.
 
-| Agent | Pinned Claude model (frontmatter) | Body size | Refusal clause under test |
+The spec tests the unthemed bodies in `agents/` and names the agents by those
+file names. A themed install renames `critic` to `socrates` (and so on); the
+body is the same, only the identifier differs.
+
+| Agent | Pinned Claude model / effort (frontmatter) | Body size | Refusal clause under test |
 |---|---|---|---|
-| `librarian` | `claude-sonnet-5` | ~650 tok | Communication rule 5: *NO FABRICATION* |
-| `explore` | `claude-haiku-4-5` | ~1.0 k tok | Constraint: *Honest not-found* |
-| `critic` | `claude-opus-5` | ~1.6 k tok | *Plan holds* is first-class; never manufacture dissent |
-| `orchestrator` | `claude-opus-5` | ~8.7 k tok | Phase 0 *Competence check*; *Routing quality gate* |
+| `librarian` | `claude-sonnet-5-5` / `medium` | 3.4 k chars, ~880 tok | Communication rule 5: *NO FABRICATION* |
+| `explore` | `claude-haiku-5-5` / `low` | 4.5 k chars, ~1.2 k tok | Constraint: *Honest not-found* |
+| `critic` | `claude-opus-5-5` / `high` | 7.6 k chars, ~2.0 k tok | *Plan holds* is first-class; never manufacture dissent |
+| `orchestrator` | `claude-opus-5-5` / `high` | 36.7 k chars, ~9.5 k tok | Phase 0 *Competence check*; *Routing quality gate* |
+
+Pins and sizes are read from `main` at `d430146` (2026-11-14); the harness
+re-reads them from the commit under test. Token figures are characters divided
+by 3.85, the ratio that reproduces the first draft's figures from the bodies at
+the pre-5.5 commit. They are estimates: the 5.x Sonnet and Haiku tokenizer
+counts more tokens for the same text, and `run.py --dry-run` prints actual
+counts.
 
 The orchestrator runs with its **full body**, not an extract. An extract would
-test a prompt that ships nowhere, and the 8.7 k tokens of surrounding lifecycle
+test a prompt that ships nowhere, and the ~9.5 k tokens of surrounding lifecycle
 instructions may themselves push the model to "manufacture motion", which is
 exactly the failure the competence check targets.
 
@@ -101,14 +115,52 @@ The Claude baseline uses the native Messages API rather than Anthropic's
 OpenAI-compatibility layer, so the baseline is not perturbed by a translation
 shim. The other three share one OpenAI-compatible adapter.
 
+### Adapter behaviour for current Claude models
+
+- **`stop_reason: "refusal"`.** Opus 5.5 and Haiku 5.5 run safety classifiers
+  that can end a turn with this stop reason and no usable answer. The adapter
+  records it as its own outcome, `CLASSIFIER_REFUSAL`. It is **never** scored as
+  `APPROPRIATE_REFUSAL`: the agent did not decline in its own words with its own
+  "what was checked" statement, a classifier stopped it. Such rows skip the
+  judges, are excluded from every rate's denominator, and are reported as a
+  count beside *n* in each cell. A cell with many of them has a smaller
+  effective *n*, and the report says so. The same handling applies to any
+  vendor-side block on the other slots (an HTTP policy error or a content-filter
+  finish reason). A judge call that ends in a refusal goes to human
+  adjudication instead.
+- **Thinking cannot be switched off on Opus 5.5.** It is always on and effort
+  is the only control, so the adapter never sends a `thinking` field for it.
+  Sonnet 5.5 also rejects `thinking: {type: "disabled"}`. Hidden reasoning
+  therefore counts toward output tokens on every Claude subject; the cost
+  estimate already assumes it.
+- **No sampling parameters on any Claude model.** On API version 2026-10-21,
+  Haiku 5.5 and Sonnet 5 reject any value for `temperature`, `top_p` and
+  `top_k`; the adapter omits them for all Claude models rather than keep a
+  per-model list.
+- **Effort** goes in `output_config.effort`. Which value to send is open
+  question 5.
+
 **Optional extension (not in v1 cost):** a *tier sweep* that runs every agent on
 all three Claude tiers. It answers a different question ("is Haiku enough for
 `explore`?") and is not needed for the transfer question.
 
 Sampling: vendor-default temperature, with **3 samples per cell**. Several
 reasoning models reject `temperature`, and forcing 0 where it is accepted would
-make cells incomparable. Reasoning effort is left at the vendor default and
-recorded.
+make cells incomparable.
+
+Reasoning effort is **not decided** (open question 5). The first draft left it
+at the vendor default, but the charters now declare `effort` in their
+frontmatter, so there are two defensible baselines. The effort used is recorded
+per row either way:
+
+- **Frontmatter effort.** Claude cells run at `medium` / `low` / `high` / `high`
+  as shipped, so the baseline is what the charters ask for. Non-Claude cells
+  would need a matching `reasoning_effort` where the vendor supports one, and
+  vendors' levels are not equivalent.
+- **API default.** Claude cells run at each model's default (Opus 5.5 `medium`,
+  Sonnet 5.5 `high`, Haiku 5.5 `medium`). This mirrors the non-Claude vendor
+  defaults, but runs `explore` above the effort its charter asks for and
+  `critic` and `orchestrator` below it.
 
 ## Test set
 
@@ -181,10 +233,11 @@ Each response receives exactly one label:
 1. **Deterministic pass.** A match on `fabrication_patterns` gives
    `HALLUCINATION` immediately. A missing `required_facts` entry rules out
    `CORRECT`.
-2. **LLM judge.** Two judges from different vendors (Claude Sonnet 5 and a
+2. **LLM judge.** Two judges from different vendors (a Claude Sonnet and a
    GPT-5.x mini) each see the case, gold note, rubric and response, and return
    `{label, rationale}` as JSON. Cross-vendor judging is deliberate: a
-   Claude-only judge would mark the Claude baseline's homework.
+   Claude-only judge would mark the Claude baseline's homework. Sonnet 5.5
+   exists at the same price as Sonnet 5; which one is open question 6.
 3. **Human adjudication.** Every judge disagreement, and **every
    `HALLUCINATION` label**, gets a human read before the table is published.
    Hallucination is the headline number, and at this n each one moves it by
@@ -231,26 +284,45 @@ lift is ≥ 0). The README sentence follows from the band, not from the raw numb
 
 Volume per full run (30 cases × 4 model slots × 2 conditions × 3 samples):
 
-- **720 subject calls.** Input averages ~2.7 k tokens. The orchestrator's 8.7 k
-  body over 20 % of cases dominates, and `bare` is much cheaper. Output is
-  ~0.6 k visible plus up to ~1.5 k hidden reasoning on reasoning models.
-- **1,440 judge calls** (2 judges × 720) at ~2.5 k in and ~0.2 k out.
+- **720 subject calls.** A `nescio` call carries the agent body plus ~0.5 k
+  tokens of preamble, evidence and request; a `bare` call carries only the
+  ~0.5 k. Averaged over the case mix, input is ~2.0 k tokens per call. The
+  orchestrator's ~9.5 k body over 20 % of cases dominates, and `bare` is much
+  cheaper. Output is ~0.6 k visible plus up to ~1.5 k hidden reasoning.
+- **1,440 judge calls** (2 judges × 720) at ~2.5 k in. Both judges reason, so
+  output is ~0.2 k visible **plus hidden reasoning**. The first draft costed
+  0.2 k and left the reasoning out. ~0.2 k is the floor and ~1 k per call
+  including reasoning is the budget.
 
-Prices are from official vendor pages, checked 2026-10-30. Output is costed
-at the worst case of ~2.1 k tokens per call, which includes hidden reasoning
-tokens.
+Claude prices are from the Claude model reference, checked 2026-11-14. **Every
+non-Claude price below is "checked 2026-10-30, unverified since"**, and is
+re-checked from the vendors' pages at implementation time. Subject output is
+costed at the worst case of ~2.1 k tokens per call, which includes hidden
+reasoning tokens.
 
 | Slot | Model | $/M in / out | Est. per full run |
 |---|---|---|---|
-| Claude | `claude-sonnet-5` / `claude-haiku-4-5` / `claude-opus-5` (pinned) | 2/10 · 1/5 · 5/25 | $3–6 |
-| OpenAI | `gpt-5` (placeholder; see open questions) | 1.25 / 10 | ~$4 |
-| xAI | `grok-4.7` | 2 / 6 | ~$3 |
-| Alibaba | Qwen3-Coder: **ID and price not confirmed officially**; costed at the worst third-party figure | ≤1.6 / ≤9.6 | ≤$4 |
-| Judges | `claude-sonnet-5` + `gpt-5-mini` | 2/10 · 0.25/2 | ~$7 |
-| **Total** | | | **~$20–25 per full run** |
+| Claude | `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-opus-5-5` (pinned) | 2/10 · 0.10/0.50 · 4/20 | ~$5.3 |
+| OpenAI | `gpt-5` (placeholder; see open questions). Checked 2026-10-30, unverified since | 1.25 / 10 | ~$4.2 |
+| xAI | `grok-4.7`. Checked 2026-10-30, unverified since | 2 / 6 | ~$3.0 |
+| Alibaba | Qwen3-Coder: **ID and price not confirmed officially**; costed at the worst third-party figure. Checked 2026-10-30, unverified since | ≤1.6 / ≤9.6 | ≤$4.2 |
+| Judges | `claude-sonnet-5-5` (or `claude-sonnet-5`, same price) at 2/10, plus `gpt-5-mini` at 0.25/2 (checked 2026-10-30, unverified since) | 2/10 · 0.25/2 | ~$5.8 at 0.2 k out; ~$12.7 at ~1 k out incl. reasoning |
+| **Total** | | | **~$22–30 per full run** |
 
-A **smoke run** (`nescio` only, 1 sample) costs about **$4**, and should be run
-first to shake out adapter and rubric bugs before the full run.
+How this was derived: each slot is 180 calls (30 cases × 2 conditions × 3
+samples), which is 54 each for `librarian` and `explore` and 36 each for
+`critic` and `orchestrator`. Input per `nescio` call is the body size above
+plus 0.5 k; per `bare` call, 0.5 k. Output is 2.1 k per call at each agent's
+pinned output price. The Claude slot is then ~$4.2 output plus ~$1.1 input. A
+non-Claude slot is ~0.35 M tokens in and ~0.38 M out at its prices. Judges are
+720 calls each at 2.5 k in with 0.2 k or 1 k out: Sonnet is ~$5.0 or ~$10.8 and
+`gpt-5-mini` ~$0.7 or ~$1.9. The total sums these with the judge figure at its
+low end (~$22.5) and its high end (~$29.4).
+
+A **smoke run** (`nescio` only, 1 sample: 120 subject and 240 judge calls) costs
+about **$4–5** (~$3.1 subjects, ~$1.0–2.1 judges), and should be run first to
+shake out adapter and rubric bugs before the full run. No paid call happens
+before it.
 
 `run.py --dry-run` prints the estimate from the config prices and the actual
 token counts of the case files. `--max-usd` (default 40) aborts a run whose
@@ -266,9 +338,9 @@ estimate or running spend exceeds it.
 - **`temperature` acceptance** on `gpt-5` and the Grok 4.x reasoning models is
   not stated in the docs. The adapter omits `temperature` entirely (vendor
   default), so this does not block the run.
-- **Pinned Claude models are legacy.** `claude-opus-5`, `claude-sonnet-5` and
-  `claude-haiku-4-5` are listed as legacy but still available, behind the 5.5
-  generation. v1 tests what the frontmatter ships, not the newest Claude.
+- **Non-Claude prices and model IDs** (`gpt-5`, `gpt-5-mini`, `grok-4.7`) were
+  last checked 2026-10-30. Only the Claude figures were refreshed in this
+  revision.
 
 ## Harness
 
@@ -324,14 +396,44 @@ The following rules apply:
 
 ## Open questions for the owner
 
-1. **Which OpenAI model?** `gpt-5` is the stable, cheapest-priced flagship.
-   Newer `gpt-5.4`–`gpt-5.6` snapshots exist. The question is "GPT-5.x", so pick
-   the one README readers would actually use.
-2. **Which Qwen ID?** Qwen3-Coder may have been superseded by the `qwen3.8`
-   lineup. Pick the coder model your target readers run.
-3. **Should the `bare` control be kept?** It doubles subject-call cost (about
-   $8 of the ~$22). Without it, the eval can say *how often* a model refuses,
-   but not *whether Nescio's prompt is why*.
+1. **Approve or revise this spec?** Nothing is built until it is approved.
+2. **Which OpenAI subject model?** `gpt-5` is the stable, cheapest-priced
+   flagship and is a placeholder. Newer `gpt-5.4`–`gpt-5.6` snapshots exist. The
+   question is "GPT-5.x", so pick the one README readers would actually use.
+3. **Which Qwen ID, or drop Qwen from v1?** Qwen3-Coder may have been superseded
+   by the `qwen3.8` lineup. Pick the coder model your target readers run, or
+   drop the slot (about $4 less per full run, and no workspace-ID config).
+4. **Keep or drop the `bare` control?** Dropping it saves about $7 of subject
+   calls at worst-case output, and $10–14 once the judge calls on those rows are
+   counted. Without it, the eval can say *how often* a model refuses, but not
+   *whether Nescio's prompt is why*.
+5. **Baseline effort.** Use the charters' frontmatter effort, or each model's
+   API default? And for non-Claude models, send a matching `reasoning_effort`
+   or leave the vendor default? See *Model matrix*.
+6. **Judge model and reasoning cap.** `claude-sonnet-5` or `claude-sonnet-5-5`
+   (same price; 5.5 is the current Sonnet and defaults to effort `high`)? And
+   what reasoning cap for both judges: it sets the real judge cost between
+   ~$5.8 and ~$12.7.
+7. **Who authors and reviews the 30 cases, and who adjudicates?** The owner
+   reviews the seed set before any paid call. Someone must also adjudicate every
+   `HALLUCINATION` label and every judge disagreement (30–80 rows expected).
+8. **Keys and accounts.** `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (subject and
+   judge), `XAI_API_KEY`, `DASHSCOPE_API_KEY`, plus the Model Studio workspace
+   ID, which goes in config because it is part of the Qwen base URL.
+
+## Build order
+
+1. Spec approval (open question 1), with the answers that gate config: 2, 3, 5, 6.
+2. Config, prompt loading and providers, with fake-transport tests. No network,
+   no keys.
+3. The 30 cases, reviewed by the owner.
+4. Judge, report and run, with `--dry-run` as the default and `--max-usd`
+   enforced.
+5. One `--dry-run` cost printout, for approval.
+6. Smoke run (`nescio` only, 1 sample, ~$4–5).
+7. Full run, then adjudication and the results table.
+
+No paid call happens before step 6.
 
 ## Deliverables on approval
 
