@@ -55,16 +55,28 @@
 #   <!-- claude-stillopen: {fingerprint} -->   (one-time persist nudge)
 #   <!-- claude-ack -->                         (human: accept/won't-fix)
 #
-# Claude has NO GitHub write tool. The job runs in three shell-driven
-# stages around it:
-#   snapshot — "Snapshot review state" reads the PR's comments, review
-#              threads and open learning PRs into /tmp/review-state/
-#   stage    — Claude reads that snapshot and STAGES its comments as files
-#              under /tmp/review-outbox/ (summary.md, review.md,
-#              findings/, replies/)
-#   publish  — "Publish review comments" validates the staged files and
-#              posts them (edits the existing summary/review in place,
-#              replies, new inline findings) as github-actions[bot]
+# Claude has NO GitHub write tool. The workflow runs as three jobs, and
+# Claude only ever runs in the first:
+#   review     — read-only token, no OIDC token, no persisted checkout
+#                credentials. The review always runs with the base
+#                branch's Claude configuration, for every event: a step
+#                restores it before Claude starts.
+#                snapshot — "Snapshot review state" reads the PR's comments,
+#                           review threads and open learning PRs into
+#                           /tmp/review-state/
+#                stage    — Claude reads that snapshot and STAGES its
+#                           comments as files under /tmp/review-outbox/
+#                           (summary.md, review.md, findings/, replies/)
+#                handoff  — the staged files are pruned and uploaded as the
+#                           one-day artifact `review-staged`
+#   publish    — write token, never runs Claude. This job boundary is the
+#                security boundary: the artifact's content is untrusted,
+#                and "Publish review comments" re-validates every file
+#                before posting it (edits the existing summary/review in
+#                place, replies, new inline findings) as
+#                github-actions[bot]. It also opens the learning PRs.
+#   merge-gate — runs after publish and submits the formal review; fails
+#                closed unless this run's review was published.
 # See the allow-list notes on the Claude step for why.
 #
 # Tests are NEVER re-run here. The target's CI workflow already ran the
@@ -98,14 +110,23 @@ jobs:
     # policy). No concurrency group either: the CI caller's workflow-level
     # group cancels an in-flight review when a newer push lands.
     runs-on: ubuntu-latest
-    # Write scopes stay: the "Publish review comments" and "Open
-    # review-learning PRs" steps use them, not Claude (it has no GitHub
-    # write tool).
+    # Read-only on purpose: Claude runs in this job and can read whatever
+    # token the job holds, so the only token here is this read-only
+    # GITHUB_TOKEN, passed to the Claude step explicitly. No OIDC token
+    # permission: without it the action cannot exchange OIDC for a Claude
+    # GitHub App token, whose scope would not follow this block.
+    # Everything that writes runs in the `publish` and `merge-gate` jobs
+    # below.
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    # Written by "Resolve PR context" before Claude runs, so Claude cannot
+    # change them. `publish` and `merge-gate` read the PR from here.
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+      base_ref: ${{ steps.pr.outputs.base_ref }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
 
     steps:
       - name: Resolve PR context
@@ -147,10 +168,78 @@ jobs:
         # Explicit ref pins to the PR HEAD SHA (important for the manual
         # dispatch path, which otherwise checks out the default branch).
         # fetch-depth 0 so `git diff base...head` resolves on multi-commit
-        # PRs.
+        # PRs. The restore step below depends on it too: all branches are
+        # fetched, so the base branch is available without credentials.
+        # No persisted credentials: Claude runs in this job.
         with:
           ref: ${{ steps.pr.outputs.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      # The review always runs with the base branch's Claude
+      # configuration, for every event (manual dispatch included): each
+      # Claude configuration path in the PR head is replaced by the base
+      # branch's version, or removed where the base branch has none.
+      #
+      # No `if:` and no `continue-on-error`: a failure (for example, the
+      # base branch is not in the checkout) stops this job before Claude
+      # runs, nothing is published, and the merge gate fails closed. No
+      # token: the script uses the remote-tracking ref the checkout above
+      # already fetched.
+      #
+      # PR-controlled data is never interpolated into the script; values
+      # reach the shell only through `env:`.
+      - name: Restore base-branch Claude configuration
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+        run: |
+          # Makes the review always run with the base branch's Claude configuration: each
+          # listed Claude configuration path is dropped from the checked-out PR head and,
+          # where the base branch has it, restored from there.
+          #
+          # Reads (env): BASE_REF (the PR's base branch)
+          # Run from the checkout root, after the PR head is checked out. No network and no
+          # token: it uses the remote-tracking ref the full-history checkout already holds.
+          #
+          # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
+          # file and re-run the generator; do not edit the generated workflow.
+          set -euo pipefail
+
+          BASE_REF="${BASE_REF-}"
+
+          if [ -z "$BASE_REF" ] || ! git check-ref-format --branch "$BASE_REF" >/dev/null 2>&1; then
+            echo "::error::Base branch restore failed: the base branch name is empty or not a valid branch name."
+            exit 1
+          fi
+
+          BASE="refs/remotes/origin/$BASE_REF"
+          if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+            echo "::error::Base branch restore failed: the base branch was not found in the checkout."
+            exit 1
+          fi
+
+          PATHS=(.claude .mcp.json .claude.json .gitmodules .ripgreprc CLAUDE.md CLAUDE.local.md .husky)
+
+          for P in "${PATHS[@]}"; do
+            present=0
+            if [ -e "$P" ] || [ -L "$P" ] || [ -n "$(git ls-files -- "$P")" ]; then
+              present=1
+            fi
+
+            # Remove from the index and the work tree. rm does not follow a symlink
+            # operand: a link is removed as a link.
+            git rm -r -q --cached --ignore-unmatch -- "$P"
+            rm -rf -- "$P"
+
+            # ls-tree rather than `cat-file -e "$BASE:$P"`: no "ref:path" argument, which
+            # Git Bash on Windows rewrites as a path list.
+            if [ -n "$(git ls-tree --name-only "$BASE" -- "$P")" ]; then
+              git checkout "$BASE" -- "$P"
+              echo "restored $P from the base branch"
+            elif [ "$present" = 1 ]; then
+              echo "removed $P (not on the base branch)"
+            fi
+          done
 
       # No Node / npm ci: this is static analysis only. Test execution
       # — the project's test suite — is owned by the CI workflow.
@@ -166,8 +255,8 @@ jobs:
       #
       # Fail-hard on purpose (no `continue-on-error`): without the
       # snapshot Claude would review blind and might re-post findings. A
-      # failure fails this job, which the fail-closed merge-gate below
-      # already treats as "no verdict".
+      # failure stops this job before Claude runs; nothing is published,
+      # so the merge-gate below fails closed.
       #
       # PR-controlled data is never interpolated into the script; values
       # reach the shell only through `env:`.
@@ -230,6 +319,13 @@ jobs:
         uses: anthropics/claude-code-action@558b1d6cab4085c7753fe402c10bef0fbb92ac7a
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The job's read-only token, passed explicitly: without it the
+          # action exchanges OIDC for a Claude GitHub App token instead.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Removes the action's own post-Claude inline-comment posting
+          # step. Claude has no inline-comment tool; findings are staged
+          # and published by the `publish` job.
+          classify_inline_comments: "false"
           # Surfaces per-turn tool-use records so denied calls are visible.
           show_full_output: true
           # Allow-list notes:
@@ -237,29 +333,31 @@ jobs:
           #   `gh pr comment`, no inline-comment MCP. A Bash allow rule is
           #   a prefix match, so `Bash(gh api:*)` cannot constrain the HTTP
           #   method (-X / --method), the -f / -F / --input flags or a
-          #   GraphQL mutation. Claude reads untrusted PR content while
-          #   this job's token can write, so only removing the tool holds.
-          #   (A call that matches no rule is denied in a headless run.)
+          #   GraphQL mutation. Claude reads untrusted PR content, so only
+          #   removing the tool holds; this job's token is read-only on
+          #   top of that. (A call that matches no rule is denied in a
+          #   headless run.)
           # - Reads come from /tmp/review-state/, written by the
           #   "Snapshot review state" step above. `gh pr view` and
           #   `gh pr diff` stay: they are read-only.
           # - Writes are STAGED, never posted. `Write` puts comment bodies
           #   under /tmp/review-outbox/ (summary.md, review.md, findings/,
-          #   replies/) and the "Publish review comments" step after this
-          #   one validates and posts them to fixed endpoints. The
-          #   merge-gate job submits the formal review.
+          #   replies/). They reach the `publish` job as an artifact, and
+          #   its "Publish review comments" step re-validates them and
+          #   posts them to fixed endpoints. The merge-gate job submits
+          #   the formal review.
           # - The review must NOT re-run the project's tests; CI already
           #   gated them on this SHA.
           # - Claude is deliberately READ-ONLY with respect to git: no
           #   fetch / checkout / add / commit / push and no
-          #   `gh pr create`. It reads untrusted PR content while the
-          #   token holds contents:write, so only the prompt would stand
-          #   between an injected instruction and a push. Learning notes
-          #   are therefore staged to /tmp/review-learnings/ and the
-          #   "Open review-learning PRs" step below does the git work.
-          #   (Claude could not write them into `.claude/` itself anyway:
-          #   Claude Code treats that directory as protected and denies
-          #   the write in a headless run even with `Write` allowed.)
+          #   `gh pr create`. This job holds no write token and no
+          #   persisted credentials, so the git work happens elsewhere:
+          #   learning notes are staged to /tmp/review-learnings/ and the
+          #   "Open review-learning PRs" step in the `publish` job does
+          #   it. (Claude could not write them into `.claude/` itself
+          #   anyway: Claude Code treats that directory as protected and
+          #   denies the write in a headless run even with `Write`
+          #   allowed.)
           claude_args: >-
             --max-turns ${{ inputs.max_turns }}
             --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(cat:*),Write,Read,Grep,Glob"
@@ -788,45 +886,259 @@ jobs:
             - The HTML markers MUST be present in every file you stage.
               Without them, future runs cannot find your comments.
 
-      # Publishes the comments Claude staged under /tmp/review-outbox/.
+      # Prunes the staged files before they leave this job as an artifact.
+      #
+      # Hygiene for the benign and accidental case, not a boundary: it keeps
+      # only publishable regular .md files and drops any file that contains
+      # a credential-shaped string, so neither ends up in the artifact.
+      # Artifacts of a public repository are downloadable by signed-in
+      # users while they are retained. Steps after Claude in this job cannot
+      # be fully protected from it, so the `publish` job treats the
+      # artifact as untrusted regardless and re-checks every file itself.
+      #
+      # Defence in depth only: an absolute shell path in bash privileged
+      # mode (`-p`) without startup files, step `env:` that empties the
+      # variables which change how a shell or program starts, and a script
+      # that resets PATH as its first command. No token.
+      #
+      # `!cancelled()`: whatever Claude staged before it hit max turns is
+      # still handed on. A failure here skips the upload, so nothing is
+      # published and the merge-gate fails closed.
+      - name: Prune staged files before upload
+        id: scrub
+        if: ${{ !cancelled() }}
+        shell: /bin/bash --noprofile --norc -p -e -o pipefail {0}
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+        run: |
+          # Prunes the staged review files before they are uploaded as an artifact: keeps
+          # only publishable regular files and drops anything else, plus any file that
+          # contains a credential-shaped string. This is hygiene for the benign and
+          # accidental case (plain-text credentials, links and special files stay out of a
+          # downloadable artifact). It is not a security boundary: the publish job treats
+          # the artifact as untrusted and re-checks every file itself.
+          #
+          # Reads (env): REVIEW_OUTBOX (optional; defaults to /tmp/review-outbox),
+          #   REVIEW_LEARNINGS (optional; defaults to /tmp/review-learnings)
+          #
+          # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
+          # file and re-run the generator; do not edit the generated workflow.
+          export PATH=/usr/bin:/bin
+          set -euo pipefail
+
+          # Identical to the filters in publish-comments.sh and open-learning-prs.sh.
+          SECRET_RE='(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-ant-[A-Za-z0-9_-]{20,})'
+
+          OUTBOX="${REVIEW_OUTBOX:-/tmp/review-outbox}"
+          LEARNINGS="${REVIEW_LEARNINGS:-/tmp/review-learnings}"
+
+          # The file names are Claude's choice: keep log output to a safe alphabet.
+          label() { printf '%s' "$(basename -- "$1")" | tr -c 'A-Za-z0-9._-' '_'; }
+
+          warn_path() {
+            echo "::warning::Staged path '$(label "$1")' removed before upload: not a publishable file."
+          }
+
+          is_regular() { [ -f "$1" ] && [ ! -L "$1" ]; }
+
+          # keep_outbox <relative path> <full path>: is this entry publishable as it is?
+          keep_outbox() {
+            case "$1" in
+              summary.md|review.md) is_regular "$2" ;;
+              findings|replies) [ -d "$2" ] && [ ! -L "$2" ] ;;
+              findings/*|replies/*)
+                case "${1#*/}" in
+                  */*|.*) return 1 ;;
+                  *.md) is_regular "$2" ;;
+                  *) return 1 ;;
+                esac
+                ;;
+              *) return 1 ;;
+            esac
+          }
+
+          # keep_learnings <relative path> <full path>: top-level regular *.md files only.
+          keep_learnings() {
+            case "$1" in
+              */*|.*) return 1 ;;
+              *.md) is_regular "$2" ;;
+              *) return 1 ;;
+            esac
+          }
+
+          LIST=$(mktemp /tmp/scrub-staged.XXXXXX)
+          trap 'rm -f "$LIST"' EXIT
+
+          # prune <dir> <outbox|learnings>
+          prune() {
+            local root="${1%/}" kind="$2" p rel rc
+            if [ -z "$root" ]; then
+              echo "::error::Scrub failed: staging directory path is empty."
+              exit 1
+            fi
+            # A link is removed as a link; its target is never followed.
+            if [ -L "$root" ]; then
+              rm -f -- "$root"
+              warn_path "$root"
+              return 0
+            fi
+            [ -e "$root" ] || return 0
+            if [ ! -d "$root" ]; then
+              rm -f -- "$root"
+              warn_path "$root"
+              return 0
+            fi
+            # List first, remove afterwards: find never walks a tree it is deleting.
+            find "$root" -mindepth 1 -print0 > "$LIST"
+            while IFS= read -r -d '' p; do
+              # Already gone with a removed parent directory.
+              if [ ! -e "$p" ] && [ ! -L "$p" ]; then continue; fi
+              rel="${p#"$root"/}"
+              if "keep_$kind" "$rel" "$p"; then
+                # Kept directories hold nothing to scan; a kept file is scanned whole.
+                if [ -f "$p" ]; then
+                  rc=0
+                  LC_ALL=C grep -Eq -- "$SECRET_RE" "$p" || rc=$?
+                  if [ "$rc" -eq 0 ]; then
+                    rm -f -- "$p"
+                    echo "::warning::Staged file '$(label "$p")' removed before upload: it contains a credential-shaped string."
+                  elif [ "$rc" -ne 1 ]; then
+                    # Could not be scanned: do not upload what was not checked.
+                    rm -f -- "$p"
+                    warn_path "$p"
+                  fi
+                fi
+                continue
+              fi
+              rm -rf -- "$p"
+              warn_path "$p"
+            done < "$LIST"
+          }
+
+          prune "$OUTBOX" outbox
+          prune "$LEARNINGS" learnings
+
+      # Hands the staged files to the `publish` job as ONE artifact. With
+      # two paths the artifact root is their common parent (/tmp), so they
+      # arrive as review-outbox/ and review-learnings/. One day of
+      # retention; `overwrite` replaces the artifact on a re-run of this
+      # job. Nothing staged uploads nothing: `publish` then has nothing to
+      # publish and the merge-gate fails closed. Same `env:` blanks as the
+      # prune step (defence in depth).
+      - name: Upload staged review
+        if: ${{ !cancelled() && steps.scrub.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        env:
+          BASH_ENV: ""
+          ENV: ""
+          LD_PRELOAD: ""
+          LD_AUDIT: ""
+          LD_LIBRARY_PATH: ""
+        with:
+          name: review-staged
+          path: |
+            /tmp/review-outbox
+            /tmp/review-learnings
+          if-no-files-found: ignore
+          retention-days: 1
+          overwrite: true
+
+  # ---------------------------------------------------------------------------
+  # Publish
+  # ---------------------------------------------------------------------------
+  # Posts what the review job staged, with a write token. This job NEVER
+  # runs Claude.
+  #
+  # This job boundary is the security boundary. Nothing Claude can change
+  # in the review job's runner carries over into this job; only the
+  # `review-staged` artifact does, and its content is UNTRUSTED (the
+  # pruning before upload is hygiene, not a guarantee). Each script here
+  # re-validates every file itself: a regular file, within the size limit,
+  # with the expected markers and frontmatter, and no credential-shaped
+  # content.
+  #
+  # The PR number, head SHA and base ref come from the review job's
+  # outputs, which "Resolve PR context" wrote before Claude ran.
+  #
+  # `!cancelled()`: a review job that failed after staging (for example,
+  # Claude hit max turns) still gets its staged files published. A
+  # cancelled run publishes nothing.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: review
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Comments and learning PRs (pull-requests, issues) and the
+    # learning-branch push (contents).
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    # Set only when this run's review.md was posted; the merge-gate fails
+    # closed on anything else.
+    outputs:
+      review_published: ${{ steps.publish.outputs.review_published }}
+    steps:
+      # Extracts into a fresh, dedicated directory, so no entry can land
+      # outside it. `continue-on-error`: a missing artifact (the review job
+      # failed before staging anything) means nothing to publish, so
+      # review_published stays unset and the merge-gate fails closed.
+      - name: Download staged review
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: review-staged
+          path: ${{ runner.temp }}/review-staged
+
+      # Publishes the comments Claude staged under /tmp/review-outbox/ in the
+      # review job, as downloaded from the artifact.
       #
       # Why a plain shell step instead of letting Claude call the API:
       #   - A Bash allow rule is a prefix match, so no `gh` rule can
       #     constrain the method, the flags or a GraphQL mutation. Claude
-      #     reads untrusted PR content while this job's token can write,
-      #     so it gets no write tool and only STAGES files.
+      #     reads untrusted PR content, so it gets no write tool, runs in a
+      #     job with a read-only token, and only STAGES files.
       #   - This step posts to FIXED endpoints after checking each file:
-      #     no symlinks, size limits, the exact marker on line 1, a
-      #     finding `path` that is in the PR's changed files, and a reply
-      #     target that is a finding comment this workflow wrote on THIS PR.
+      #     a regular file (no symlinks), size limits, no credential-shaped
+      #     content, the exact marker on line 1, a finding `path` that is in
+      #     the PR's changed files, and a reply target that is a finding
+      #     comment this workflow wrote on THIS PR.
       #   - Existing comments are found with a fresh API read filtered to
       #     the trusted logins: `github-actions[bot]` (this step) and
       #     `claude[bot]` (comments posted by earlier versions of this
-      #     template, so they are still edited in place). /tmp/review-state
-      #     is NOT used: Claude can write there.
+      #     template, so they are still edited in place). The review job's
+      #     /tmp/review-state is NOT used: Claude can write there.
       #
       # `!cancelled()`: whatever Claude staged before it hit max turns is
       # still published. No `continue-on-error`: if a staged review cannot
-      # be published this step fails the job, so the fail-closed
-      # merge-gate cannot act on a stale review. A failed summary,
-      # finding or reply is only a warning.
+      # be published this step fails the job and never sets
+      # review_published, so the merge-gate fails closed instead of acting
+      # on a stale review. A failed summary, finding or reply is only a
+      # warning.
       #
       # PR-controlled data is never interpolated into the script; values
-      # reach the shell only through `env:`. `REVIEW_OUTBOX` exists so
-      # tests can point the script elsewhere.
+      # reach the shell only through `env:`. `REVIEW_OUTBOX` points the
+      # script at the downloaded artifact (tests use it the same way).
       - name: Publish review comments
+        id: publish
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_NUMBER: ${{ needs.review.outputs.number }}
           REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.review.outputs.head_sha }}
+          REVIEW_OUTBOX: ${{ runner.temp }}/review-staged/review-outbox
         run: |
           # Validates the comments Claude staged under the review outbox and posts them
           # (summary, review, replies, inline findings) as github-actions[bot].
           #
           # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO, HEAD_SHA (40-char hex)
-          #   REVIEW_OUTBOX (optional; defaults to /tmp/review-outbox), RUNNER_TEMP (optional)
+          #   REVIEW_OUTBOX (optional; defaults to /tmp/review-outbox), RUNNER_TEMP (optional),
+          #   GITHUB_OUTPUT (optional; receives review_published=true once review.md is posted)
           #
           # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
           # file and re-run the generator; do not edit the generated workflow.
@@ -846,6 +1158,11 @@ jobs:
           FINDING_RE='^<!-- claude-finding: [^>]+ -->$'
           # Line 2 of review.md. The merge-gate job uses the same pattern.
           VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
+          # Credential shapes: GitHub tokens (ghp_ gho_ ghu_ ghs_ ghr_, github_pat_) and
+          # Anthropic keys (sk-ant-). Best-effort and plain-text only. Identical in
+          # open-learning-prs.sh and scrub-staged.sh. The staged files are untrusted input
+          # here, so this check is authoritative and never assumes a pre-upload prune ran.
+          SECRET_RE='(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-ant-[A-Za-z0-9_-]{20,})'
 
           case "$PR_NUMBER" in
             ''|*[!0-9]*)
@@ -882,6 +1199,11 @@ jobs:
             fi
             if [ "$(wc -c < "$1")" -gt "$2" ]; then
               echo "::warning::Staged file '$3' rejected: larger than $2 bytes."
+              return 1
+            fi
+            # Whole file, frontmatter included. The matched text is never printed.
+            if LC_ALL=C grep -Eq -- "$SECRET_RE" "$1"; then
+              echo "::warning::Staged file '$3' rejected: it contains a credential-shaped string."
               return 1
             fi
           }
@@ -962,7 +1284,12 @@ jobs:
           fi
 
           if [ -e "$OUT/review.md" ] || [ -L "$OUT/review.md" ]; then
-            if ! publish_top "$OUT/review.md" "$REVIEW_MARKER" "$VERDICT_RE"; then
+            if publish_top "$OUT/review.md" "$REVIEW_MARKER" "$VERDICT_RE"; then
+              # The merge gate fails closed unless this run's review was published.
+              if [ -n "${GITHUB_OUTPUT:-}" ]; then
+                echo "review_published=true" >> "$GITHUB_OUTPUT"
+              fi
+            else
               # Remembered, not fatal yet: findings and replies below are still
               # published. The step fails at the very end so it is visible.
               echo "::error::The comprehensive review was staged but could not be published."
@@ -1115,15 +1442,28 @@ jobs:
             exit 1
           fi
 
+      # "Open review-learning PRs" needs a git repository with an
+      # authenticated origin (fetch, worktree, push). Credentials stay
+      # persisted on purpose: this job never runs Claude. A shallow
+      # checkout of the base branch is enough. `continue-on-error`, like
+      # the learning step: a learning failure must never fail this job.
+      - name: Check out base branch for review-learning PRs
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.review.outputs.base_ref }}
+          fetch-depth: 1
+
       # Opens the review-learning PRs that Claude staged in Step 4b.
       #
       # Why a plain shell step instead of letting Claude run git:
       #   - Claude Code treats `.claude/` as a protected directory and
       #     denies writes there in a headless run, so Claude cannot write
       #     the note into the repo. A shell `cp` is not subject to that.
-      #   - Claude reads untrusted PR content while this job's token has
-      #     contents:write. Keeping git / `gh pr create` out of its
-      #     allow-list means a prompt injection cannot push anywhere.
+      #   - Claude reads untrusted PR content, so git and `gh pr create`
+      #     stay out of its allow-list, and the contents:write token lives
+      #     only in this job, which never runs Claude.
       #   - One deterministic pass can name each branch after the PR AND
       #     the slug (`claude/review-learning/<pr>-<slug>`). The review
       #     runs on every push, so a per-PR branch name would collide on
@@ -1131,38 +1471,48 @@ jobs:
       #
       # `!cancelled()`: a candidate written before Claude hit max turns is
       # still saved. `continue-on-error`: a learning failure must never
-      # fail this job, because the fail-closed merge-gate below treats a
-      # failed review job as "no verdict". Failures surface as warnings.
+      # fail this job; the merge-gate reads only whether the review was
+      # published. Failures surface as warnings.
       #
       # PR-controlled data is never interpolated into the script; values
-      # reach the shell only through `env:`.
+      # reach the shell only through `env:`. `REVIEW_LEARNINGS` points the
+      # script at the downloaded artifact.
       - name: Open review-learning PRs
         if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          PR_NUMBER: ${{ needs.review.outputs.number }}
+          BASE_REF: ${{ needs.review.outputs.base_ref }}
           REPO: ${{ github.repository }}
+          REVIEW_LEARNINGS: ${{ runner.temp }}/review-staged/review-learnings
         run: |
           # Opens the review-learning PRs that Claude staged under /tmp/review-learnings.
           #
           # Reads (env): GH_TOKEN (gh and git push), PR_NUMBER, BASE_REF, REPO
           #   RUNNER_TEMP (optional), GITHUB_SERVER_URL (runner-provided)
+          #   REVIEW_LEARNINGS (optional; default /tmp/review-learnings)
           #
           # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
           # file and re-run the generator; do not edit the generated workflow.
           set -euo pipefail
 
-          STAGE_DIR=/tmp/review-learnings
+          STAGE_DIR="${REVIEW_LEARNINGS:-/tmp/review-learnings}"
           NOTE_DIR=.claude/memory/review-learnings
           MAX_NOTES=2
           MAX_BYTES=8192
           SLUG_RE='^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$'
+          # Plain-text GitHub and Anthropic credential shapes. Identical in
+          # publish-comments.sh and scrub-staged.sh; a contract test compares them.
+          SECRET_RE='(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-ant-[A-Za-z0-9_-]{20,})'
           WORK_DIR="${RUNNER_TEMP:-/tmp}"
           BOT_NAME="github-actions[bot]"
           BOT_EMAIL="41898283+github-actions[bot]@users.noreply.github.com"
 
+          if [ -L "$STAGE_DIR" ]; then
+            echo "::warning::Review learnings skipped: $STAGE_DIR is a symlink."
+            exit 0
+          fi
           if [ ! -d "$STAGE_DIR" ]; then
             echo "No staged review learnings."
             exit 0
@@ -1215,6 +1565,12 @@ jobs:
             fi
             if [ "$(head -n 1 "$FILE")" != "---" ]; then
               echo "::warning::Review learning '$SLUG' rejected: missing frontmatter."
+              continue
+            fi
+            # The staged file may have crossed an artifact hop and is untrusted: this
+            # check does not assume an earlier prune ran. Never print the match.
+            if LC_ALL=C grep -Eq -- "$SECRET_RE" "$FILE"; then
+              echo "::warning::Review learning '$SLUG' rejected: it contains a credential-shaped string."
               continue
             fi
             KIND=$(sed -n 's/^kind: *//p' "$FILE" | head -n 1 | tr -d '[:space:]')
@@ -1286,14 +1642,15 @@ jobs:
   # ---------------------------------------------------------------------------
   # Merge gate
   # ---------------------------------------------------------------------------
-  # Runs AFTER the Claude review job. Reads the verdict marker Claude
-  # embedded in the Comprehensive Review comment and submits a formal PR
-  # review of the matching state (REQUEST_CHANGES / APPROVE / COMMENT).
+  # Runs AFTER the publish job. Reads the verdict marker Claude embedded in
+  # the Comprehensive Review comment and submits a formal PR review of the
+  # matching state (REQUEST_CHANGES / APPROVE / COMMENT).
   #
-  # Why a separate job: the claude-code-action sandbox blocks
-  # `POST /pulls/{n}/reviews`, so Claude cannot submit blocking reviews
-  # directly. This job runs outside that sandbox with a plain
-  # GITHUB_TOKEN, which can submit reviews freely.
+  # Why a separate job that needs `publish`: the verdict it acts on must be
+  # the one THIS run published. Waiting for `publish` means it never races
+  # the publish step and reads the previous run's comment, and
+  # REVIEW_PUBLISHED (the publish job's output) tells it whether this run's
+  # review was posted at all. It never runs Claude.
   #
   # Trust: the verdict is read only from a Comprehensive Review comment
   # authored by the workflow's own logins (the same filter the publish step
@@ -1303,14 +1660,16 @@ jobs:
   # The publish step refuses to post a review.md whose line 2 is not a valid
   # verdict, so line 2 is where a genuine verdict always sits.
   #
-  # FAIL-CLOSED: if the review comment or verdict marker is missing
-  # (Claude run terminated mid-pipeline), submit REQUEST_CHANGES rather
-  # than silently leaving the PR unblocked. The idempotency check means
-  # repeated runs on the same broken PR don't spam the timeline.
+  # FAIL-CLOSED: unless REVIEW_PUBLISHED is exactly "true" (this run's
+  # review was posted), or if the review comment or verdict marker is
+  # missing, submit REQUEST_CHANGES rather than silently leaving the PR
+  # unblocked. The idempotency check means repeated runs on the same broken
+  # PR don't spam the timeline.
   #
   # `!cancelled()` (NOT `always()`, NOT a bare custom `if:`):
-  #   - review FAILED → this still runs → fail-closed REQUEST_CHANGES. ✓
-  #   - review CANCELLED (newer push cancelled the CI run via the caller's
+  #   - review or publish FAILED → this still runs; without a review
+  #     published by this run it submits fail-closed REQUEST_CHANGES. ✓
+  #   - run CANCELLED (newer push cancelled the CI run via the caller's
   #     concurrency group) → skipped. `always()` would run here and spam a
   #     misleading fail-closed REQUEST_CHANGES on every rapid push. ✓
   #   - caller skipped the whole workflow_call job → nothing in this file
@@ -1318,7 +1677,7 @@ jobs:
   #     in lockstep is gone by construction. ✓
   # ---------------------------------------------------------------------------
   merge-gate:
-    needs: review
+    needs: [review, publish]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
@@ -1330,12 +1689,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ inputs.pr_number }}
           REPO: ${{ github.repository }}
+          REVIEW_PUBLISHED: ${{ needs.publish.outputs.review_published }}
         run: |
           # Submits a formal PR review (REQUEST_CHANGES / APPROVE / COMMENT) from the
           # verdict on line 2 of the workflow's own Comprehensive Review comment;
-          # fails closed when it is missing.
+          # fails closed when it is missing, or when this run's review was not published.
           #
-          # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO
+          # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO, REVIEW_PUBLISHED (the publish
+          # job's review_published output; only the exact value "true" is trusted)
           #
           # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
           # file and re-run the generator; do not edit the generated workflow.
@@ -1346,34 +1707,44 @@ jobs:
           TRUSTED_JQ='(.user.login == "github-actions[bot]" or .user.login == "claude[bot]")'
           VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
 
-          # The newest Comprehensive Review comment by a trusted login, across ALL
-          # pages. `--paginate` runs --jq once per page, so the matches are streamed
-          # one JSON string per line (@json keeps a multi-line body on one line)
-          # and the last line overall is the newest comment.
-          LAST_REVIEW_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"<!-- claude-comprehensive-review -->\"))) | .body | @json" | tail -n 1)
-          REVIEW_BODY=""
-          if [ -n "$LAST_REVIEW_JSON" ]; then
-            REVIEW_BODY=$(printf '%s' "$LAST_REVIEW_JSON" | jq -r .)
-          fi
-
-          if [ -z "$REVIEW_BODY" ]; then
-            echo "No Comprehensive Review comment from the review workflow — submitting REQUEST_CHANGES (fail-closed)."
+          # A verdict is read only when publish reports that THIS run's review was
+          # published. The gate waits for publish, but a run that stages no review or
+          # fails validation never sets the signal, and the newest trusted comment would
+          # then be an earlier run's. So fail closed, and skip the comment read.
+          if [ "${REVIEW_PUBLISHED:-}" != "true" ]; then
+            echo "Review for this run was not published (REVIEW_PUBLISHED is not \"true\") — submitting REQUEST_CHANGES (fail-closed)."
             VERDICT="CHANGES_REQUESTED"
-            FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment from the review workflow). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+            FAIL_CLOSED_REASON="Claude review for this run was not published, so the verdict on this PR cannot be trusted. Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
           else
-            # The verdict is read ONLY from line 2 (the publish step enforces
-            # that position); a marker anywhere else in the body is ignored.
-            VERDICT_LINE=$(printf '%s\n' "$REVIEW_BODY" | sed -n '2p' | tr -d '\r')
-            VERDICT=""
-            if [[ "$VERDICT_LINE" =~ $VERDICT_RE ]]; then
-              VERDICT="${BASH_REMATCH[1]}"
+            # The newest Comprehensive Review comment by a trusted login, across ALL
+            # pages. `--paginate` runs --jq once per page, so the matches are streamed
+            # one JSON string per line (@json keeps a multi-line body on one line)
+            # and the last line overall is the newest comment.
+            LAST_REVIEW_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+              --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"<!-- claude-comprehensive-review -->\"))) | .body | @json" | tail -n 1)
+            REVIEW_BODY=""
+            if [ -n "$LAST_REVIEW_JSON" ]; then
+              REVIEW_BODY=$(printf '%s' "$LAST_REVIEW_JSON" | jq -r .)
             fi
 
-            if [ -z "${VERDICT:-}" ]; then
-              echo "No verdict marker on line 2 of the Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+            if [ -z "$REVIEW_BODY" ]; then
+              echo "No Comprehensive Review comment from the review workflow — submitting REQUEST_CHANGES (fail-closed)."
               VERDICT="CHANGES_REQUESTED"
-              FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing or is not on line 2. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+              FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment from the review workflow). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+            else
+              # The verdict is read ONLY from line 2 (the publish step enforces
+              # that position); a marker anywhere else in the body is ignored.
+              VERDICT_LINE=$(printf '%s\n' "$REVIEW_BODY" | sed -n '2p' | tr -d '\r')
+              VERDICT=""
+              if [[ "$VERDICT_LINE" =~ $VERDICT_RE ]]; then
+                VERDICT="${BASH_REMATCH[1]}"
+              fi
+
+              if [ -z "${VERDICT:-}" ]; then
+                echo "No verdict marker on line 2 of the Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+                VERDICT="CHANGES_REQUESTED"
+                FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing or is not on line 2. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+              fi
             fi
           fi
 

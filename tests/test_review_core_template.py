@@ -1,12 +1,14 @@
 """Contract tests for the reusable PR-review core template.
 
 `github-action/claude-review-core.yml` is copied into target repos. Claude
-must stay read-only with respect to git AND GitHub: it holds no write tool.
-A "Snapshot review state" step fetches the prior review state into
-/tmp/review-state/ before Claude runs; Claude stages its comments under
-/tmp/review-outbox/ and its learning notes under /tmp/review-learnings/;
-deterministic shell steps after it publish the comments and open the note
-PRs. These tests parse the YAML and check that contract.
+must stay read-only with respect to git AND GitHub: it holds no write tool,
+and the `review` job it runs in holds only a read-only token. A "Snapshot
+review state" step fetches the prior review state into /tmp/review-state/
+before Claude runs; Claude stages its comments under /tmp/review-outbox/ and
+its learning notes under /tmp/review-learnings/. Deterministic shell steps in
+a separate `publish` job publish the comments and open the note PRs, and the
+`merge-gate` job runs after it. These tests parse the YAML and check that
+contract. Step lookups search every job; each step name is unique across them.
 """
 import re
 import unittest
@@ -22,8 +24,13 @@ CLAUDE_ACTION = "anthropics/claude-code-action"
 LEARNING_STEP = "Open review-learning PRs"
 RESOLVE_STEP = "Resolve PR context"
 CHECKOUT_STEP = "Checkout PR head"
+RESTORE_STEP = "Restore base-branch Claude configuration"
 SNAPSHOT_STEP = "Snapshot review state"
+SCRUB_STEP = "Prune staged files before upload"
+UPLOAD_STEP = "Upload staged review"
+DOWNLOAD_STEP = "Download staged review"
 PUBLISH_STEP = "Publish review comments"
+LEARNING_CHECKOUT_STEP = "Check out base branch for review-learning PRs"
 GATE_STEP = "Submit formal review based on Claude's verdict"
 
 # The full, exact allow-list Claude is meant to hold: read-only GitHub CLI
@@ -59,30 +66,42 @@ class _CoreBase(unittest.TestCase):
         cls.jobs = cls.doc["jobs"]
         cls.steps = cls.jobs["review"]["steps"]
 
+    def _locate(self, pred, what):
+        """(job id, index) of the one step, across ALL jobs, matching `pred`."""
+        found = [(jid, i) for jid, job in self.jobs.items()
+                 for i, s in enumerate(job.get("steps", [])) if pred(s)]
+        self.assertEqual(len(found), 1,
+                         f"expected exactly one {what} step across all jobs, found {found}")
+        return found[0]
+
+    def _in_job(self, loc, job, what):
+        jid, i = loc
+        self.assertEqual(jid, job, f"{what} must be in the {job!r} job")
+        return i
+
     def _claude_index(self):
-        idx = [i for i, s in enumerate(self.steps)
-               if str(s.get("uses", "")).startswith(CLAUDE_ACTION + "@")]
-        self.assertEqual(len(idx), 1, "expected exactly one claude-code-action step")
-        return idx[0]
+        """Index of the one claude-code-action step; it must be in `review`."""
+        loc = self._locate(
+            lambda s: str(s.get("uses", "")).startswith(CLAUDE_ACTION + "@"),
+            "claude-code-action")
+        return self._in_job(loc, "review", "the claude-code-action step")
 
     def _claude_step(self):
         return self.steps[self._claude_index()]
 
-    def _learning_index(self):
-        idx = [i for i, s in enumerate(self.steps) if s.get("name") == LEARNING_STEP]
-        self.assertEqual(len(idx), 1, f"expected exactly one {LEARNING_STEP!r} step")
-        return idx[0]
-
     def _learning_step(self):
-        return self.steps[self._learning_index()]
+        return self._named_step(LEARNING_STEP)
 
-    def _named_index(self, name):
-        idx = [i for i, s in enumerate(self.steps) if s.get("name") == name]
-        self.assertEqual(len(idx), 1, f"expected exactly one {name!r} step")
-        return idx[0]
+    def _named_loc(self, name):
+        return self._locate(lambda s: s.get("name") == name, repr(name))
+
+    def _named_index(self, name, job):
+        """Index of the step `name` within `job`, which must hold it."""
+        return self._in_job(self._named_loc(name), job, repr(name))
 
     def _named_step(self, name):
-        return self.steps[self._named_index(name)]
+        jid, i = self._named_loc(name)
+        return self.jobs[jid]["steps"][i]
 
 
 class CoreParsesTest(_CoreBase):
@@ -90,6 +109,7 @@ class CoreParsesTest(_CoreBase):
         # PyYAML parses the bare `on:` key as boolean True.
         self.assertIn("workflow_call", self.doc[True])
         self.assertIn("review", self.jobs)
+        self.assertIn("publish", self.jobs)
         self.assertIn("merge-gate", self.jobs)
 
 
@@ -151,8 +171,10 @@ class AllowedToolsTest(_CoreBase):
 
 
 class LearningStepTest(_CoreBase):
-    def test_runs_after_claude_step(self):
-        self.assertGreater(self._learning_index(), self._claude_index())
+    def test_runs_in_publish_job_after_publish_step(self):
+        # Never in the job that runs Claude: it holds the contents:write token.
+        self.assertGreater(self._named_index(LEARNING_STEP, "publish"),
+                           self._named_index(PUBLISH_STEP, "publish"))
 
     def test_survives_failure_and_never_fails_job(self):
         step = self._learning_step()
@@ -181,7 +203,8 @@ class SlugRegexTest(_CoreBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        step = next(s for s in cls.steps if s.get("name") == LEARNING_STEP)
+        step = next(s for job in cls.jobs.values() for s in job.get("steps", [])
+                    if s.get("name") == LEARNING_STEP)
         m = re.search(r"^\s*SLUG_RE='([^']*)'\s*$", step["run"], re.M)
         assert m, "SLUG_RE assignment not found in the learning step"
         cls.slug_re = re.compile(m.group(1))
@@ -242,17 +265,30 @@ class PromptTest(_CoreBase):
 
 
 class StepOrderTest(_CoreBase):
-    def test_review_pipeline_order(self):
-        order = [
-            self._named_index(RESOLVE_STEP),
-            self._named_index(CHECKOUT_STEP),
-            self._named_index(SNAPSHOT_STEP),
-            self._claude_index(),
-            self._named_index(PUBLISH_STEP),
-            self._learning_index(),
-        ]
+    def _assert_ordered(self, order):
         self.assertEqual(order, sorted(order), f"step indices out of order: {order}")
         self.assertEqual(len(set(order)), len(order))
+
+    def test_review_job_order(self):
+        # The restore step sits between checkout and snapshot, so the base
+        # branch's Claude configuration is in place before Claude runs.
+        self._assert_ordered([
+            self._named_index(RESOLVE_STEP, "review"),
+            self._named_index(CHECKOUT_STEP, "review"),
+            self._named_index(RESTORE_STEP, "review"),
+            self._named_index(SNAPSHOT_STEP, "review"),
+            self._claude_index(),
+            self._named_index(SCRUB_STEP, "review"),
+            self._named_index(UPLOAD_STEP, "review"),
+        ])
+
+    def test_publish_job_order(self):
+        self._assert_ordered([
+            self._named_index(DOWNLOAD_STEP, "publish"),
+            self._named_index(PUBLISH_STEP, "publish"),
+            self._named_index(LEARNING_CHECKOUT_STEP, "publish"),
+            self._named_index(LEARNING_STEP, "publish"),
+        ])
 
 
 class SnapshotStepTest(_CoreBase):
@@ -320,11 +356,25 @@ class PublishStepTest(_CoreBase):
 
 
 class PermissionsTest(_CoreBase):
-    def test_review_job_keeps_write_scopes(self):
-        perms = self.jobs["review"]["permissions"]
-        for scope in ("contents", "pull-requests", "issues", "id-token"):
+    def test_review_job_is_read_only(self):
+        # Claude runs in this job and can read its token.
+        self.assertEqual(self.jobs["review"]["permissions"],
+                         {"contents": "read", "pull-requests": "read", "issues": "read"})
+
+    def test_publish_job_keeps_write_scopes(self):
+        # The "Publish review comments" and "Open review-learning PRs" steps
+        # use them; this job never runs Claude.
+        perms = self.jobs["publish"]["permissions"]
+        for scope in ("contents", "pull-requests", "issues"):
             with self.subTest(scope=scope):
                 self.assertEqual(perms.get(scope), "write")
+
+    def test_no_job_requests_id_token(self):
+        self.assertNotIn("permissions", self.doc, "no workflow-level permissions expected")
+        for jid, job in self.jobs.items():
+            with self.subTest(job=jid):
+                self.assertIn("permissions", job)
+                self.assertNotIn("id-token", job["permissions"])
 
     def test_merge_gate_permissions(self):
         perms = self.jobs["merge-gate"]["permissions"]
@@ -338,6 +388,8 @@ class MergeGateTest(_CoreBase):
         needs = gate["needs"]
         needs = [needs] if isinstance(needs, str) else needs
         self.assertIn("review", needs)
+        # Waits for publish, so it never acts on the previous run's comment.
+        self.assertIn("publish", needs)
         self.assertIn("!cancelled()", str(gate.get("if", "")))
 
     def _gate_step(self):
