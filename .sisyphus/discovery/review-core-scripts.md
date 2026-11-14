@@ -40,7 +40,7 @@
 - `scripts/build_review_core.py` inlines each script into its step and writes
   `github-action/claude-review-core.yml` (GENERATED header). `--check` exits 1 when the committed core
   is stale; a test runs the same comparison.
-- The installer stays a single-file copy. The Souls-Gate fork (private, cross-repo `uses:`) keeps
+- The installer stays a single-file copy. The downstream fork (private, cross-repo `uses:`) keeps
   consuming ONE file, and its drift tripwire keeps watching only that path; its deltas (action pin,
   max_turns 100, `model` input, `contents: read`, no learning step) are unaffected.
 - Security: the shipped YAML stays fully inline, so nothing Claude can Write is ever executed by a
