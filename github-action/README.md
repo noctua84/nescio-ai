@@ -8,7 +8,9 @@ so future reviews watch for them.
 
 ## Files
 
-- `claude-review-core.yml` — the reusable `workflow_call` **core**: the
+- `claude-review-core.yml` — **generated; do not edit by hand** (see
+  [Editing the review core](#editing-the-review-core)). The reusable
+  `workflow_call` **core**: the
   review engine (PR summary + six-point comprehensive review, incremental
   comment updates) and the merge-gate job that turns the verdict into
   `APPROVE` / `REQUEST_CHANGES`. Carries no repo-specific knowledge — it
@@ -28,6 +30,15 @@ so future reviews watch for them.
   instant CI is green with no idle-poll cost, and red CI skips the review
   entirely instead of failing it after a long poll.
 
+- `claude-review-core.template.yml` — the **source** of the core's wiring
+  (inputs, jobs, steps). Each shell step's `run: |` holds a single
+  `# @inline scripts/claude-review/<name>.sh` marker instead of the script.
+- `scripts/claude-review/*.sh` — the shell steps themselves
+  (`resolve-pr-context`, `snapshot-state`, `publish-comments`,
+  `open-learning-prs`, `merge-gate`), each tested directly by `tests/`.
+- `scripts/build_review_core.py` (repo root `scripts/`) — the generator that
+  inlines the scripts into the template and writes `claude-review-core.yml`.
+
 The manual wrapper and the automatic snippet both call the same core, so a
 manual re-run and the automatic path behave identically — they only differ
 in how they decide CI is green.
@@ -44,11 +55,34 @@ auth secret on the target repo via `gh secret set` (unless `--skip-secret`),
 and prints a pointer to `claude-review-automatic.snippet.yml`. It never
 commits or pushes — review and PR the changes in the target repo yourself.
 
+The installer copies only the generated `claude-review-core.yml` — one
+self-contained file, no script files. To upgrade an existing install, re-run
+the installer with `--force`; it overwrites a core that differs.
+
 Pass `--ci-workflow-name` if the target's CI workflow isn't named `CI`; the
 installer rewrites the manual wrapper's polling `select(.name == "CI")`
 match accordingly. (The automatic snippet doesn't need this — it runs as a
 job inside that same CI workflow, so `needs:` handles the ordering instead
 of polling.)
+
+## Editing the review core
+
+Never edit `claude-review-core.yml` directly. Change the wiring in
+`claude-review-core.template.yml` or the logic in
+`scripts/claude-review/*.sh`, then regenerate and commit both together:
+
+    python scripts/build_review_core.py
+
+`python scripts/build_review_core.py --check` exits 1 when the committed core
+is stale; use it in CI or a pre-commit hook (`tests/test_build_review_core.py`
+enforces the same).
+
+The scripts are inlined rather than shipped as files for two reasons. Claude
+has a `Write` tool during the review and could rewrite a script file in the
+workspace before a later step that holds a write token runs it; inline YAML
+can't be changed at runtime. And a fork consuming the workflow cross-repo
+can't read script files from a private central repo without an extra
+credential, so the core stays a single YAML file.
 
 ## Wire up the automatic path
 

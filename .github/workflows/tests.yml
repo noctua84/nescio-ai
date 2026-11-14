@@ -31,6 +31,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      # github-action/claude-review-core.yml is generated; fail fast if it is
+      # stale. Fix: run `python scripts/build_review_core.py` and commit.
+      - name: Review core is up to date with its generator
+        run: python scripts/build_review_core.py --check
       - run: pip install pyyaml==6.0.3
       - run: PYTHONPATH=scripts python -m unittest discover -s tests -v
 
