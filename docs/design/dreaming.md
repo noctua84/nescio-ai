@@ -166,6 +166,15 @@ severity counts are useful as a trend across dreams, not as a per-dream
 recurring pattern, so the extractor reports them as a table and not under
 "Recurring patterns".
 
+The trend is read from the whole report history, not the dream window: the
+reports are tracked and dated by filename, so no dream history is needed and
+the trend works on the first run. Because audits are sparse, the windows are
+counted in audits, not days. The "QA trend" table shows the mean findings per
+audit for the last 3 audits, the 3 before them, and all audits (newest 50).
+On this repo: Major went from 2.0 to 1.3 per audit and Minor from 5.0 to 8.7,
+with only 2 audits in the "previous" window, so read it as a direction, not a
+result.
+
 ### 4b. Signals (extractor)
 
 A signal is **recurring** only if it shows up in at least `--min-sessions`
@@ -457,8 +466,12 @@ The minimal data model has three parts, all machine-local under
       the exit status.
     - Parent transcripts are not classified yet; their test runs are mostly
       the orchestrator's verification.
-  - **QA trend.** Severity counts per audit are reported, but nothing yet
-    compares them across dreams or links a finding category to a memory note.
+  - **QA trend: done by audit count (section 4a).** Still open: linking a
+    finding category to a memory note. The report format has no category
+    field, and finding titles are free text from the audited code, which the
+    privacy rule keeps out of the proposal. That needs either a category tag
+    in `agents/reviewer.md`'s report format or a model pass, which is a cost
+    decision.
 - **Detecting successful workflows automatically.** Measured on one machine's
   last 60 days (870 main transcripts, aggregate counts only). The counts were taken
   from foreground `toolUseResult` reports only, before the hand-back fix above,

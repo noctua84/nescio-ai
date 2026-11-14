@@ -190,11 +190,14 @@ def signal_table(sessions: list[dict]) -> dict:
     return {signal_id(k): {"key": k, "sessions": len(ids), "count": n} for k, (ids, n) in sorted(seen.items())}
 
 
-def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, qa: list[dict] | None = None) -> dict:
+def aggregate(
+    sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, qa: list[dict] | None = None, qa_trend: dict | None = None,
+) -> dict:
     """Fold per-session summaries into the proposal's data.
 
-    Sessions may carry an optional ``sub`` summary (``parse_subagents``) and
-    ``qa`` is the optional ``qa_reports`` list; both default to "not read".
+    Sessions may carry an optional ``sub`` summary (``parse_subagents``), ``qa``
+    is the optional ``qa_reports`` list and ``qa_trend`` the optional
+    ``_dream_inputs.qa_trend`` dict; all default to "not read".
     """
     verdicts: dict[str, Counter] = defaultdict(Counter)
     esc: dict[tuple, set] = defaultdict(set)
@@ -286,6 +289,7 @@ def aggregate(sessions: list[dict], *, min_sessions: int = 2, skipped: int = 0, 
             "reports": list(qa or []),
             "totals": {sev: sum(r[sev] for r in qa or []) for sev in SEVERITIES},
         },
+        "qa_trend": qa_trend,
         "corrections": {
             "count": total("corrections"),
             "sessions": len(having("corrections")),

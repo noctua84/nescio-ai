@@ -227,6 +227,39 @@ class QaReportsTest(DreamTestBase):
     def test_missing_dir_yields_nothing(self):
         self.assertEqual(di.qa_reports(self.tmp / "nope", SINCE, 5), [])
 
+    def test_no_since_ignores_dates_but_keeps_name_pattern(self):
+        body = "**Severity Summary:** 0 Critical | 1 Major | 0 Minor | 0 Info\n"
+        for name in ("2001-01-01-ancient.md", "2026-07-09-c.md", "2026-13-40-bad.md"):
+            self.report(name, body)
+        self.assertEqual([r["name"] for r in di.qa_reports(self.tmp, None, 10)], ["2026-07-09-c.md", "2001-01-01-ancient.md"])
+
+
+class QaTrendTest(unittest.TestCase):
+    @staticmethod
+    def history(rows):
+        """Newest-first synthetic reports from ``(critical, major, minor, info)`` tuples."""
+        return [{"name": f"r{i}.md", "date": "2026-01-01", "source": "summary",
+                 **dict(zip(di.SEVERITIES, counts))} for i, counts in enumerate(rows)]
+
+    def test_seven_audits_window_by_count_with_rounding(self):
+        rows = [(1, 1, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0), (2, 0, 3, 0), (0, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)]
+        t = di.qa_trend(self.history(rows))
+        self.assertEqual((t["audits"], t["k"]), (7, 3))
+        self.assertEqual(t["recent"], {"audits": 3, "critical": 0.3, "major": 0.3, "minor": 0.0, "info": 0.0})
+        self.assertEqual(t["previous"], {"audits": 3, "critical": 0.7, "major": 0.0, "minor": 1.0, "info": 0.0})
+        self.assertEqual(t["all"], {"audits": 7, "critical": 0.4, "major": 0.1, "minor": 0.4, "info": 0.0})
+
+    def test_two_audits_leave_previous_none(self):
+        t = di.qa_trend(self.history([(0, 2, 1, 5), (0, 1, 0, 0)]))
+        self.assertEqual((t["audits"], t["recent"]["audits"], t["previous"], t["all"]["audits"]), (2, 2, None, 2))
+
+    def test_four_audits_leave_previous_partial(self):
+        t = di.qa_trend(self.history([(0, 0, 0, 0)] * 3 + [(0, 4, 0, 0)]))
+        self.assertEqual((t["previous"]["audits"], t["previous"]["major"]), (1, 4.0))
+
+    def test_no_audits_all_none(self):
+        self.assertEqual(di.qa_trend([]), {"audits": 0, "k": 3, "recent": None, "previous": None, "all": None})
+
 
 class CliInputsTest(SubTestBase):
     def setUp(self):
@@ -284,11 +317,39 @@ class CliInputsTest(SubTestBase):
         self.assertIn("No QA reports in the window", text)
         self.assertEqual(json.loads(out)["qa_reports"]["reports"], [])
 
+    def test_qa_trend_counts_full_history_not_the_window(self):
+        text, out = self.run_proposal("--json")
+        # The 400-day-old report is outside the window but inside the history: 2 audits, no previous window yet.
+        self.assertIn("## QA trend", text)
+        self.assertIn("| Audits | Count | Critical | Major | Minor | Info |", text)
+        self.assertIn("| Last 3 | 2 | 0.0 | 1.5 | 0.5 | 2.5 |", text)
+        self.assertIn("| Previous 3 | 0 | — | — | — | — |", text)
+        self.assertIn("| All | 2 | 0.0 | 1.5 | 0.5 | 2.5 |", text)
+        self.assertIn('- Mean findings per audit; reports are counted by date in their filename. '
+                      'Fewer than 6 audits means "previous" is partial.', text)
+        self.assertEqual(json.loads(out)["qa_trend"]["recent"]["audits"], 2)
+
+    def test_full_trend_means_line_has_no_partial_clause(self):
+        d = self.tmp / "docs" / "reports"
+        for i in range(1, 6):
+            (d / f"2020-01-0{i}-old.md").write_text("**Severity Summary:** 0 Critical | 0 Major | 0 Minor | 0 Info\n", encoding="utf-8")
+        text, _ = self.run_proposal()
+        self.assertIn("| All | 7 | 0.0 | 0.4 | 0.1 | 0.7 |", text)
+        self.assertIn("| Previous 3 | 3 | 0.0 | 0.0 | 0.0 | 0.0 |", text)
+        means = [ln for ln in text.splitlines() if ln.startswith("- Mean findings per audit")]
+        self.assertEqual(means, ["- Mean findings per audit; reports are counted by date in their filename."])
+
+    def test_max_qa_reports_zero_omits_trend(self):
+        text, out = self.run_proposal("--max-qa-reports", "0", "--json")
+        self.assertIn("## QA trend\n\nQA reading disabled.", text)
+        self.assertIsNone(json.loads(out)["qa_trend"])
+
     def test_empty_sections_have_messages(self):
         for f in (self.tmp / "docs" / "reports").iterdir():
             f.unlink()
         text, _ = self.run_proposal("--no-subagents")
         self.assertIn("No QA reports in the window", text)
+        self.assertIn("No QA audits found.", text)
         self.assertIn("None found (or subagent transcripts not read).", text)
 
 
