@@ -21,11 +21,12 @@ claude-review:
     !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
     !startsWith(github.event.pull_request.head.ref, 'claude/') &&
     !contains(github.event.pull_request.labels.*.name, 'skip-claude-review')
+  # Used only by the core's `publish` and `merge-gate` jobs; Claude's own job
+  # runs read-only. Every core job must ask for a subset of this.
   permissions:
     contents: write
     pull-requests: write
     issues: write
-    id-token: write
   uses: ./.github/workflows/claude-review-core.yml
   with:
     pr_number: ${{ github.event.pull_request.number }}
