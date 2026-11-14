@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.12.0](https://github.com/noctua84/nescio-ai/compare/v1.11.0...v1.12.0) (2026-11-14)
+
+
+### Features
+
+* [impl] compact builder tiers earlier with autoCompactWindow ([#256](https://github.com/noctua84/nescio-ai/issues/256)) ([7f12675](https://github.com/noctua84/nescio-ai/commit/7f12675907eb2e085a0377c314195175bfe920fd))
+* add dreaming design and /dream session-review extractor ([#250](https://github.com/noctua84/nescio-ai/issues/250)) ([3490985](https://github.com/noctua84/nescio-ai/commit/34909859a359c4356bfa02241b16f6dde58eb3b8))
+* add QA severity trend to dream proposals ([#268](https://github.com/noctua84/nescio-ai/issues/268)) ([de5f33b](https://github.com/noctua84/nescio-ai/commit/de5f33b78c1d27aed33abdb1394c525c63ab0076))
+* calibrate module gate to crossing/growth, add test-file tripwire ([#257](https://github.com/noctua84/nescio-ai/issues/257)) ([0470faf](https://github.com/noctua84/nescio-ai/commit/0470faf96b322128da437f14c64faec104eef91d))
+* **memory:** optional pass-through frontmatter in the promote writer ([#245](https://github.com/noctua84/nescio-ai/issues/245)) ([d47685e](https://github.com/noctua84/nescio-ai/commit/d47685e39e4165abdf307fdc4e3dc129f87fac74))
+* PreToolUse check-file guard for the CI-gate agent + tool-guards design note ([#251](https://github.com/noctua84/nescio-ai/issues/251)) ([406d3b4](https://github.com/noctua84/nescio-ai/commit/406d3b4b868deeef21813e39bdf7af42e639b3c8))
+
+
+### Bug Fixes
+
+* [fix] let a declared frontmatter change defeat the body-hash dedup skip ([#246](https://github.com/noctua84/nescio-ai/issues/246)) ([9bd58c5](https://github.com/noctua84/nescio-ai/commit/9bd58c5e95b93c33e58832c258ae9d88bba42962))
+* [fix] write MEMORY.md atomically via temp file and os.replace ([#266](https://github.com/noctua84/nescio-ai/issues/266)) ([c5eceaa](https://github.com/noctua84/nescio-ai/commit/c5eceaa36d9135760a05fc9f9920c3fdb7d62fae))
+* make Claude review-learning capture work; tighten review workflow ([#259](https://github.com/noctua84/nescio-ai/issues/259)) ([3005423](https://github.com/noctua84/nescio-ai/commit/300542316387872ed7451a77b315584b9cc6a990))
+* make every production write_text newline-safe, with a guard that works on Linux ([#267](https://github.com/noctua84/nescio-ai/issues/267)) ([1c45e66](https://github.com/noctua84/nescio-ai/commit/1c45e664bca0437db817b61a3bd77be49af51cd6))
+* **memory:** give a frontmatter-only update its own ledger verb ([#264](https://github.com/noctua84/nescio-ai/issues/264)) ([ec32d30](https://github.com/noctua84/nescio-ai/commit/ec32d308bca56ac97d3e70dee0a8ad4930c2f26d))
+* pass pr_number to the review core's Resolve PR context step via env ([#261](https://github.com/noctua84/nescio-ai/issues/261)) ([a7af7cd](https://github.com/noctua84/nescio-ai/commit/a7af7cd633e1365098376cfa6463b42f79b3817b))
+* prompt-audit fixes — identifier-only theming, resolved contradictions, prompt hygiene ([#249](https://github.com/noctua84/nescio-ai/issues/249)) ([18c1433](https://github.com/noctua84/nescio-ai/commit/18c14339a3961eb70ce283896da767ebc7d0697d))
+* take GitHub write tools away from Claude and make the merge gate trust only its own verdict ([#263](https://github.com/noctua84/nescio-ai/issues/263)) ([e033109](https://github.com/noctua84/nescio-ai/commit/e033109b8fe8af2fc64884a6b539366f8e846084))
+
+
+### Documentation
+
+* [docs] remove a private organisation name from a discovery brief ([#271](https://github.com/noctua84/nescio-ai/issues/271)) ([f0c3f2f](https://github.com/noctua84/nescio-ai/commit/f0c3f2fcace456f8d9f4a1f425ce587ca462c458))
+* [docs] stop prescribing a Refs footer as a non-closing reference ([#244](https://github.com/noctua84/nescio-ai/issues/244)) ([fee9fc0](https://github.com/noctua84/nescio-ai/commit/fee9fc0097e410a9759009a2db64f1857863ced7))
+* plugin packaging design spike and crew/brain split evaluation ([#252](https://github.com/noctua84/nescio-ai/issues/252)) ([32618da](https://github.com/noctua84/nescio-ai/commit/32618dafc2c19b3323a30b0567746aa8c2afa205))
+
 ## [1.11.0](https://github.com/noctua84/nescio-ai/compare/v1.10.0...v1.11.0) (2026-11-11)
 
 
