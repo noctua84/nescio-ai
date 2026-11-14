@@ -105,6 +105,20 @@ class ParseTest(DreamTestBase):
         self.assertEqual(len(agg["follow_ups"]), 1)
         self.assertEqual(agg["follow_ups"][0]["sessions"], 2)
 
+    def test_follow_ups_are_capped_most_sessions_first(self):
+        many = dream.MAX_FOLLOW_UPS + 5
+        sessions = [self.parse(f"s{i}", [report("builder", verdict_text("COMPLETE", oos=f"- item {i:02d}"))])
+                    for i in range(many)]
+        sessions.append(self.parse("dup", [report("builder", verdict_text("COMPLETE", oos="- item 07"))]))
+        agg = dream.aggregate(sessions)
+        self.assertEqual(len(agg["follow_ups"]), many)
+        text = dream.render(agg, repo_key="k", since="s", until="u")
+        section = text.split("## Candidate follow-ups", 1)[1].split("## ", 1)[0]
+        lines = [ln for ln in section.splitlines() if ln.startswith("- ")]
+        self.assertEqual(len(lines), dream.MAX_FOLLOW_UPS + 1)
+        self.assertEqual(lines[0], "- item 07 (2 sessions)")
+        self.assertEqual(lines[-1], "- ...and 5 more (`--json` lists all)")
+
     def test_string_content_report_tolerated(self):
         entry = report("builder", "")
         entry["toolUseResult"]["content"] = verdict_text("COMPLETE")

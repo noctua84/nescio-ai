@@ -36,9 +36,29 @@ from collections import Counter
 
 from _dream_parse import REJECTION_RE
 
-TEST_CMD_RE = re.compile(
-    r"\b(unittest|pytest|npm (run )?test|yarn test|go test|cargo test|jest|vitest|mvn test|gradle test|dotnet test)\b"
+# A test runner in command position: at the start, after a shell separator
+# (``&&``, ``||``, ``;``, ``|``, ``&``, ``(``, ``{``, newline) or a loop/branch
+# keyword, past env assignments, wrappers (``timeout 60``, ``rtk``) and a
+# launcher (``python -m``, ``uv run``, ``npx``, ``node``), optionally by path
+# (``node node_modules/.bin/vitest``). Matching the runner name anywhere counted
+# ``pip install pytest`` and ``grep unittest`` as runs.
+_CMD_START = r"(?:^|&&|\|\||[;|&({\n]|\b(?:do|then|else)\s)\s*"
+_ENV = r"(?:\$?[\w:]+=\S*\s+)*"
+_WRAP = r"(?:(?:timeout\s+\S+|time|rtk(?:\s+proxy)?|nohup|env)\s+)*"
+_OPTS = r"(?:-\S+\s+(?:[^-\s]\S*\s+)?)*?"  # options, each with an optional value (``-X dev``, ``--with x``)
+_LAUNCH = (
+    rf"(?:[\"']?\S*?python[\d.]*(?:\.exe)?[\"']?\s+{_OPTS}-m\s+|py(?:\.exe)?\s+{_OPTS}-m\s+"
+    rf"|[\"']?\$\{{?\w+\}}?[\"']?\s+{_OPTS}-m\s+"
+    rf"|uv\s+run\s+{_OPTS}(?:python\S*\s+-m\s+)?|uvx\s+|poetry\s+run\s+|pipenv\s+run\s+"
+    rf"|npx(?:\.cmd)?\s+{_OPTS}|pnpm\s+exec\s+|node(?:\.exe)?\s+{_OPTS})?"
 )
+_PATH = r"[\"']?(?:[^\s\"']*[\\/])?"  # ``node_modules/.bin/`` and the like
+_RUNNER = (
+    r"(?:unittest|pytest|py\.test|jest|vitest|(?:npm|pnpm)\s+(?:run\s+)?test|yarn\s+test|go\s+test|cargo\s+test"
+    r"|mvn\s+test|gradlew?\s+test|dotnet\s+test)\b"
+)
+TEST_CMD_RE = re.compile(_CMD_START + _ENV + _WRAP + _LAUNCH + _PATH + _RUNNER, re.MULTILINE)
+
 TAIL_CHARS = 3000
 AFTER_FAIL_KEYS = ("fixed_after_edit", "passed_no_edit_seen", "refailed_after_edit", "retried_no_edit", "not_rerun")
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
