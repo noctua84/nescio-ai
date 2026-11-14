@@ -3,20 +3,28 @@
 #
 # Reads (env): GH_TOKEN (gh and git push), PR_NUMBER, BASE_REF, REPO
 #   RUNNER_TEMP (optional), GITHUB_SERVER_URL (runner-provided)
+#   REVIEW_LEARNINGS (optional; default /tmp/review-learnings)
 #
 # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
 # file and re-run the generator; do not edit the generated workflow.
 set -euo pipefail
 
-STAGE_DIR=/tmp/review-learnings
+STAGE_DIR="${REVIEW_LEARNINGS:-/tmp/review-learnings}"
 NOTE_DIR=.claude/memory/review-learnings
 MAX_NOTES=2
 MAX_BYTES=8192
 SLUG_RE='^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$'
+# Plain-text GitHub and Anthropic credential shapes. Identical in
+# publish-comments.sh and scrub-staged.sh; a contract test compares them.
+SECRET_RE='(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-ant-[A-Za-z0-9_-]{20,})'
 WORK_DIR="${RUNNER_TEMP:-/tmp}"
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="41898283+github-actions[bot]@users.noreply.github.com"
 
+if [ -L "$STAGE_DIR" ]; then
+  echo "::warning::Review learnings skipped: $STAGE_DIR is a symlink."
+  exit 0
+fi
 if [ ! -d "$STAGE_DIR" ]; then
   echo "No staged review learnings."
   exit 0
@@ -69,6 +77,12 @@ for FILE in "$STAGE_DIR"/*.md; do
   fi
   if [ "$(head -n 1 "$FILE")" != "---" ]; then
     echo "::warning::Review learning '$SLUG' rejected: missing frontmatter."
+    continue
+  fi
+  # The staged file may have crossed an artifact hop and is untrusted: this
+  # check does not assume an earlier prune ran. Never print the match.
+  if LC_ALL=C grep -Eq -- "$SECRET_RE" "$FILE"; then
+    echo "::warning::Review learning '$SLUG' rejected: it contains a credential-shaped string."
     continue
   fi
   KIND=$(sed -n 's/^kind: *//p' "$FILE" | head -n 1 | tr -d '[:space:]')
