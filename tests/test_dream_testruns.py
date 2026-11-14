@@ -70,6 +70,27 @@ class OutcomeTest(unittest.TestCase):
         self.assertIsNone(tr.outcome("it is OK to skip", False))
 
 
+class TestCommandTest(unittest.TestCase):
+    RUNS = ("pytest -q", "PYTHONPATH=scripts python -m unittest discover -s tests 2>&1 | tail -3",
+            "cd pkg && uv run --with x pytest", "python -X dev -m unittest", '"C:/v/python.exe" -m pytest',
+            "for f in a b; do uv run python -m pytest $f; done", "node node_modules/vitest/vitest.mjs run",
+            "npx --no-install vitest run", "timeout 60 npm run test", "rtk proxy npx vitest", "$PY -m unittest",
+            "go test ./...", "./gradlew test", "(cd a; jest)")
+    NOT_RUNS = ("pip install pytest", "uv add --dev pytest", "grep -rn unittest scripts", "git log --grep pytest",
+                "cat pytest.ini", "echo pytest", "python -c 'import unittest'", "python scripts/x.py -m unittest",
+                "ls node_modules/.bin/vitest", "npm install -D vitest", "git commit -m 'fix pytest'")
+
+    def test_runner_in_command_position_is_a_run(self):
+        for cmd in self.RUNS:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(tr.TEST_CMD_RE.search(cmd))
+
+    def test_runner_name_as_an_argument_is_not_a_run(self):
+        for cmd in self.NOT_RUNS:
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(tr.TEST_CMD_RE.search(cmd))
+
+
 class IsEditTest(unittest.TestCase):
     def test_edit_tools(self):
         for name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):

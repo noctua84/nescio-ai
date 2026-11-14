@@ -68,6 +68,9 @@ import record_stop as rs  # noqa: E402
 DEFAULT_DAYS = 14
 STATE_NAME = "last-dream.json"
 VERDICTS = ("COMPLETE", "PARTIAL", "BLOCKED")
+# Follow-ups shown in the proposal; most-sessions first, the rest only counted.
+# On real data the uncapped list ran to 335 lines.
+MAX_FOLLOW_UPS = 20
 
 
 NEXT_STEPS = (
@@ -160,7 +163,10 @@ def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:
     trend = agg["qa_trend"]
     out += _section("QA trend", _qa_trend_lines(trend), "QA reading disabled." if trend is None else "No QA audits found.")
     out += _section("To confirm", confirm, "No inverted pins or deferred reds.")
-    follow = [f"- {f['text']} ({f['sessions']} sessions)" for f in agg["follow_ups"]]
+    fu = agg["follow_ups"]
+    follow = [f"- {f['text']} ({f['sessions']} sessions)" for f in fu[:MAX_FOLLOW_UPS]]
+    if len(fu) > MAX_FOLLOW_UPS:
+        follow.append(f"- ...and {len(fu) - MAX_FOLLOW_UPS} more (`--json` lists all)")
     out += _section("Candidate follow-ups", follow, "None reported.")
     out += _section("Suggested next steps", [f"- {t}" for t in NEXT_STEPS], "")
     return "\n".join(out) + "\n"

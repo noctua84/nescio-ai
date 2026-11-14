@@ -426,8 +426,9 @@ The minimal data model has three parts, all machine-local under
   parsed reports went from 69 to 153 in a 50-session window. Dispatches still
   outnumber reports (272 against 153), and some builder hand-backs carry no
   verdict. Escalations came out at 0. All three need a closer look.
-- The follow-ups section reached 335 lines on real data, so it needs a cap or a
-  ranking before `/dream` is pleasant to review.
+- **Follow-ups list: capped.** The section reached 335 lines on real data. The
+  proposal now shows the 20 follow-ups named in the most sessions and counts
+  the rest; `--json` still lists all of them.
 - User-rejected tool calls are excluded from tool errors. A rejection that
   carries a reason now counts as a correction; a bare rejection does not.
 - Subagent transcripts and QA reports are read now (section 4a). Still open:
@@ -458,10 +459,17 @@ The minimal data model has three parts, all machine-local under
     - "Passed with no edit seen" is ambiguous: a narrower or different test,
       a flaky test, or an edit the detector misses (an interpreter writing a
       file, `git apply`). It is reported, not raised as a pattern.
-    - The test-command regex matches the runner name anywhere in a command,
-      so `pip install pytest` counts as a run (it has no readable outcome, so
-      it only inflates the runs column). Anchoring it to the command position
-      would fix that.
+    - **Test-command regex: anchored.** A runner now counts only in command
+      position: at the start, after a shell separator or `do`/`then`, past env
+      assignments, wrappers (`timeout`, `rtk proxy`) and a launcher
+      (`python -m`, `uv run`, `npx`, `node node_modules/.bin/...`). Measured on
+      the same machine's last 14 days of subagent transcripts (2,470 files),
+      the old regex matched 8,841 commands and the anchored one 7,827. Of the
+      1,014 dropped, 837 had no readable outcome (`pip install pytest`,
+      `grep unittest`). 86 carried a runner summary and still are not
+      counted; their shapes (a runner inside `node -e`, a script that wraps
+      the runner) cannot be told apart from a non-run without reading the
+      command, so about 2% of runs with a known outcome may be missed.
     - Runners without a parsed summary (go test, cargo) resolve only through
       the exit status.
     - Parent transcripts are not classified yet; their test runs are mostly
