@@ -46,6 +46,8 @@ from _dream_parse import LINE_MAX, REJECTION_RE, VERDICT_RE, _text_of, error_sig
 
 UNKNOWN_AGENT = "unknown"
 SEVERITIES = ("critical", "major", "minor", "info")
+QA_TREND_K = 3  # audits per trend window (recent, previous)
+QA_HISTORY_CAP = 50  # newest QA reports read for the trend; "all" means all of these
 REPORT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-.+\.md$")
 SUMMARY_RE = re.compile(r"\*\*Severity Summary:\*\*(.*)", re.IGNORECASE)
 COUNT_RE = re.compile(r"(\d+)\s*(critical|major|minor|info)\b", re.IGNORECASE)
@@ -231,9 +233,10 @@ def _severity_counts(text: str) -> tuple[dict, str] | None:
     return None
 
 
-def qa_reports(repo_root: Path, since: datetime, cap: int) -> list[dict]:
+def qa_reports(repo_root: Path, since: datetime | None, cap: int) -> list[dict]:
     """Severity counts of ``docs/reports/YYYY-MM-DD-*.md`` dated on/after ``since``, newest first.
 
+    ``since=None`` applies no date filter (the full history, up to ``cap``).
     Files with neither a summary line nor finding headings, and unreadable
     files, are skipped. Finding titles are never returned.
     """
@@ -246,7 +249,7 @@ def qa_reports(repo_root: Path, since: datetime, cap: int) -> list[dict]:
             d = date.fromisoformat(m.group(1))
         except ValueError:
             continue
-        if d >= since.date():
+        if since is None or d >= since.date():
             found.append((d, f))
     found.sort(key=lambda t: (t[0], t[1].name), reverse=True)
     out = []
@@ -261,3 +264,25 @@ def qa_reports(repo_root: Path, since: datetime, cap: int) -> list[dict]:
             counts, source = parsed
             out.append({"name": f.name, "date": d.isoformat(), **counts, "source": source})
     return out
+
+
+def _means(rows: list[dict]) -> dict | None:
+    """Mean count per audit for each severity over ``rows``; ``None`` when there are none."""
+    if not rows:
+        return None
+    n = len(rows)
+    return {"audits": n, **{sev: round(sum(r[sev] for r in rows) / n, 1) for sev in SEVERITIES}}
+
+
+def qa_trend(history: list[dict], k: int = QA_TREND_K) -> dict:
+    """Mean findings per audit for the last ``k`` audits, the ``k`` before them, and all of ``history``.
+
+    ``history`` is ``qa_reports(root, None, QA_HISTORY_CAP)``, newest first. The
+    windows are by audit count, not by date, because audits are sparse: a
+    date window would be empty most of the time. ``previous`` is partial (or
+    ``None``) when there are fewer than ``2 * k`` audits.
+    """
+    return {
+        "audits": len(history), "k": k, "recent": _means(history[:k]),
+        "previous": _means(history[k:2 * k]), "all": _means(history),
+    }
