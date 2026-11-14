@@ -108,10 +108,10 @@ def _qa_trend_lines(trend: dict | None) -> list[str]:
         for label, m in ((f"Last {k}", trend["recent"]), (f"Previous {k}", trend["previous"]), ("All", trend["all"]))
     ]
     prev = trend["previous"]
-    partial = prev is None or prev["audits"] < k
-    note = [f"- Mean findings per audit; reports are counted by date in their filename. "
-            f'Fewer than {2 * k} audits means "previous" is partial.'] if partial else []
-    return [*head, *rows, *note]
+    note = "- Mean findings per audit; reports are counted by date in their filename."
+    if prev is None or prev["audits"] < k:
+        note += f' Fewer than {2 * k} audits means "previous" is partial.'
+    return [*head, *rows, note]
 
 
 def render(agg: dict, *, repo_key: str, since: str, until: str) -> str:

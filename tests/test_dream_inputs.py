@@ -325,8 +325,19 @@ class CliInputsTest(SubTestBase):
         self.assertIn("| Last 3 | 2 | 0.0 | 1.5 | 0.5 | 2.5 |", text)
         self.assertIn("| Previous 3 | 0 | — | — | — | — |", text)
         self.assertIn("| All | 2 | 0.0 | 1.5 | 0.5 | 2.5 |", text)
-        self.assertIn('Fewer than 6 audits means "previous" is partial.', text)
+        self.assertIn('- Mean findings per audit; reports are counted by date in their filename. '
+                      'Fewer than 6 audits means "previous" is partial.', text)
         self.assertEqual(json.loads(out)["qa_trend"]["recent"]["audits"], 2)
+
+    def test_full_trend_means_line_has_no_partial_clause(self):
+        d = self.tmp / "docs" / "reports"
+        for i in range(1, 6):
+            (d / f"2020-01-0{i}-old.md").write_text("**Severity Summary:** 0 Critical | 0 Major | 0 Minor | 0 Info\n", encoding="utf-8")
+        text, _ = self.run_proposal()
+        self.assertIn("| All | 7 | 0.0 | 0.4 | 0.1 | 0.7 |", text)
+        self.assertIn("| Previous 3 | 3 | 0.0 | 0.0 | 0.0 | 0.0 |", text)
+        means = [ln for ln in text.splitlines() if ln.startswith("- Mean findings per audit")]
+        self.assertEqual(means, ["- Mean findings per audit; reports are counted by date in their filename."])
 
     def test_max_qa_reports_zero_omits_trend(self):
         text, out = self.run_proposal("--max-qa-reports", "0", "--json")
