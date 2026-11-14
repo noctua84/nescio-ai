@@ -32,7 +32,7 @@ def _posix(path):
     return str(path).replace("\\", "/")
 
 
-def _secret(family="ghs_"):
+def _shaped(family="ghs_"):
     """A credential-shaped string, assembled at runtime."""
     if family == "sk-ant-":
         return "sk-" + "ant-" + "A" * 24
@@ -162,30 +162,30 @@ class ScrubBehaviourTest(unittest.TestCase):
 
     def test_secret_in_review_is_removed_and_never_printed(self):
         self.full_layout()
-        secret = _secret()
-        self.stage("review.md", f"verdict\n{secret}\n")
+        sample = _shaped()
+        self.stage("review.md", f"verdict\n{sample}\n")
         proc = self.run_scrub()
         self.assertExit(proc, 0)
         self.assertFalse((self.outbox / "review.md").exists())
         for kept in ("summary.md", "findings/a.md", "findings/b.md", "replies/r.md"):
             self.assertTrue((self.outbox / kept).exists(), kept)
         self.assertTrue((self.learnings / "one.md").exists())
-        self.assertNotIn(secret, self.output)
+        self.assertNotIn(sample, self.output)
         self.assertIn("credential-shaped", self.output)
 
     def test_every_credential_family_is_removed(self):
         for family in ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "sk-ant-"):
             with self.subTest(family=family):
                 self.full_layout()
-                secret = _secret(family)
-                self.stage("findings/a.md", f"text {secret} text\n")
-                self.learn("one.md", f"{secret}\n")
+                sample = _shaped(family)
+                self.stage("findings/a.md", f"text {sample} text\n")
+                self.learn("one.md", f"{sample}\n")
                 proc = self.run_scrub()
                 self.assertExit(proc, 0)
                 self.assertFalse((self.outbox / "findings" / "a.md").exists())
                 self.assertFalse((self.learnings / "one.md").exists())
                 self.assertTrue((self.outbox / "findings" / "b.md").exists())
-                self.assertNotIn(secret, self.output)
+                self.assertNotIn(sample, self.output)
 
     def test_near_misses_are_kept(self):
         self.full_layout()

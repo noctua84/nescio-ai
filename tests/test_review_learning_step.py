@@ -46,20 +46,20 @@ GIT_ID = {
 }
 
 
-def _secret(prefix, n=36):
+def _shaped(prefix, n=36):
     """A credential-shaped string, assembled at runtime."""
     return prefix + "A" * n
 
 
 # One entry per family the filter must reject.
 FAMILIES = {
-    "ghp": _secret("gh" + "p_"),
-    "gho": _secret("gh" + "o_"),
-    "ghu": _secret("gh" + "u_"),
-    "ghs": _secret("gh" + "s_"),
-    "ghr": _secret("gh" + "r_"),
-    "github-pat": _secret("github" + "_pat_"),
-    "sk-ant": _secret("sk-" + "ant-", 30),
+    "ghp": _shaped("gh" + "p_"),
+    "gho": _shaped("gh" + "o_"),
+    "ghu": _shaped("gh" + "u_"),
+    "ghs": _shaped("gh" + "s_"),
+    "ghr": _shaped("gh" + "r_"),
+    "github-pat": _shaped("github" + "_pat_"),
+    "sk-ant": _shaped("sk-" + "ant-", 30),
 }
 
 
@@ -154,31 +154,31 @@ class OpensLearningPrTest(_LearningHarness):
 
 class CredentialFilterTest(_LearningHarness):
     def test_secret_note_creates_no_branch_and_no_gh_call(self):
-        secret = FAMILIES["ghs"]
-        self.stage_note("leaky", _note(body=f"token is {secret}"))
+        sample = FAMILIES["ghs"]
+        self.stage_note("leaky", _note(body=f"token is {sample}"))
         proc = self.run_learning()
         self.assertExit(proc, 0)
         self.assertEqual(self.learning_branches(), [])
         self.assertEqual(self.gh_calls(), [])
-        self.assertNotIn(secret, self.output)
+        self.assertNotIn(sample, self.output)
 
     def test_every_family_is_rejected(self):
-        for name, secret in FAMILIES.items():
-            self.stage_note(f"note-{name}", _note(body=f"see {secret} here"))
+        for name, sample in FAMILIES.items():
+            self.stage_note(f"note-{name}", _note(body=f"see {sample} here"))
         proc = self.run_learning()
         self.assertExit(proc, 0)
         self.assertEqual(self.learning_branches(), [])
         self.assertEqual(self.gh_calls(), [])
-        for name, secret in FAMILIES.items():
+        for name, sample in FAMILIES.items():
             with self.subTest(family=name):
-                self.assertNotIn(secret, self.output)
+                self.assertNotIn(sample, self.output)
 
     def test_secret_in_frontmatter_is_rejected(self):
-        secret = FAMILIES["github-pat"]
-        self.stage_note("fm-leak", f"---\nkind: security\nref: {secret}\n---\nbody\n")
+        sample = FAMILIES["github-pat"]
+        self.stage_note("fm-leak", f"---\nkind: security\nref: {sample}\n---\nbody\n")
         self.assertExit(self.run_learning(), 0)
         self.assertEqual(self.learning_branches(), [])
-        self.assertNotIn(secret, self.output)
+        self.assertNotIn(sample, self.output)
 
     def test_secret_and_benign_notes_only_benign_gets_a_branch(self):
         self.stage_note("a-leaky", _note(body=FAMILIES["ghp"]))

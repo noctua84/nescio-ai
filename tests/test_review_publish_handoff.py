@@ -40,7 +40,7 @@ FAMILIES = {
     "github_pat_": "github" + "_pat_" + "A1_" * 12,
     "sk-ant-": "sk-" + "ant-" + "api03-" + "A" * 24,
 }
-SECRET = FAMILIES["ghs_"]
+SAMPLE = FAMILIES["ghs_"]
 
 REVIEW = f"{REVIEW_MARKER}\n{VERDICT}\n## Comprehensive Review\n"
 
@@ -82,59 +82,59 @@ class _HandoffHarness(StepHarness):
             return []
         return self.gh_output.read_text(encoding="utf-8").splitlines()
 
-    def assertSecretNotLogged(self):
+    def assertSampleNotLogged(self):
         for value in FAMILIES.values():
             self.assertNotIn(value, self.output)
 
 
 class CredentialFilterTest(_HandoffHarness):
     def test_summary_with_credential_is_not_published(self):
-        self.stage("summary.md", f"{SUMMARY_MARKER}\nleaked {SECRET} here\n")
+        self.stage("summary.md", f"{SUMMARY_MARKER}\nleaked {SAMPLE} here\n")
         proc = self.run_publish()
         self.assertExit(proc, 0)
         self.assertEqual(self.write_keys(), [])
-        self.assertSecretNotLogged()
+        self.assertSampleNotLogged()
         self.assertIn("credential-shaped", self.output)
 
     def test_review_with_credential_fails_and_is_not_published(self):
-        self.stage("review.md", f"{REVIEW_MARKER}\n{VERDICT}\n## Review\n{SECRET}\n")
+        self.stage("review.md", f"{REVIEW_MARKER}\n{VERDICT}\n## Review\n{SAMPLE}\n")
         proc = self.run_publish()
         self.assertNotEqual(proc.returncode, 0, self.output)
         self.assertEqual(self.write_keys(), [])
-        self.assertSecretNotLogged()
+        self.assertSampleNotLogged()
         self.assertEqual(self.output_lines(), [])
 
     def test_credential_in_frontmatter_is_rejected(self):
         self.respond(PR_FILES, [{"filename": "src/a.py"}])
         self.stage("findings/fm.md", _finding("src/a.py", 4, "bug:fm").replace(
-            "side: RIGHT\n", f"side: RIGHT\nnote: {SECRET}\n"))
+            "side: RIGHT\n", f"side: RIGHT\nnote: {SAMPLE}\n"))
         proc = self.run_publish()
         self.assertExit(proc, 0)
         self.assertEqual(self.write_keys(), [])
-        self.assertSecretNotLogged()
+        self.assertSampleNotLogged()
 
     def test_secret_finding_skipped_clean_finding_posted(self):
         self.respond(PR_FILES, [{"filename": "src/a.py"}, {"filename": "docs/b.md"}])
-        self.stage("findings/a-bad.md", _finding("src/a.py", 3, "bug:bad", f" {SECRET}"))
+        self.stage("findings/a-bad.md", _finding("src/a.py", 3, "bug:bad", f" {SAMPLE}"))
         self.stage("findings/b-good.md", _finding("docs/b.md", 5, "bug:good"))
         proc = self.run_publish()
         self.assertExit(proc, 0)
         posted = [c for c in self.writes() if c["endpoint"] == REVIEW_COMMENTS]
         self.assertEqual(len(posted), 1, self.output)
         self.assertEqual(posted[0]["fields"].get("path"), "docs/b.md")
-        self.assertSecretNotLogged()
+        self.assertSampleNotLogged()
 
     def test_secret_reply_skipped_clean_reply_posted(self):
         self.respond(REVIEW_COMMENTS, [
             _comment(301, "github-actions[bot]", "<!-- claude-finding: bug:a -->\nf"),
         ])
-        self.stage("replies/a-bad.md", f"---\nin_reply_to: 301\n---\nThanks {SECRET}\n")
+        self.stage("replies/a-bad.md", f"---\nin_reply_to: 301\n---\nThanks {SAMPLE}\n")
         self.stage("replies/b-good.md", "---\nin_reply_to: 301\n---\nAddressed.\n")
         proc = self.run_publish()
         self.assertExit(proc, 0)
         self.assertEqual(self.write_keys(), [("POST", f"{REVIEW_COMMENTS}/301/replies")])
         self.assertEqual(self.writes()[0]["body"], "Addressed.\n")
-        self.assertSecretNotLogged()
+        self.assertSampleNotLogged()
 
     def test_every_family_is_rejected(self):
         for family, value in FAMILIES.items():
