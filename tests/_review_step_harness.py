@@ -184,7 +184,7 @@ class StepHarness(unittest.TestCase):
         with open(self.fake / "fail.txt", "a", encoding="utf-8", newline="\n") as fh:
             fh.write(f"{method} {endpoint}\n")
 
-    def run_step(self, env_vars):
+    def run_step(self, env_vars, cwd=None):
         env = dict(os.environ)
         env.update({
             "RUNNER_TEMP": posix(self.runner_temp),
@@ -194,7 +194,7 @@ class StepHarness(unittest.TestCase):
         })
         env.update(env_vars)
         proc = subprocess.run(
-            [BASH, posix(self.script)], env=env,
+            [BASH, posix(self.script)], env=env, cwd=cwd,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             timeout=180)
         self.output = proc.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
