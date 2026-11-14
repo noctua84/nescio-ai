@@ -85,6 +85,49 @@ YAML by hand afterward. If you paste the automatic snippet yourself, swap
 its `secrets:` line the same way (the snippet's header comment shows the
 `apikey` variant).
 
+## What Claude can and cannot do
+
+Claude has **no GitHub write tool**. Its allow-list in
+`claude-review-core.yml` is exactly:
+
+    Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(cat:*),Write,Read,Grep,Glob
+
+There is no `gh api` and no `gh pr comment`, and no git write command. The
+reason: Bash allow rules are prefix matches, so `Bash(gh api:*)` cannot
+constrain the HTTP method, the `-f` / `-F` / `--input` flags or a GraphQL
+mutation, and Claude reads untrusted PR content while the job token can
+write. Only removing the tool holds.
+
+The work is split into three stages instead:
+
+1. **Snapshot.** A `Snapshot review state` shell step reads the PR's issue
+   comments, inline review comments, review threads (resolved /
+   acknowledged state) and the open learning PRs into `/tmp/review-state/`.
+   Claude only reads those files. If the snapshot fails, the job fails and
+   the merge gate treats it as fail-closed.
+2. **Stage.** Claude writes what it wants to say under
+   `/tmp/review-outbox/`: `summary.md`, `review.md`,
+   `findings/<slug>.md` (one new inline finding each, with `path` / `line`
+   / `side` frontmatter) and `replies/<slug>.md` (a reply, with an
+   `in_reply_to` frontmatter key).
+3. **Publish.** A `Publish review comments` shell step validates each
+   staged file and posts it to a fixed endpoint: it edits the existing
+   summary and review comments in place (or creates them), replies only to
+   finding comments this workflow wrote on this PR, and posts a finding
+   only for a file that is part of the PR. It runs even if Claude hit its
+   turn limit. A summary, finding or reply that cannot be published is a
+   warning; a staged review that cannot be published fails the job. The
+   `merge-gate` job still submits the formal review. The merge gate only
+   trusts the review comment authored by the workflow's own logins
+   (`github-actions[bot]`, and `claude[bot]` for earlier versions) and reads
+   its verdict only from line 2, so a comment from anyone else, or a marker
+   quoted elsewhere in the review, cannot change the outcome.
+
+Comments are now authored by `github-actions[bot]`. One-time transition:
+summaries and reviews posted earlier by `claude[bot]` are still recognised
+and edited in place, so an open PR keeps one summary and one review rather
+than getting a second pair.
+
 ## The review-learnings loop
 
 The reviewer's Step 4b (in `claude-review-core.yml`) is a high bar: only
@@ -93,9 +136,9 @@ architecture issue — and no equivalent note exists, either in
 `.claude/memory/review-learnings/` or in an open learning PR — does Claude
 stage a candidate note at `/tmp/review-learnings/<slug>.md` (at most two
 per run). Claude never touches git: it has no `fetch`, `checkout`, `add`,
-`commit`, `push` or `gh pr create` in its allow-list, and it could not
-write into `.claude/` itself, which Claude Code treats as a protected
-directory in headless runs.
+`commit`, `push` or `gh pr create` in its allow-list (see above), and it
+could not write into `.claude/` itself, which Claude Code treats as a
+protected directory in headless runs.
 
 A plain shell step after the review (`Open review-learning PRs`) does the
 git work. For each staged file it checks the slug (lowercase kebab-case,
