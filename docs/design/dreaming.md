@@ -1,0 +1,534 @@
+# Dreaming: reviewing past sessions to curate the crew's memory
+
+> Status: design plus prototype (`scripts/dream.py`, `/dream`). This is the
+> smallest useful slice, not the whole loop. Section 9 lists what is open.
+
+Between sessions, read what the crew did, find mistakes that recur and
+workflows that worked, and propose changes to memory. The idea comes from
+Anthropic's "dreaming" for Claude Managed Agents. That is an API product that
+Claude Code does not have, so this is a local Python version built on the
+harvest pipeline that already exists here.
+
+## 1. What Anthropic's dreaming is
+
+Sources, checked 2026-11-12. Items marked *secondary* appear only in press
+write-ups.
+
+- **Primary:** the Dreams API docs
+  (`platform.claude.com/docs/en/managed-agents/dreams`), the launch post
+  (`claude.com/blog/new-in-claude-managed-agents`), and the engineering post
+  "Components of agent memory" (`anthropic.com/research/components-of-agent-memory`).
+- **Secondary:** SiliconANGLE (2026-05-06), InventiveHQ, and Let's Data Science.
+
+| Aspect | What Anthropic ships | Source |
+|---|---|---|
+| Shape | An asynchronous job (`POST /v1/dreams`) that takes minutes to hours | primary |
+| Trigger | The caller creates each dream. The API has no schedule parameter, even though the blog calls it "scheduled". | primary |
+| Inputs | One memory store, plus 1–100 session transcripts, a model, and optional `instructions`. Instructions that steer synthesis work. Line-level edit directives "generally produce no change". | primary |
+| Output | A **new** memory store. Duplicates are merged, stale or contradicted entries replaced, and new insights added. The input store and sessions are never modified. | primary |
+| Approval | Structural. Nothing changes until you attach the output store to later sessions, and you reject it by deleting it. The blog says it can "update memory automatically, or you can review changes before they land." | primary |
+| Results | Harvey reports completion rates up about 6x (vendor quote, no method given). Anthropic's own evals: a wiki-only score rising from 13% to 48% as sessions went from 2 to 128, and goal-focused instructions raising graded facts from 72% to 100%. | primary, not independent |
+| Risks | Wikis can bloat (a 203 KB wiki from a 115 KB corpus), errors can compound, and injected context has to stay small. It is not eligible for ZDR or HIPAA. | primary |
+| "Four phases: review, extract, reconcile, prune" | The article's own framing | *secondary only* |
+
+Two points shape this design:
+
+1. **Never mutate the input. Produce a separate artifact and let the caller adopt it.**
+2. **Steering with a goal works, and micro-edits do not.**
+
+The bloat warning is the main reason the output here is a short, ranked
+proposal and not a rewritten wiki.
+
+## 2. What exists here already
+
+| Piece | Role | What dreaming takes from it |
+|---|---|---|
+| `hooks/record_stop.py` | The Stop hook appends one record per turn to `<config>/learning-trail/<repo_key>.jsonl`, including `transcript_path`. It deliberately records **no** verdict. | Its docstring defers deriving outcomes to a later step that can afford to read transcripts. Dreaming is that step. It reuses `repo_key`, `redact` and `config_dir`. |
+| `hooks/harvest_nudge.py`, `hooks/memory_trigger_nudge.py` | SessionStart reminders: a harvest backlog, a half-finished harvest, ADR 0002 triggers | Where the "dream due" nudge lives (`hooks/dream_nudge.py`, section 3) |
+| `/harvest-memory`, plus `begin_harvest.py`, `promote_learnings.py` and `mark_harvested.py` | The **only** sanctioned writer into the version-controlled `memory/`. It validates nominations, applies `user override > empirical > agent inference`, stamps provenance and keeps a ledger. | The sink for memory proposals from dreaming. Dreaming never writes `memory/` itself. |
+| `memory/` (`repo/<repo>/`, `projects/`, `concepts/`, `feedback/`, ADRs under `repo/<repo>/adr/`) | Durable, synced memory | The target of proposals, through the harvest pipeline |
+| Auto-memory, `~/.claude/projects/<slug>/memory/` | Machine-local notes captured during sessions | Already an input to harvest. Dreaming adds signal that comes from transcripts. |
+| Transcripts, `~/.claude/projects/<slug>/*.jsonl` | Full session logs. Worktrees get their own slug, `<slug>--claude-worktrees-<name>`. | The primary input to dreaming |
+| Builder report: `<verdict>`, `<deviations>` (`Inverted pin:`, `Deferred red:`) and `<out-of-scope>` | Appears in the parent transcript as `toolUseResult.content` with `agentType` | The highest-signal "mistake" data, and structured enough to parse without a model |
+| Orchestrator BLOCKED routing and tier escalation | A BLOCKED or PARTIAL from a `-simple` or `-standard` tier, followed by a re-dispatch one tier up | Shows as a sequence of `agentType`s in one session, so it can be detected without a theme |
+| `scripts/session_anatomy.py` | Streams transcripts line by line and tolerates malformed lines | The parsing pattern copied here |
+| `consolidate-memory` | Not in this repo. It is reachable only as the Anthropic plugin skill `anthropic-skills:consolidate-memory`, which merges duplicates and fixes stale facts in memory files. | Deliberately **not** reimplemented. See section 4c. |
+| QA reports, `docs/reports/YYYY-MM-DD-*.md` | Severity-ranked audits written by the QA agent (`agents/reviewer.md`) | Severity counts per audit (section 4a) |
+
+## 3. Trigger
+
+Options, in order of preference:
+
+1. **SessionStart nudge (the default, implemented).** `hooks/dream_nudge.py`,
+   called from `harvest_nudge.main()` after the other reminders and printed in
+   addition to them, prints one line when a dream is due. It costs nothing
+   until the user acts, and it follows the pattern the hooks already use. The
+   rule is below.
+2. **On demand:** `/dream`, which the prototype ships.
+3. **Scheduled:** a cloud routine (`/schedule`) or a local `/loop`. A cloud
+   routine cannot see machine-local transcripts. That rules it out unless the
+   transcripts move, and moving them is a privacy cost (section 6). `/loop`
+   keeps a session open. Treat both as opt-ins for later.
+
+`<config>/dreams/<repo_key>/last-dream.json` holds the watermark, kept apart
+from the harvest watermark. A dream does not claim to have harvested anything,
+so it must never move the pruner's watermark.
+
+### 3a. When the nudge fires
+
+| Case | Fires when | Defaults (env override) |
+|---|---|---|
+| Dreamt before | The watermark is at least N days old **and** at least M sessions ended after it | N = 7 (`CLAUDE_DREAM_NUDGE_DAYS`), M = 10 (`CLAUDE_DREAM_NUDGE_SESSIONS`) |
+| Never dreamt, or the watermark does not parse | At least F sessions ended in the last 14 days | F = 30 (`CLAUDE_DREAM_NUDGE_FIRST_SESSIONS`) |
+
+`CLAUDE_DREAM_NUDGE=0` turns it off. A bad or negative value falls back to the
+default. It fires only on `startup` and `resume`, like the other reminders, and
+any failure degrades to silence.
+
+Decisions behind the rule:
+
+- **Never dreamt is not silent.** A silent hook would leave `/dream`
+  undiscoverable. Using the ordinary M would nag everyone who has not opted
+  in. A threefold bar speaks up only where a first dream has plenty to read.
+  The 14-day window is the one `dream.py` reads on a first run
+  (`DEFAULT_DAYS`), so the count never promises sessions the dream would skip.
+- **Sessions are counted from transcript mtimes, not the learning trail.** A
+  "session that ended" is a top-level `*.jsonl` in this repo's transcript
+  directories (the main slug and its `--claude-worktrees-` children) modified
+  after the baseline. That is the same selection `dream.select_sessions`
+  makes, so the nudge and the dream agree. The repo's canonical trail
+  undercounts worktree sessions, which is the workflow this framework
+  mandates. The current session's transcript is excluded.
+- **The time budget.** One listing of `<config>/projects`, one `stat` per
+  transcript, and an early stop at the threshold. No transcript is opened and
+  no subprocess runs beyond the `git` call every reminder makes. The test
+  suite holds 2,000 foreign transcripts plus 500 of the repo's under 0.5 s.
+  With the reminder turned off, even that `git` call is skipped.
+- **The watermark key follows `dream.py`.** `dream.main_root` resolves the
+  root with `Path.resolve()`, so on Windows its `repo_key` hashes a
+  backslashed path, while `record_stop.git_roots` returns git's
+  forward-slashed one. The hook resolves the root the same way `dream.py`
+  does, and a test pins it to a real `dream.py` run. As a result the dream
+  watermark and the learning trail use different keys for one repo on
+  Windows. That is harmless while nothing joins them.
+
+## 4. The pipeline
+
+The work is split in two stages. A deterministic **extractor** costs no tokens
+and has no model in it. A **reviewer** pass is Claude running inside `/dream`.
+
+### 4a. Inputs (extractor)
+
+- Transcripts newer than the watermark from every slug of the repo, worktrees
+  included, up to `--max-sessions`, newest first.
+- From each one: agent results (`toolUseResult` with `agentType`), user
+  messages, `tool_use` and `tool_result` pairs, and Bash commands.
+- **Subagent transcripts** under `<session>/subagents/agent-*.jsonl`, with the
+  agent type from the sibling `agent-*.meta.json` (`"unknown"` when it is
+  missing), capped by `--max-subagents` per parent session (default 25,
+  newest first) and switched off by `--no-subagents`. From each one: tool
+  errors keyed by agent type, tool and signature, and identical Bash commands
+  run more than once (retries), the outcome of each test run (section 4b),
+  and the agent's final report. Subagents are reached only through their
+  parent, so a parent dropped by `--max-sessions` or the watermark hides its
+  subagents too. See "Measured" below.
+- **QA audit reports** `docs/reports/YYYY-MM-DD-*.md` in the main worktree,
+  dated on or after the window start, capped by `--max-qa-reports` (default
+  10, `0` disables). The format is defined in `agents/reviewer.md` (the QA
+  agent; `qa-guard.md` is the CI gate and writes no report). The extractor
+  reads the `**Severity Summary:**` line and falls back to counting
+  `### [SEVERITY]` headings. It emits counts only, never finding titles.
+- Not yet read: the learning trail and auto-memory.
+
+**Measured** on one machine, 14-day window, aggregate counts only:
+
+| | Parent transcripts | Subagent transcripts |
+|---|---|---|
+| Files | 65 sessions | 412 files in 47 of those sessions |
+| Bytes | 175 MB | 181 MB |
+| Parse time (warm cache) | about 1 s | about 1 s |
+| Tool errors (rejections excluded) | 214 | 369 |
+| Distinct error signatures | not compared | 188, of which only 20 also appear in a parent transcript and 26 recur in 2+ sessions |
+| Identical Bash reruns | not measured | 64, in 47 files |
+| Test-command runs | not measured | 1,329 (about 3 per subagent) |
+
+So subagent transcripts are worth reading. Most of a builder's friction (a
+failing command, a retry, a shell trap) never reaches the parent, which sees
+only the final report. The read roughly doubles the bytes, which is why it is
+capped per session. A 60-day window gave the same numbers, so transcript
+retention, not the window, bounds the input on this machine. 25 of the 412
+files had no `meta.json`.
+
+QA reports: the five reports in this repo all carry the summary line (0
+Critical, 8 Major, 36 Minor, 26 Info in total). Audits are sparse, about one
+every two weeks, so a single dream window usually holds zero or one. The
+severity counts are useful as a trend across dreams, not as a per-dream
+recurring pattern, so the extractor reports them as a table and not under
+"Recurring patterns".
+
+### 4b. Signals (extractor)
+
+A signal is **recurring** only if it shows up in at least `--min-sessions`
+distinct sessions (default 2). One bad afternoon is not a pattern.
+
+| Signal | Detection | What it usually means |
+|---|---|---|
+| Tier escalation `F: t→t'` | A BLOCKED or PARTIAL verdict from family F at tier t, then a dispatch of F at a higher tier in the same session | The plan's tiering criteria under-classify this kind of task |
+| Verdict mix per agent | A tally of `<verdict>` values | An agent that is often PARTIAL or BLOCKED needs a prompt or brief fix |
+| Inverted pin / deferred red | Labelled lines in `<deviations>` | Briefs that tell builders to change tests. Worth confirming. |
+| Out-of-scope findings | `<out-of-scope>` lines, deduplicated | A backlog that would otherwise die with the session |
+| User corrections and interrupts | A user message that starts with "no", "don't", "instead", "actually", "revert" and similar, or an interrupt marker | The crew's defaults differ from what this user wants. This is the strongest `user override` candidate. |
+| Repeated tool errors | `is_error` tool results, grouped by a normalised first line | Environment quirks, such as a Windows shell trap or a missing tool, that a memory note would prevent |
+| Reverts | Bash `git revert`, `reset --hard`, `checkout --` or `restore` | Work that was done and then undone |
+| Test run after a failure (subagents) | A test command's outcome read from the runner's summary (`OK` / `FAILED (`, `N passed` / `N failed`), the exit status only as a fallback. Each failing run is paired with the next run of known outcome in the same transcript, whatever its command: fixed after an edit, passed with no edit seen, failed again after an edit, retried with no edit, or never rerun. Recurring kinds: `test-retry-no-edit`, `test-not-rerun`, `test-failure-masked`, `complete-on-red` | Blind retries and stopping on red are agent-prompt or brief problems. A masked failure is a command habit (`… \| tail`) worth a memory note. COMPLETE on a red last run is worth confirming, since a pre-existing failure is a legitimate reason |
+
+Workflows that worked are the inverse signals: a COMPLETE with no deviations
+on the first dispatch, or a session with no corrections. The extractor reports
+the counts and the reviewer pass names the workflow. Detecting success
+patterns automatically is left open, because doing it well needs a model.
+
+### 4c. Stale or duplicate memory
+
+This is not part of the extractor. Merging duplicates is what
+`consolidate-memory` does, and what Dreams does to its store. Here it already
+belongs to `promote_learnings.py` (dedupe through the content-hash ledger, and
+contradiction precedence) and to ADR 0002's revisit triggers. `/dream` tells
+the reviewer to check each proposed note against existing `memory/` before
+nominating it, rather than building a second deduplicator.
+
+### 4d. Outputs
+
+The extractor writes a Markdown proposal to
+`<config>/dreams/<repo_key>/<UTC>.md`. It is machine-local and never touches the
+repo. The `/dream` reviewer pass then sorts each recurring pattern into one of
+four outputs:
+
+| Output | Where it goes | Approval |
+|---|---|---|
+| Memory note: a quirk, a convention, a correction | A nomination for `promote_learnings.py`, with source `empirical` (or `user override` for a correction the user stated) | The user approves each nomination. Never auto-applied (section 5b). |
+| An agent prompt, `CLAUDE.md` or tiering criterion change | A proposed diff, shown in the conversation or committed to a `dream/<date>` branch | **Always held.** It is never auto-applied. |
+| A new skill | A one-paragraph sketch plus evidence, filed as a spawned task | Always held |
+| A follow-up task from `<out-of-scope>` | A candidate task card | The user decides |
+
+## 5. Approval
+
+- **Never auto-edited:** `agents/`, `CLAUDE.md`, `skills/`, `commands/`, hooks,
+  and scripts. A recurring prompt flaw found in one user's sessions is weak
+  evidence for changing a prompt every consumer runs. The drift cost of a bad
+  edit is high, and an eval does not exist yet (section 7).
+- **Memory notes:** held by default. Each nomination is shown to the user and
+  goes through `/harvest-memory` only on approval.
+
+An earlier draft of this section sketched an opt-in `--auto-apply-memory`:
+nominations passed straight to `promote_learnings.py` when they targeted
+`repo/<name>` or `feedback`, carried source `empirical`, had been seen in at
+least 3 sessions, and were listed in the next SessionStart nudge for revert.
+Section 5a checks that sketch against the code. Section 5b records the
+decision.
+
+### 5a. Can the sketched auto-apply be built safely?
+
+No, not as an unattended write into `memory/`. The findings, checked against
+the code on 2026-11-13:
+
+1. **A model has to write the note.** The extractor emits a signal kind, a
+   redacted excerpt of at most 160 characters, and a session count. It does not
+   emit a note. Turning a signal into a note body needs a model, either a
+   headless run or the interactive `/dream`. So "auto" can only mean that a
+   setting approves the model's draft in advance. The limits can check the
+   envelope (scope, target, source label, session count). They cannot check the
+   body, which is the part that is loaded into later sessions. The `source`
+   label has the same problem: the drafting model asserts it. It is not
+   measured. A gate has to derive the source from the signal kind instead of
+   trusting the label.
+2. **The recurrence threshold does not contain prompt injection.** Excerpts come
+   from tool output, error text and fetched pages. `record_stop.redact` blanks
+   secret shapes, not instructions, and 160 characters is enough room for an
+   instruction. The threshold of 3 sessions filters noise, not attacks. A
+   planted string in a repo file, a dependency's error message, or a page the
+   crew fetches often shows up in every session, so a persistent source is
+   exactly what clears the threshold. Memory is read by every later session as
+   trusted guidance. An injected note would therefore outlive the transcript it
+   came from and act as a persistent injection. Holding proposals for approval
+   (section 6) is the only control in this design that addresses this risk, and
+   auto-apply removes it.
+3. **The brain guard warns when nobody is reading.** `guard_brain` refuses only
+   on `mismatch` and `broken`. On `unknown` and `override` it prints a warning
+   and proceeds. That is fine in an interactive harvest, where someone sees the
+   warning. In an automatic path nobody does, so that path must require the
+   verdict `brain` exactly.
+4. **Contradiction precedence protects only `user override`.** In
+   `promote_learnings.py`, a `body` nomination whose source equals the existing
+   note's source overwrites it without a date comparison (same-source
+   refinement). An automatic `empirical` note could therefore replace a reviewed
+   `empirical` note entirely. An automatic path must be create-only and refuse
+   any existing target. The `units` shape is not a way around this: the
+   promote docstring says it stays unexercised until #180 stage 2, and its
+   `supersedes` deletes text.
+5. **Revert has no tool, and merge is already the gate.** `promote_learnings.py`
+   does no git work. `/harvest-memory` step 9 requires delivering through a
+   branch and a PR, never a commit on `main`. Every `memory/` change therefore
+   already passes a human at merge, and auto-applying to `main` would break the
+   repo's own rule. `scripts/unmark_harvested.py` does not revert notes. It
+   deletes harvest watermarks left by a bad global stamp, which is a different
+   problem. A `body` note can only be reverted with git: close the PR, or
+   `git revert` after merge. Closing the PR also drops the ledger line, so the
+   next dream proposes the same note again. An automatic path needs a
+   machine-local rejection list keyed by signal signature, or rejected notes
+   come back on every run.
+6. **The `feedback` scope does not fit.** Most feedback notes come from user
+   corrections, and those are `user override`, which the limits exclude. The
+   promote docstring also treats `feedback` and `people` as observations about
+   identifiable individuals, which is the worst place to write without review.
+   Only `repo/<name>` fits.
+
+### 5b. Decision: no auto-apply (2026-11-13)
+
+Auto-apply is dropped. Every memory nomination from `/dream` is held, shown to
+the user and promoted through `/harvest-memory` only on approval. There is no
+`--auto-apply-memory` flag or setting.
+
+An alternative was considered and rejected: "auto-staging", where nominations
+that pass a deterministic gate would skip the per-item question and land
+together as one `dream/<date>` PR. The gate would have required a new note
+under `repo/` only, a signal of kind `tool-error`, `escalation` or `revert`
+seen in at least 3 sessions, no entry in a rejection list, and a brain-guard
+verdict of exactly `brain`. It kept a human gate at merge, so it was safe. It
+was dropped because the gain is small (one PR review in place of one
+confirmation per note), while it needs three new parts: a machine-readable
+sidecar from `dream.py`, a gate module, and a rejection list.
+
+Revisit this decision if the per-item review becomes a bottleneck, for example
+if dreams routinely produce more nominations than a user will confirm one by
+one. Start from auto-staging, not from auto-apply. The findings in 5a still
+apply to any version.
+
+## 6. Privacy
+
+- Transcripts hold private code, paths, customer names and secrets. The
+  extractor:
+  - keeps only short excerpts (at most 160 characters) and passes each one
+    through `record_stop.redact`, which blanks it on any secret shape;
+  - replaces the home directory with `~`;
+  - writes only under `<config>/dreams/`, which is machine-local and not synced.
+- **Output scope follows the input scope:**
+  - Per-project learnings go to the machine-local store or the brain's
+    `memory/repo/<repo>/`.
+  - Only a **generic** lesson goes to public nescio-ai, as a prompt tweak to
+    this framework. A generic lesson is a pattern stated without names, paths
+    or quoted user text, and that pattern has to hold across repos.
+  - `/dream` requires `scripts/scrub_check.py` to pass before anything bound for
+    the public repo is committed.
+- A cloud-scheduled dream would need transcripts uploaded. That is out of scope
+  until the user explicitly chooses it. Anthropic's Dreams are not
+  ZDR-eligible, for the same reason.
+- Prompt-injection surface: transcripts contain web pages and tool output. The
+  reviewer treats every excerpt as data. Proposals are held for approval, so
+  injected text cannot write memory on its own. That hold is the control.
+  Redaction, truncation and the recurrence threshold do not stop an
+  instruction (section 5a).
+
+## 7. Cost controls, and how to know whether it helps
+
+Cost:
+
+- The extractor makes no model calls and streams line by line. Its cost is disk
+  reads, bounded by `--max-sessions` (50 by default) and the watermark.
+- The reviewer pass reads one proposal of a few KB, not the transcripts. That
+  is the main saving over Dreams, whose cost grows linearly with the number of
+  transcript tokens.
+- The `--min-sessions` threshold keeps the proposal short. This is the remedy
+  for the bloat Anthropic reports.
+
+Measurement. The extractor's own counts serve as the metrics, so measuring needs
+no new instrumentation:
+
+- **Leading:** the share of proposals accepted, and nominations per dream that
+  survive review.
+- **Outcome:** compare the per-week rates of the recurring signals before and
+  after a learning lands, using the same extractor on the two windows:
+  - escalations per 10 builder dispatches;
+  - user corrections per session;
+  - repeated tool-error signatures;
+  - BLOCKED rate.
+
+  A lesson works if its signature stops recurring. Its decay is the test.
+- **Guard:** if a note lands and its signal does not drop within N sessions,
+  the next dream flags the note as ineffective. That makes it a candidate for
+  removal, which keeps memory from only ever growing.
+- This is not a controlled experiment. Usage mix changes week to week, so read
+  trends across several dreams, not a single delta.
+
+### 7a. Effectiveness tracker (shipped)
+
+The minimal data model has three parts, all machine-local under
+`<config>/dreams/<repo_key>/`:
+
+| Piece | Written by | Holds |
+|---|---|---|
+| `<UTC>.json` sidecar | `dream.py`, next to each `<UTC>.md` | The run window (`since`, `until`), `sessions_read`, `agent_dispatches`, and **every** signal seen in at least one session: `{sig_id: {key, sessions, count}}` |
+| `links.json` | `dream.py --link HASH12 SIG_ID` | `{hash, sig, linked_at}`: which ledger entry was promoted because of which signal |
+| `memory/learning-log.md` | `promote_learnings.py`, unchanged | The promotion date for `hash` |
+
+- **Signal ids are stable keys, not counts.** The key is `escalation:<family>:<t>-><t'>`,
+  `tool-error:<tool>:<signature>`, `corrections`, `reverts`, `inverted-pins`,
+  `interrupts`, `blocked:<agent>` or `partial:<agent>`. The id is the first 8
+  hex digits of its SHA-256. The proposal prints `[sig <id>]` after each
+  recurring pattern, so the reviewer can copy it into `--link` after promoting.
+- **The sidecar records all signals, not the top five.** A signature that
+  drops out of the top five would otherwise look like it went to zero.
+- **The link stays out of the ledger.** Signal keys can carry tool names and
+  normalised command text. The ledger is tracked and synced, so adding a field
+  there would leak them and would change the contract that three schema copies
+  share. The ledger hash is enough to join on.
+- **`dream.py --compare`** reads the sidecars and drops a run whose window
+  overlaps an earlier kept run, which happens after `--no-stamp` reruns. For
+  each link it pools the runs before the promotion date and the runs after it,
+  and leaves out runs that straddle the date. Rate is the share of sessions
+  that show the signal. The verdict is `too early` (fewer than `--min-after`
+  sessions after, default 10), `no baseline`, `working` (the rate at least
+  halved), `ineffective` (the rate did not drop) or `unclear`.
+- The rate is per session, for every kind of signal. Per-dispatch rates for
+  escalations would be sharper, but they wait on the background-agent
+  undercount (section 9): with most reports unparsed, the denominator is wrong.
+
+## 8. Prototype (shipped in this change)
+
+- `scripts/dream.py` (aggregate, render, CLI) and `scripts/_dream_parse.py`
+  (transcript parsing) are the deterministic extractor described in sections
+  4a and 4b. It writes the proposal and stamps the watermark (`--no-stamp` to
+  skip).
+- `commands/dream.md` holds the `/dream` reviewer steps: run the extractor,
+  triage each pattern into memory nomination, held prompt diff, or drop, and
+  apply the privacy gate.
+- `scripts/_dream_inputs.py` reads the extra inputs of section 4a: subagent
+  transcripts (errors, reruns and recovered reports) and QA report severity
+  counts. `scripts/_dream_aggregate.py` folds sessions into the proposal data.
+- `tests/test_dream.py` and `tests/test_dream_inputs.py` cover the extractor
+  on synthetic fixtures. No real transcripts are used.
+
+## 9. Open
+
+- **Background agents: fixed, with gaps left.** A background dispatch
+  returns only an `agentId`. Its report arrives later as a hand-back message
+  (`<agent-message from="<agentId>">` with `[Subagent hand-back]`), or in older
+  transcripts inside `<task-notification>`. The parser now links `agentId` to
+  `agentType` through the dispatch and counts these reports. On real data the
+  parsed reports went from 69 to 153 in a 50-session window. Dispatches still
+  outnumber reports (272 against 153), and some builder hand-backs carry no
+  verdict. Escalations came out at 0. All three need a closer look.
+- The follow-ups section reached 335 lines on real data, so it needs a cap or a
+  ranking before `/dream` is pleasant to review.
+- User-rejected tool calls are excluded from tool errors. A rejection that
+  carries a reason now counts as a correction; a bare rejection does not.
+- Subagent transcripts and QA reports are read now (section 4a). Still open:
+  - **Verdicts from subagent transcripts: done.** A subagent transcript is
+    named `agent-<agentId>.jsonl`, and that id matched the parent's `agentId`
+    in every joinable case (409 of 409). When the parent has no report for an
+    agent id, the extractor takes the last assistant text block with a
+    `<verdict>` from the subagent transcript, marks it `source: "subagent"`,
+    and inserts its report event right after that agent's dispatch, so
+    escalation detection sees it. The parent's copy wins on a duplicate. On
+    one machine this took parsed reports from 245 to 302 of 443 dispatches
+    (57 recovered); only 3 of the recovered verdicts were PARTIAL or BLOCKED,
+    so escalations stay rare. The "dispatches but no reports" drift warning
+    still counts parent reports only, so subagent files cannot hide a parent
+    format change. Still open: the remaining gap is mostly agents without a
+    verdict contract (explore, general-purpose), and why about half of the
+    builder transcripts carry no verdict is not known.
+  - **Test reruns after a failure: done (section 4b).** Measured on one
+    machine (14 days, subagent transcripts): 1,404 test-command runs, 971 with
+    a readable outcome, 279 failing. 236 of those failures exited 0, because
+    the command piped its output through `tail`, so the exit status alone
+    misses most failures. An identical rerun of a failing command is rare
+    (about 1%), which is why a failure is paired with the next known run and
+    not with the same command. After a failure: 66 fixed after an edit, 69
+    passed with no edit seen, 39 failed again after an edit, 52 retried with
+    no edit, 43 never rerun. 4 of 71 COMPLETE builder reports ended on a red
+    run. Still open:
+    - "Passed with no edit seen" is ambiguous: a narrower or different test,
+      a flaky test, or an edit the detector misses (an interpreter writing a
+      file, `git apply`). It is reported, not raised as a pattern.
+    - The test-command regex matches the runner name anywhere in a command,
+      so `pip install pytest` counts as a run (it has no readable outcome, so
+      it only inflates the runs column). Anchoring it to the command position
+      would fix that.
+    - Runners without a parsed summary (go test, cargo) resolve only through
+      the exit status.
+    - Parent transcripts are not classified yet; their test runs are mostly
+      the orchestrator's verification.
+  - **QA trend.** Severity counts per audit are reported, but nothing yet
+    compares them across dreams or links a finding category to a memory note.
+- **Detecting successful workflows automatically.** Measured on one machine's
+  last 60 days (870 main transcripts, aggregate counts only). The counts were taken
+  from foreground `toolUseResult` reports only, before the hand-back fix above,
+  so verdict coverage is a lower bound and should be measured again:
+
+  | Proxy | Result | Verdict |
+  |---|---|---|
+  | First-try COMPLETE with no deviations | 68 of 229 reports with a verdict; only 229 of 1,475 parsed reports (and of about 7,500 dispatches) carry a `<verdict>` | The "no deviations" part discriminates, since 221 of 229 verdicts are COMPLETE. Coverage was about 3% of dispatches before the hand-back fix. |
+  | Session with no correction or interrupt | 797 of 870 sessions | Does not discriminate. The correction regex rarely fires. |
+  | Friction-free session (no correction, interrupt, revert or tool error) | 177 of 870 | Confounded by length: 106 of 285 sessions with fewer than 2 human messages, and 0 of 67 with 20 or more |
+
+  Model-assisted pass, estimated at chars/4 as in `session_anatomy.py` (tokens
+  only, never cost):
+
+  | Input to the model | Tokens over 60 days | Per default 50-session dream |
+  |---|---|---|
+  | Full transcript content (text, thinking, tool input and output) | about 100M (median 54k per session) | about 5.8M |
+  | Skeleton (human and assistant text, agent reports, tool calls cut to 300 chars) | about 33M (median 15k) | about 1.9M |
+  | Skeleton of candidate sessions only (2 or more human messages, at least one report, no correction) | about 12M (245 sessions) | about 2.4M |
+  | Clean first-try reports plus their dispatch prompts | about 100k (68 items, about 1.5k each) | well under 100k |
+
+  The proposal the reviewer reads today is a few thousand tokens. **Recommendation:**
+  do not add a transcript-level model pass. Only the last row is cheap: roughly 10 to 30 times
+  today's reviewer input per dream, against hundreds to thousands of times for the others. Run
+  that row inside `/dream` as part of the existing reviewer turn, with no new
+  API call: give the reviewer each clean report plus its dispatch prompt, and
+  ask what the brief got right. First measure verdict coverage again with the
+  hand-back parser, because the 3% above came from foreground reports only. Any
+  separate model call stays a decision for the user.
+- The effectiveness tracker shipped (section 7a), and `/dream` runs it:
+  `--compare` before triage, with `ineffective` notes reported as removal or
+  rewrite candidates, and `--link` after each promotion. Still open: linking is
+  a manual step, because `promote_learnings.py` prints no hash. If promotion
+  returned the hash, `/dream` could link without reading the ledger.
+- **User corrections are a lower bound, not a rate.** Measured on one
+  machine's real transcripts (871 sessions, 5,669 human messages; labels by
+  one reviewer, counts only):
+  - The first regex matched 72 messages; about 37% of a 60-message sample were
+    real corrections. Most false positives were a "no" answering the agent's
+    question with "nothing else", "stop here", "actually ..." redirects, and a
+    repeated session-opening prompt.
+  - The current rule matches 29 messages, about 83% of them corrections. It
+    ignores the session's first message, drops "actually" and "stop", requires
+    word boundaries, ignores "I mean," elaborations, and counts a bare "no"
+    only when the agent's last text did not end in a question. A rejected tool
+    call that carries a reason also counts (4 on that machine). The precision
+    is in-sample: the rule was tuned on the messages it was scored on.
+  - Recall did not improve. In a random sample of 200 human messages, 9 were
+    corrections and both rules caught 2. Most corrections are plain statements
+    of fact (for example, naming the right file), which no start-of-message cue can
+    tell apart from ordinary talk.
+  - Messages right after an interrupt are not counted: about 3 of the 17
+    measured were corrections. Interrupts stay a separate count.
+  - The cues are English-only. Corrections in other languages are not seen.
+    Closing the recall gap needs a model call, which is a cost decision.
+- **The transcript format is internal and unstable by Anthropic's own
+  statement.** Only the location is documented
+  (`~/.claude/projects/<project>/<session-id>.jsonl`, in
+  [Manage sessions](https://code.claude.com/docs/en/sessions.md), "Where
+  transcripts are stored"). The same page says the entry format is internal to
+  Claude Code and changes between versions, so direct parsers can break on any
+  release, and points to `/export` and the SDK instead. No official page defines
+  `toolUseResult`, `isMeta`, `agentType` or the entry `type` values, and the
+  SDK's `getSessionMessages()` types the payload as `unknown`
+  ([Agent SDK sessions](https://code.claude.com/docs/en/agent-sdk/sessions.md)).
+  The extractor therefore runs a format self-check: it tallies the shapes it
+  relies on (user/assistant entries, `message.content`, `tool_use` blocks,
+  `toolUseResult` dicts, Agent/Task dispatches, agent reports once
+  dispatches exist) and adds a "Format check"
+  section to the proposal when one goes missing, or when an unknown top-level
+  key appears on most entries. On the 871 sessions above it raised no warning.
+- Porting to the brain: the files sit in framework paths (`scripts/`,
+  `commands/`, `tests/`, `docs/`), so the usual sync carries them.
