@@ -374,7 +374,7 @@ class MergeGateTest(_CoreBase):
 
 
 class SnippetSkipConditionsTest(unittest.TestCase):
-    def test_if_skips_all_six(self):
+    def test_if_skips_drafts_bots_release_please_and_label(self):
         doc = _load(SNIPPET)
         cond = doc["claude-review"]["if"]
         expected = (
@@ -382,12 +382,18 @@ class SnippetSkipConditionsTest(unittest.TestCase):
             "github.event.pull_request.user.login != 'dependabot[bot]'",
             "github.event.pull_request.user.login != 'github-actions[bot]'",
             "!startsWith(github.event.pull_request.head.ref, 'release-please--')",
-            "!startsWith(github.event.pull_request.head.ref, 'claude/')",
             "!contains(github.event.pull_request.labels.*.name, 'skip-claude-review')",
         )
         for clause in expected:
             with self.subTest(clause=clause):
                 self.assertIn(clause, cond)
+
+    def test_if_does_not_skip_claude_branches(self):
+        # Claude Code session PRs must be reviewed; review-learning PRs are
+        # already excluded (GITHUB_TOKEN-opened, github-actions[bot] author).
+        doc = _load(SNIPPET)
+        cond = doc["claude-review"]["if"]
+        self.assertNotIn("'claude/'", cond)
 
 
 if __name__ == "__main__":
