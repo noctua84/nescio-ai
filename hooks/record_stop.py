@@ -268,7 +268,7 @@ def write_watermark(path: Path, ts: datetime) -> None:
     # Per-process temp name so two racing writers never collide on a fixed name;
     # os.replace keeps the swap atomic.
     tmp = path.parent / (path.name + f".{os.getpid()}.tmp")
-    tmp.write_text(ts.isoformat(), encoding="utf-8")
+    tmp.write_text(ts.isoformat(), encoding="utf-8", newline="")
     os.replace(tmp, path)
 
 
@@ -350,7 +350,7 @@ def _maybe_prune(path: Path, *, now: datetime | None = None) -> None:
         if len(kept) == len(existing_nonempty):
             return
         tmp = path.parent / (path.name + ".tmp")
-        tmp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+        tmp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8", newline="")
         os.replace(tmp, path)
     except Exception:
         return

@@ -114,7 +114,7 @@ def add_link(state_dir: Path, note_hash: str, sig: str, now: datetime) -> bool:
         return False
     links.append({"hash": note_hash, "sig": sig, "linked_at": now.strftime("%Y-%m-%dT%H:%M:%SZ")})
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / LINKS_NAME).write_text(json.dumps(links, indent=2), encoding="utf-8")
+    (state_dir / LINKS_NAME).write_text(json.dumps(links, indent=2), encoding="utf-8", newline="")
     return True
 
 

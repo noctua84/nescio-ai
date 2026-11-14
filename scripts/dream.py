@@ -258,13 +258,13 @@ def main(argv: list[str] | None = None) -> int:
     since_s, until_s = since.strftime("%Y-%m-%dT%H:%M:%SZ"), start.strftime("%Y-%m-%dT%H:%M:%SZ")
     out = args.out or state_dir / f"{start.strftime('%Y%m%dT%H%M%SZ')}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(agg, repo_key=key, since=since_s, until=until_s), encoding="utf-8")
+    out.write_text(render(agg, repo_key=key, since=since_s, until=until_s), encoding="utf-8", newline="")
     sidecar = {"schema": measure.SCHEMA, "repo_key": key, "since": since_s, "until": until_s,
                "sessions_read": agg["sessions_read"], "agent_dispatches": agg["agent_dispatches"], "signals": signal_table(sessions)}
-    out.with_suffix(".json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+    out.with_suffix(".json").write_text(json.dumps(sidecar, indent=2), encoding="utf-8", newline="")
     if not args.no_stamp:
         state_dir.mkdir(parents=True, exist_ok=True)
-        (state_dir / STATE_NAME).write_text(json.dumps({"since": until_s}), encoding="utf-8")
+        (state_dir / STATE_NAME).write_text(json.dumps({"since": until_s}), encoding="utf-8", newline="")
     if args.json:
         print(json.dumps({**agg, "repo_key": key, "since": since_s, "until": until_s, "proposal": scrub(str(out), 500)}, indent=2))
     else:

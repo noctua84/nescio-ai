@@ -690,7 +690,7 @@ def _record_ledger(
             break
     else:
         lines.append(line)  # new content — append
-    ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _append_ledger_event(ledger_path: Path, line: str) -> None:
@@ -718,7 +718,7 @@ def _append_ledger_event(ledger_path: Path, line: str) -> None:
     if line in lines:
         return
     lines.append(line)
-    ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ledger_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
 
 
 def _frontmatter_only_update(
@@ -807,7 +807,7 @@ def write_receipt(
         "targets": targets,
         "written_at": datetime.now(timezone.utc).isoformat(),
     }
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="")
     return path
 
 
@@ -1009,7 +1009,7 @@ def promote(
                 continue
 
             note_path.parent.mkdir(parents=True, exist_ok=True)
-            note_path.write_text(plan.new_text, encoding="utf-8")
+            note_path.write_text(plan.new_text, encoding="utf-8", newline="")
             touched_dirs.add(note_path.parent)
             for unit in plan.recorded:
                 _record_ledger(
@@ -1129,7 +1129,7 @@ def promote(
             continue
 
         note_path.parent.mkdir(parents=True, exist_ok=True)
-        note_path.write_text(new_text, encoding="utf-8")
+        note_path.write_text(new_text, encoding="utf-8", newline="")
         touched_dirs.add(note_path.parent)
         if frontmatter_only:
             # Appended, never pruned or updated in place: `_record_ledger`

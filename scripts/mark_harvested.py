@@ -157,7 +157,7 @@ def write_pending(reason: str, read_arg: str | None, *, cwd: str | None = None) 
             "cwd": where,
         }
         tmp = path.parent / (path.name + f".{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8", newline="")
         os.replace(tmp, path)
     except Exception:
         return
