@@ -52,6 +52,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -307,13 +308,51 @@ def compose(
     return prefix + "\n" + block, "appended"
 
 
+def _atomic_write(index_path: Path, text: str) -> None:
+    """Write `text` to `index_path` so a crash never leaves a torn file.
+
+    `MEMORY.md` carries hand-written prose the generator cannot reproduce, and
+    `Path.write_text` truncates before it writes — a kill or a full disk mid-write
+    would destroy it (issue 122). Instead: write a temp file beside the target,
+    then `os.replace` it on, which is atomic. `newline=""` stays on the temp write
+    so LF is never expanded to os.linesep (issue 84).
+
+    Symlink policy — resolve and preserve. A plain `write_text` follows a symlink
+    and writes through to its target; `os.replace(tmp, link)` would instead
+    replace the LINK with a regular file. So a symlinked `index_path` is resolved
+    first and the swap is done on the real target, leaving the link intact and
+    pointing where it did. The temp is created beside the RESOLVED target, since
+    `os.replace` fails across filesystems and the target may live on another one.
+
+    Raises OSError on failure, after removing the temp file; the caller turns that
+    into an rc.
+    """
+    target = index_path.resolve() if index_path.is_symlink() else index_path
+    # Per-process temp name so two racing writers never collide on a fixed one.
+    tmp = target.parent / (target.name + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8", newline="")
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
     """Bring `dir_path/MEMORY.md`'s generated block up to date.
 
-    Returns (rc, summary_lines). Never raises on a malformed file — `compose`
-    returns `None`, this returns rc 2 and a `⚠` summary line, so
-    `promote_learnings.py`'s unattended call site surfaces the condition instead
-    of swallowing an exception.
+    Returns (rc, summary_lines). Never raises: the two conditions that would
+    otherwise throw both become rc 2 plus a `⚠` summary line, so
+    `promote_learnings.py`'s unattended call site surfaces them instead of
+    swallowing an exception. Those conditions are a malformed marker block
+    (`compose` returns `None`) and a failed write. The summary line distinguishes
+    them; the rc deliberately does not, because both mean the same thing to a
+    caller — the index was not written and a human has to resolve it. rc 1 is
+    taken by `--check` reporting a stale index.
+
+    The write itself is atomic — see `_atomic_write`. `MEMORY.md` holds
+    hand-written prose outside the markers that the generator cannot reproduce,
+    so a torn write would destroy content nothing can rebuild.
     """
     index_path = dir_path / "MEMORY.md"
     emitted_lines = [line for line in build_index(dir_path).splitlines() if line.strip()]
@@ -369,7 +408,14 @@ def regenerate(dir_path: Path, *, check: bool = False) -> tuple[int, list[str]]:
     if check:
         return 1, [f"stale: {index_path} ({_CHECK_DETAIL[disposition]})"]
 
-    index_path.write_text(new_text, encoding="utf-8", newline="")
+    try:
+        _atomic_write(index_path, new_text)
+    except OSError as exc:
+        # "Never raises" is a documented promise: surface the failure as an rc and
+        # a summary line, like the malformed path, so the unattended call site in
+        # `promote_learnings.py` reports it instead of dying. The original file
+        # is untouched — `_atomic_write` only ever swaps a fully written temp in.
+        return 2, [f"⚠ could not write {index_path}: {exc}; original left untouched"]
     summary = [f"wrote: {index_path} ({_WROTE_DETAIL[disposition]})"]
     if disposition == "appended":
         summary.append(

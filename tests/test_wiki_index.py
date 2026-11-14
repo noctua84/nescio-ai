@@ -1,6 +1,8 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import wiki_index
 
@@ -897,6 +899,105 @@ class TestCheckNeverWrites(unittest.TestCase):
                     self.assertEqual(_index(root).exists(), existed)
                     if existed:
                         self.assertEqual(_index(root).read_bytes(), before)
+
+
+def _can_symlink():
+    """Runtime probe — Windows without developer mode raises OSError on symlink."""
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            (Path(d) / "link").symlink_to(Path(d))
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+class TestAtomicWrite(unittest.TestCase):
+    """Issue 122 — the MEMORY.md write is a temp-file swap, never truncate-then-write."""
+
+    @staticmethod
+    def _stray(root):
+        return sorted(p.name for p in root.iterdir() if p.name.endswith(".tmp"))
+
+    def test_happy_path_bytes_keep_crlf_prose_and_lf_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _note(root, "a.md", "alpha", "first")
+            prose = b"# Orientation\r\n\r\nhand written\r\n\r\n"
+            stale = wiki_index.render_block("- [stale](zz.md) \u2014 old").encode("utf-8")
+            _index(root).write_bytes(prose + stale)
+            rc, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            fresh = wiki_index.render_block("- [alpha](a.md) \u2014 first").encode("utf-8")
+            self.assertEqual(_index(root).read_bytes(), prose + fresh)
+            self.assertEqual(self._stray(root), [])
+
+    def test_failing_replace_leaves_original_intact_and_no_temp(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_prose_above_block(root)
+            before = _index(root).read_bytes()
+            with mock.patch("wiki_index.os.replace", side_effect=OSError("disk gone")):
+                rc, summary = wiki_index.regenerate(root)
+            self.assertEqual(rc, 2)
+            self.assertTrue(any("could not write" in line for line in summary), summary)
+            self.assertEqual(_index(root).read_bytes(), before)
+            self.assertEqual(self._stray(root), [])
+
+    def test_failing_temp_write_leaves_original_intact_and_no_temp(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _setup_prose_above_block(root)
+            before = _index(root).read_bytes()
+            with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
+                rc, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc, 2)
+            self.assertEqual(_index(root).read_bytes(), before)
+            self.assertEqual(self._stray(root), [])
+
+    def test_no_temp_is_created_on_early_return_paths(self):
+        def up_to_date(root):
+            _note(root, "a.md", "alpha", "first")
+            self.assertEqual(wiki_index.regenerate(root)[0], 0)
+
+        def malformed(root):
+            _note(root, "a.md", "alpha", "first")
+            _write_bytes(_index(root), wiki_index.GENERATED_BEGIN + "\nonly a begin\n")
+
+        cases = [
+            ("up-to-date", up_to_date, False, 0),
+            ("malformed", malformed, False, 2),
+            ("check", _setup_prose_above_block, True, 1),
+        ]
+        for label, setup, check, expected_rc in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as d:
+                    root = Path(d)
+                    setup(root)
+                    with mock.patch(
+                        "wiki_index._atomic_write", side_effect=AssertionError("wrote")
+                    ):
+                        rc, _ = wiki_index.regenerate(root, check=check)
+                    self.assertEqual(rc, expected_rc)
+                    self.assertEqual(self._stray(root), [])
+
+    @unittest.skipUnless(_can_symlink(), "cannot create symlinks on this platform/account")
+    def test_symlinked_index_is_preserved_and_target_updated(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
+            root = Path(d)
+            target = Path(elsewhere) / "real-MEMORY.md"
+            _note(root, "a.md", "alpha", "first")
+            prose = b"# Orientation\r\n\r\nprose\r\n\r\n"
+            stale = wiki_index.render_block("- [stale](zz.md) \u2014 old").encode("utf-8")
+            target.write_bytes(prose + stale)
+            _index(root).symlink_to(target)
+            rc, _ = wiki_index.regenerate(root)
+            self.assertEqual(rc, 0)
+            self.assertTrue(_index(root).is_symlink())
+            self.assertEqual(os.path.realpath(_index(root)), os.path.realpath(target))
+            fresh = wiki_index.render_block("- [alpha](a.md) \u2014 first").encode("utf-8")
+            self.assertEqual(target.read_bytes(), prose + fresh)
+            self.assertEqual(self._stray(root), [])
+            self.assertEqual(self._stray(target.parent), [])
 
 
 if __name__ == "__main__":
