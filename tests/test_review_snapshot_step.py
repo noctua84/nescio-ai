@@ -3,21 +3,25 @@
 `github-action/scripts/claude-review/snapshot-state.sh` is run directly with
 bash against the fake `gh` from _review_step_harness.py. The contract under
 test: a non-numeric PR number fails before any API call; the four state files
-land in /tmp/review-state/ (the path is fixed in the script, so the tests copy
-the directory out and remove it again); the step only READS (no write calls)
-and fails hard when a read fails.
+land in the state folder; the step only READS (no write calls) and fails hard
+when a read fails.
+
+The state folder is `$REVIEW_STATE_DIR`, defaulting to /tmp/review-state. CI
+never sets the variable, so the default is the shipped path. Each test points
+the variable at a fresh temporary folder and never touches /tmp/review-state;
+one test pins the default by checking the script text.
 
 Skipped unless `bash` and `jq` are on PATH.
 """
 import json
-import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _review_step_harness import BASH, StepHarness, comment, posix  # noqa: E402
+from _review_step_harness import StepHarness, comment, posix  # noqa: E402
 
 PR = "7"
 REPO = "o/r"
@@ -34,34 +38,27 @@ THREADS = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [
     {"id": "T1", "isResolved": True, "comments": {"nodes": []}}]}}}}}
 
 
-def _bash(code, *args):
-    return subprocess.run([BASH, "-c", code, "_", *args], capture_output=True, timeout=60)
-
-
 class SnapshotStepTest(StepHarness):
     SCRIPT = "snapshot-state"
 
     def setUp(self):
         super().setUp()
-        # The script rm -rf's and recreates a fixed /tmp path: never run over a
-        # directory some other process owns.
-        if _bash('test -e /tmp/review-state').returncode == 0:
-            self.skipTest("/tmp/review-state already exists; refusing to clobber it")
-        self.addCleanup(_bash, "rm -rf /tmp/review-state")
+        # Each test writes its snapshot into its own temporary folder.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.state = Path(tmp.name) / "review-state"
         self.respond(ISSUE_COMMENTS, [])
         self.respond(REVIEW_COMMENTS, [])
         self.respond(GRAPHQL, THREADS)
         self.respond(OPEN_PRS, [])
 
     def run_snapshot(self, pr=PR, repo=REPO):
-        return self.run_step({"PR_NUMBER": pr, "REPO": repo})
+        return self.run_step({"PR_NUMBER": pr, "REPO": repo,
+                              "REVIEW_STATE_DIR": posix(self.state)})
 
     def collect(self):
-        """Copy /tmp/review-state out of the bash filesystem; {name: text}."""
-        dest = self.root / "collected"
-        proc = _bash('mkdir -p "$1" && cp -r /tmp/review-state/. "$1"', posix(dest))
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        return {p.name: p.read_text(encoding="utf-8") for p in dest.iterdir()}
+        """{name: text} for every file the step wrote into the state folder."""
+        return {p.name: p.read_text(encoding="utf-8") for p in self.state.iterdir()}
 
     def test_non_numeric_pr_number_fails_before_any_api_call(self):
         for bad in ("", "abc", "7x", "-1", "1 2", "7;id"):
@@ -108,9 +105,14 @@ class SnapshotStepTest(StepHarness):
         self.assertEqual([json.loads(x)["id"] for x in lines], [1, 2, 3])
 
     def test_a_stale_snapshot_is_replaced_not_merged(self):
-        _bash("mkdir -p /tmp/review-state && echo old > /tmp/review-state/stale.txt")
+        self.state.mkdir()
+        (self.state / "stale.txt").write_text("old\n", encoding="utf-8")
         self.assertExit(self.run_snapshot(), 0)
         self.assertEqual(set(self.collect()), STATE_FILES)
+
+    def test_the_default_state_folder_is_tmp_review_state(self):
+        # Unset REVIEW_STATE_DIR (as in CI) falls back to the shipped path.
+        self.assertIn("${REVIEW_STATE_DIR:-/tmp/review-state}", self.script_text)
 
     def test_only_reads_and_the_graphql_variables_are_typed(self):
         self.assertExit(self.run_snapshot(), 0)
@@ -127,7 +129,6 @@ class SnapshotStepTest(StepHarness):
                 proc = self.run_snapshot()
                 self.assertNotEqual(proc.returncode, 0, self.output)
                 (self.fake / "fail.txt").unlink()
-                _bash("rm -rf /tmp/review-state")
 
 
 if __name__ == "__main__":

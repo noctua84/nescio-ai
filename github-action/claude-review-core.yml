@@ -182,7 +182,8 @@ jobs:
           # review threads, open review-learning PRs) into /tmp/review-state/ for Claude
           # to READ.
           #
-          # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO (owner/name)
+          # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO (owner/name),
+          #   REVIEW_STATE_DIR (optional, default /tmp/review-state; tests only)
           #
           # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
           # file and re-run the generator; do not edit the generated workflow.
@@ -197,7 +198,7 @@ jobs:
 
           OWNER="${REPO%%/*}"
           NAME="${REPO#*/}"
-          STATE=/tmp/review-state
+          STATE="${REVIEW_STATE_DIR:-/tmp/review-state}"
 
           rm -rf "$STATE"
           mkdir -p "$STATE"
