@@ -168,7 +168,10 @@ often the useful ones.
 
 ## Output Contract
 
-Always end with exactly this block:
+Always end with exactly this block — and if you report through `SubagentHandback`, its
+`message` is this block, verbatim, starting with `<result>`. The hand-back
+replaces your final text, so a free-form summary there reaches the orchestrator
+with no verdict at all:
 
 ```
 <result>
