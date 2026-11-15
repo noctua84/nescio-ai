@@ -20,11 +20,19 @@ the POST when the bot's NEWEST formal review, across ALL pages of the reviews
 list, already has the desired state (APPROVE->APPROVED,
 CHANGES_REQUESTED->CHANGES_REQUESTED, COMMENT->COMMENTED).
 
+* The verdict is trusted only when this run's review was published: the gate
+  reads `REVIEW_PUBLISHED`, which publish sets to exactly `true`. Anything else
+  (unset, empty, `false`, `True`) fails CLOSED with a REQUEST_CHANGES review
+  whose body says the review for this run was not published, and the gate does
+  not read the comments at all. ReviewPublishedTest covers this.
+
 Skipped unless `bash` and `jq` are on PATH.
 """
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -42,6 +50,7 @@ SUMMARY_MARKER = "<!-- claude-pr-summary -->"
 # Distinguishing text of the two fail-closed review bodies.
 NO_COMMENT_REASON = "no Comprehensive Review comment from the review workflow"
 NO_VERDICT_REASON = "is missing or is not on line 2"
+NOT_PUBLISHED_REASON = "review for this run was not published"
 
 
 def verdict(v):
@@ -64,8 +73,17 @@ class _GateHarness(StepHarness):
         """Serve the issue comments as two pages (newest last)."""
         self.respond(ISSUE_COMMENTS, items, pages=2)
 
-    def run_gate(self):
-        proc = self.run_step({"PR_NUMBER": PR, "REPO": REPO})
+    def run_gate(self, published="true"):
+        """Run the gate with REVIEW_PUBLISHED=`published`; None leaves it unset."""
+        env = {"PR_NUMBER": PR, "REPO": REPO}
+        if published is None:
+            # run_step copies os.environ, so drop the key from it for this call only.
+            with mock.patch.dict(os.environ):
+                os.environ.pop("REVIEW_PUBLISHED", None)
+                proc = self.run_step(env)
+        else:
+            env["REVIEW_PUBLISHED"] = published
+            proc = self.run_step(env)
         self.assertEqual(proc.returncode, 0, f"output:\n{self.output}")
         return proc
 
@@ -333,6 +351,53 @@ class NoCommentsTest(_GateHarness):
 
 
 BOT = "github-actions[bot]"
+
+
+class ReviewPublishedTest(_GateHarness):
+    """The verdict is trusted only when publish reported this run's review."""
+
+    def setUp(self):
+        super().setUp()
+        # A trusted APPROVE is present: only the publish signal can stop it.
+        self.comments([comment(100, "octocat", "hi"),
+                       comment(101, BOT, review(verdict("APPROVE")))])
+
+    def comment_reads(self):
+        return [c for c in self.calls()
+                if c["method"] == "GET" and c["endpoint"] == ISSUE_COMMENTS]
+
+    # 1
+    def test_not_published_fails_closed_despite_trusted_approve(self):
+        for published in (None, "", "false", "True"):
+            with self.subTest(REVIEW_PUBLISHED=published):
+                self.clear_calls()
+                self.run_gate(published)
+                self.assertSubmitted("REQUEST_CHANGES", NOT_PUBLISHED_REASON)
+                self.assertEqual(self.comment_reads(), [],
+                                 "comments must not be read when not published")
+
+    # 2
+    def test_published_true_with_trusted_approve_approves(self):
+        self.run_gate("true")
+        self.assertSubmitted("APPROVE")
+        _, body = self.submitted()
+        self.assertNotIn(NOT_PUBLISHED_REASON, body)
+        self.assertEqual(len(self.comment_reads()), 1)
+
+    # 3
+    def test_not_published_over_prior_changes_requested_submits_nothing(self):
+        for published in (None, "", "false"):
+            with self.subTest(REVIEW_PUBLISHED=published):
+                self.clear_calls()
+                self.respond(REVIEWS, [bot_review(9, "CHANGES_REQUESTED")])
+                self.run_gate(published)
+                self.assertEqual(self.write_keys(), [])
+
+    # 4
+    def test_not_published_over_prior_approval_requests_changes(self):
+        self.respond(REVIEWS, [bot_review(9, "APPROVED")])
+        self.run_gate(None)
+        self.assertSubmitted("REQUEST_CHANGES", NOT_PUBLISHED_REASON)
 
 
 def bot_review(rid, state, login=BOT):

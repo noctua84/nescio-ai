@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Submits a formal PR review (REQUEST_CHANGES / APPROVE / COMMENT) from the
 # verdict on line 2 of the workflow's own Comprehensive Review comment;
-# fails closed when it is missing.
+# fails closed when it is missing, or when this run's review was not published.
 #
-# Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO
+# Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO, REVIEW_PUBLISHED (the publish
+# job's review_published output; only the exact value "true" is trusted)
 #
 # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
 # file and re-run the generator; do not edit the generated workflow.
@@ -14,34 +15,44 @@ set -euo pipefail
 TRUSTED_JQ='(.user.login == "github-actions[bot]" or .user.login == "claude[bot]")'
 VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
 
-# The newest Comprehensive Review comment by a trusted login, across ALL
-# pages. `--paginate` runs --jq once per page, so the matches are streamed
-# one JSON string per line (@json keeps a multi-line body on one line)
-# and the last line overall is the newest comment.
-LAST_REVIEW_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-  --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"<!-- claude-comprehensive-review -->\"))) | .body | @json" | tail -n 1)
-REVIEW_BODY=""
-if [ -n "$LAST_REVIEW_JSON" ]; then
-  REVIEW_BODY=$(printf '%s' "$LAST_REVIEW_JSON" | jq -r .)
-fi
-
-if [ -z "$REVIEW_BODY" ]; then
-  echo "No Comprehensive Review comment from the review workflow — submitting REQUEST_CHANGES (fail-closed)."
+# A verdict is read only when publish reports that THIS run's review was
+# published. The gate waits for publish, but a run that stages no review or
+# fails validation never sets the signal, and the newest trusted comment would
+# then be an earlier run's. So fail closed, and skip the comment read.
+if [ "${REVIEW_PUBLISHED:-}" != "true" ]; then
+  echo "Review for this run was not published (REVIEW_PUBLISHED is not \"true\") — submitting REQUEST_CHANGES (fail-closed)."
   VERDICT="CHANGES_REQUESTED"
-  FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment from the review workflow). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+  FAIL_CLOSED_REASON="Claude review for this run was not published, so the verdict on this PR cannot be trusted. Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
 else
-  # The verdict is read ONLY from line 2 (the publish step enforces
-  # that position); a marker anywhere else in the body is ignored.
-  VERDICT_LINE=$(printf '%s\n' "$REVIEW_BODY" | sed -n '2p' | tr -d '\r')
-  VERDICT=""
-  if [[ "$VERDICT_LINE" =~ $VERDICT_RE ]]; then
-    VERDICT="${BASH_REMATCH[1]}"
+  # The newest Comprehensive Review comment by a trusted login, across ALL
+  # pages. `--paginate` runs --jq once per page, so the matches are streamed
+  # one JSON string per line (@json keeps a multi-line body on one line)
+  # and the last line overall is the newest comment.
+  LAST_REVIEW_JSON=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+    --jq ".[] | select($TRUSTED_JQ and (.body | contains(\"<!-- claude-comprehensive-review -->\"))) | .body | @json" | tail -n 1)
+  REVIEW_BODY=""
+  if [ -n "$LAST_REVIEW_JSON" ]; then
+    REVIEW_BODY=$(printf '%s' "$LAST_REVIEW_JSON" | jq -r .)
   fi
 
-  if [ -z "${VERDICT:-}" ]; then
-    echo "No verdict marker on line 2 of the Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+  if [ -z "$REVIEW_BODY" ]; then
+    echo "No Comprehensive Review comment from the review workflow — submitting REQUEST_CHANGES (fail-closed)."
     VERDICT="CHANGES_REQUESTED"
-    FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing or is not on line 2. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+    FAIL_CLOSED_REASON="Claude review did not complete (no Comprehensive Review comment from the review workflow). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR that does not need an automated review."
+  else
+    # The verdict is read ONLY from line 2 (the publish step enforces
+    # that position); a marker anywhere else in the body is ignored.
+    VERDICT_LINE=$(printf '%s\n' "$REVIEW_BODY" | sed -n '2p' | tr -d '\r')
+    VERDICT=""
+    if [[ "$VERDICT_LINE" =~ $VERDICT_RE ]]; then
+      VERDICT="${BASH_REMATCH[1]}"
+    fi
+
+    if [ -z "${VERDICT:-}" ]; then
+      echo "No verdict marker on line 2 of the Comprehensive Review — submitting REQUEST_CHANGES (fail-closed)."
+      VERDICT="CHANGES_REQUESTED"
+      FAIL_CLOSED_REASON="Claude review comment was found but the verdict marker (\`<!-- claude-verdict: ... -->\`) is missing or is not on line 2. The review may have terminated mid-step (e.g., hit max turns before Step 6). Re-run it manually: Actions → \"Claude Code Review\" → Run workflow (enter this PR number), or apply the \`skip-claude-review\` label if this is a chore PR."
+    fi
   fi
 fi
 

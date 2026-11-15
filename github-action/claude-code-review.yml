@@ -86,11 +86,12 @@ jobs:
 
   review:
     needs: wait-for-ci
+    # Used only by the core's `publish` and `merge-gate` jobs; Claude's own
+    # job runs read-only. Every core job must ask for a subset of this.
     permissions:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
     uses: ./.github/workflows/claude-review-core.yml
     with:
       pr_number: ${{ github.event.inputs.pr_number }}

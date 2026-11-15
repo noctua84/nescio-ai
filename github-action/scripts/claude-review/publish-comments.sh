@@ -3,7 +3,8 @@
 # (summary, review, replies, inline findings) as github-actions[bot].
 #
 # Reads (env): GH_TOKEN (gh), PR_NUMBER, REPO, HEAD_SHA (40-char hex)
-#   REVIEW_OUTBOX (optional; defaults to /tmp/review-outbox), RUNNER_TEMP (optional)
+#   REVIEW_OUTBOX (optional; defaults to /tmp/review-outbox), RUNNER_TEMP (optional),
+#   GITHUB_OUTPUT (optional; receives review_published=true once review.md is posted)
 #
 # Inlined into claude-review-core.yml by scripts/build_review_core.py. Edit this
 # file and re-run the generator; do not edit the generated workflow.
@@ -23,6 +24,11 @@ REVIEW_MARKER='<!-- claude-comprehensive-review -->'
 FINDING_RE='^<!-- claude-finding: [^>]+ -->$'
 # Line 2 of review.md. The merge-gate job uses the same pattern.
 VERDICT_RE='^<!-- claude-verdict: (APPROVE|CHANGES_REQUESTED|COMMENT) -->$'
+# Credential shapes: GitHub tokens (ghp_ gho_ ghu_ ghs_ ghr_, github_pat_) and
+# Anthropic keys (sk-ant-). Best-effort and plain-text only. Identical in
+# open-learning-prs.sh and scrub-staged.sh. The staged files are untrusted input
+# here, so this check is authoritative and never assumes a pre-upload prune ran.
+SECRET_RE='(gh[opusr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-ant-[A-Za-z0-9_-]{20,})'
 
 case "$PR_NUMBER" in
   ''|*[!0-9]*)
@@ -59,6 +65,11 @@ check_file() {
   fi
   if [ "$(wc -c < "$1")" -gt "$2" ]; then
     echo "::warning::Staged file '$3' rejected: larger than $2 bytes."
+    return 1
+  fi
+  # Whole file, frontmatter included. The matched text is never printed.
+  if LC_ALL=C grep -Eq -- "$SECRET_RE" "$1"; then
+    echo "::warning::Staged file '$3' rejected: it contains a credential-shaped string."
     return 1
   fi
 }
@@ -139,7 +150,12 @@ if [ -e "$OUT/summary.md" ] || [ -L "$OUT/summary.md" ]; then
 fi
 
 if [ -e "$OUT/review.md" ] || [ -L "$OUT/review.md" ]; then
-  if ! publish_top "$OUT/review.md" "$REVIEW_MARKER" "$VERDICT_RE"; then
+  if publish_top "$OUT/review.md" "$REVIEW_MARKER" "$VERDICT_RE"; then
+    # The merge gate fails closed unless this run's review was published.
+    if [ -n "${GITHUB_OUTPUT:-}" ]; then
+      echo "review_published=true" >> "$GITHUB_OUTPUT"
+    fi
+  else
     # Remembered, not fatal yet: findings and replies below are still
     # published. The step fails at the very end so it is visible.
     echo "::error::The comprehensive review was staged but could not be published."

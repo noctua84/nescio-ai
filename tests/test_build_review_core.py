@@ -29,8 +29,9 @@ CORE = GA / "claude-review-core.yml"
 SCRIPTS = GA / "scripts" / "claude-review"
 
 EXPECTED_SCRIPTS = {
-    "resolve-pr-context.sh", "snapshot-state.sh", "publish-comments.sh",
-    "open-learning-prs.sh", "merge-gate.sh",
+    "resolve-pr-context.sh", "restore-trusted-config.sh", "snapshot-state.sh",
+    "scrub-staged.sh", "publish-comments.sh", "open-learning-prs.sh",
+    "merge-gate.sh",
 }
 
 
@@ -225,7 +226,7 @@ class ErrorTest(_TmpGa):
 
 
 class ShippedScriptsTest(unittest.TestCase):
-    def test_the_five_step_scripts_exist_and_only_those(self):
+    def test_the_seven_step_scripts_exist_and_only_those(self):
         self.assertEqual({p.name for p in SCRIPTS.glob("*")}, EXPECTED_SCRIPTS)
 
     def test_every_script_has_the_shebang_and_no_expression(self):
@@ -282,7 +283,7 @@ class NoFileExecutionTest(unittest.TestCase):
         runs = [(jid, s.get("name"), str(s["run"]))
                 for jid, job in doc["jobs"].items()
                 for s in job.get("steps", []) if "run" in s]
-        self.assertEqual(len(runs), 5, "expected the five inlined run: steps")
+        self.assertEqual(len(runs), 7, "expected the seven inlined run: steps")
         for jid, name, run in runs:
             with self.subTest(job=jid, step=name):
                 self.assertEqual(exec_findings(run), [])
