@@ -53,6 +53,9 @@ DIGITS_RE = re.compile(r"\d+")
 # or (older transcripts) a `<task-notification>` carrying `<task-id>` and `<result>`.
 AGENT_MSG_RE = re.compile(r'<agent-message\s+from="([^"]+)"[^>]*>')
 HANDBACK_MARK = "[Subagent hand-back]"
+# An agent that reported through its SubagentHandback tool leaves this fixed note as
+# the Agent tool's result; the report itself arrives as an `<agent-message>`.
+HANDBACK_STUB_RE = re.compile(r"\A\s*This agent's report was delivered to you as a message from \S+ \(its SubagentHandback call\)")
 TASK_ID_RE = re.compile(r"<task-id>\s*([^<\s]+)\s*</task-id>")
 TASK_RESULT_RE = re.compile(r"<result>(.*)</result>", re.DOTALL)
 # A tool result the *user* declined; an `is_error` flag on it is a decision, not a failure.
@@ -213,7 +216,12 @@ def _on_assistant(entry: dict, s: dict, tools: dict, seen: set) -> None:
 
 
 def add_report(s: dict, agent: str, text: str, agent_id: str, ts) -> None:
-    """Record one agent report; an identical (agent id, text) pair counts once."""
+    """Record one agent report; an identical (agent id, text) pair counts once.
+
+    The SubagentHandback note is a pointer to a report, not one, so it is skipped.
+    """
+    if HANDBACK_STUB_RE.match(text):
+        return
     key = (agent_id, hashlib.sha1(" ".join(text.split()).encode("utf-8", "replace")).hexdigest())
     if key in s["_seen_reports"]:
         return
