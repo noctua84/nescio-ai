@@ -144,6 +144,56 @@ class MergeTest(MergeTestBase):
         self.assertNotIn("a1B2c3D4", json.dumps(dream.aggregate([s])))
 
 
+def handback_call(message, name="SubagentHandback"):
+    """A subagent transcript entry: the agent reports through a tool call, not final text."""
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": f"hb-{len(message)}", "name": name, "input": {"message": message}},
+    ]}}
+
+
+def handback_stub(uid, agent, agent_id):
+    """The Agent tool's result in the parent when the agent used SubagentHandback."""
+    note = (f"This agent's report was delivered to you as a message from \"{agent_id}\" "
+            "(its SubagentHandback call). Read it there; it is not repeated here.")
+    return {
+        "type": "user",
+        "message": {"content": [{"type": "tool_result", "tool_use_id": uid, "content": note}]},
+        "toolUseResult": {"agentType": agent, "agentId": agent_id, "content": [{"type": "text", "text": note}]},
+    }
+
+
+class SubagentHandbackTest(MergeTestBase):
+    def test_verdict_in_handback_message_is_the_report(self):
+        path = self.write_sub("a", "1", [final_text("working"), handback_call(verdict_text("PARTIAL", oos="- Split x.py"))])
+        rep = di.parse_subagent(path, "builder")["report"]
+        self.assertEqual((rep["verdict"], rep["out_of_scope"]), ("PARTIAL", ["Split x.py"]))
+
+    def test_handback_without_verdict_or_other_tool_gives_no_report(self):
+        path = self.write_sub("a", "1", [
+            handback_call("all done, see diff"), handback_call(verdict_text("COMPLETE"), name="SendMessage"),
+        ])
+        self.assertIsNone(di.parse_subagent(path, "builder")["report"])
+
+    def test_handback_note_in_parent_is_not_a_report(self):
+        s = dream.parse_session(self.write("a", [dispatch("d1", "builder"), handback_stub("d1", "builder", "ag1")]))
+        self.assertEqual((s["reports"], s["reported_ids"]), ([], []))
+
+    def test_note_plus_hand_back_counts_one_report(self):
+        self.write("a", [
+            dispatch("d1", "builder"), handback_stub("d1", "builder", "ag1"), hand_back("ag1", verdict_text("COMPLETE")),
+        ])
+        s = self.merged()
+        self.assertEqual([(r["agent"], r["verdict"]) for r in s["reports"]], [("builder", "COMPLETE")])
+        self.assertEqual(s["sub"]["merged"], 0)
+
+    def test_note_only_recovers_verdict_from_subagent_handback(self):
+        self.write("a", [dispatch("d1", "builder"), handback_stub("d1", "builder", "ag1")])
+        self.write_sub("a", "ag1", [handback_call(verdict_text("BLOCKED"))], meta='{"agentType": "builder"}')
+        s = self.merged()
+        self.assertEqual(s["sub"]["merged"], 1)
+        self.assertEqual([(r["agent"], r["verdict"]) for r in s["reports"]], [("builder", "BLOCKED")])
+
+
 class MergeCliTest(MergeTestBase):
     def setUp(self):
         super().setUp()
