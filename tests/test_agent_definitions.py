@@ -2562,6 +2562,26 @@ class TestOrchestratorWiring(unittest.TestCase):
         self.assertIn("not symmetric", section)
         self.assertIn("**Never spawn**", section)
 
+    def test_orchestrator_does_not_guess_a_spawned_task_model(self):
+        """A guessed model id starts the spawned task on a superseded generation.
+
+        The CLAUDE.md id guard cannot see ids chosen at spawn time, so the
+        orchestrator must be told to copy a declared id instead of recalling one.
+        """
+        text = self._text()
+        start = text.index("### Work Placement")
+        section = " ".join(
+            text[start : text.index("### Prompt Quality for Subagents")].split()
+        )
+        for cue in (
+            "Leave the model unset",
+            "inherits yours",
+            "agent definition declares",
+            "never fill one in from memory",
+        ):
+            self.assertIn(cue, section, f"model guidance `{cue}` is missing")
+        self.assertNotRegex(section, r"claude-(?:opus|sonnet|haiku|fable)-\d")
+
     def test_orchestrator_parallelism_is_bounded(self):
         text = self._text()
         self.assertIn("Maximize parallelism within a boundary", text)

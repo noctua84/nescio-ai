@@ -812,6 +812,11 @@ plan reference it should read. Where the work has a tracked issue, cite it, so
 the fresh session reads a durable spec rather than depending on a handoff that no
 longer exists.
 
+**Leave the model unset unless you need a different one.** A spawned task started
+without a model inherits yours. When you do set one, copy an id that an agent
+definition declares in its `model:` field today; never fill one in from memory,
+because a guessed id lands on a superseded generation.
+
 ### Prompt Quality for Subagents
 Every subagent prompt MUST include:
 - **What** the project is and what we're building (they have zero context)
