@@ -426,6 +426,21 @@ The minimal data model has three parts, all machine-local under
   parsed reports went from 69 to 153 in a 50-session window. Dispatches still
   outnumber reports (272 against 153), and some builder hand-backs carry no
   verdict. Escalations came out at 0. All three need a closer look.
+- **Builder hand-backs without a verdict: cause found, two fixes.** In 60 days
+  of builder transcripts (2,489), a verdict turned up anywhere for 84% of
+  `builder` runs, 68% of `builder-simple` and 39% of `builder-standard`. Most
+  builders now report through a `SubagentHandback` tool call, and the charter
+  said "Always end with exactly this block" without naming that route, so the
+  hand-back message was often a free-form summary: 868 hand-backs carried no
+  `<result>` block. Fixes:
+  - The charter template (`agents/_src/tiers.md.tmpl`) now says the hand-back
+    message is the Output Contract block, verbatim. Whether that lifts the rate
+    needs a rerun of this count after a week of use.
+  - The extractor reads a `<verdict>` from the `SubagentHandback` call's
+    `message` in a subagent transcript, and no longer counts the fixed note the
+    Agent tool returns for such a call ("This agent's report was delivered to
+    you as a message from ...") as a report. That note had added 199 phantom
+    verdict-less reports; the regex matched all 479 such notes on real data.
 - **Follow-ups list: capped.** The section reached 335 lines on real data. The
   proposal now shows the 20 follow-ups named in the most sessions and counts
   the rest; `--json` still lists all of them.
@@ -435,11 +450,12 @@ The minimal data model has three parts, all machine-local under
   - **Verdicts from subagent transcripts: done.** A subagent transcript is
     named `agent-<agentId>.jsonl`, and that id matched the parent's `agentId`
     in every joinable case (409 of 409). When the parent has no report for an
-    agent id, the extractor takes the last assistant text block with a
-    `<verdict>` from the subagent transcript, marks it `source: "subagent"`,
-    and inserts its report event right after that agent's dispatch, so
-    escalation detection sees it. The parent's copy wins on a duplicate. On
-    one machine this took parsed reports from 245 to 302 of 443 dispatches
+    agent id, the extractor takes the last assistant text block (or
+    `SubagentHandback` message) with a `<verdict>` from the subagent
+    transcript, marks it `source: "subagent"`, and inserts its report event
+    right after that agent's dispatch, so escalation detection sees it. The
+    parent's copy wins on a duplicate. On one machine this took parsed reports
+    from 245 to 302 of 443 dispatches
     (57 recovered); only 3 of the recovered verdicts were PARTIAL or BLOCKED,
     so escalations stay rare. The "dispatches but no reports" drift warning
     still counts parent reports only, so subagent files cannot hide a parent

@@ -92,8 +92,9 @@ def parse_subagent(path: Path, agent: str) -> dict:
     sum of ``count - 1`` over Bash commands issued more than once. A tool_use
     re-emitted as results resolve is counted once (deduped by id), and a
     malformed line is counted and skipped. ``report`` is the parsed report of
-    the last assistant text block carrying a ``<verdict>`` (flags and
-    out-of-scope lines scrubbed, no raw text), or ``None``. ``tests`` is the
+    the last assistant text block or ``SubagentHandback`` message carrying a
+    ``<verdict>`` (flags and out-of-scope lines scrubbed, no raw text), or
+    ``None``. ``tests`` is the
     ``_dream_testruns.TestTracker`` summary (counts only).
     """
     errors: Counter = Counter()
@@ -129,6 +130,9 @@ def parse_subagent(path: Path, agent: str) -> dict:
                         continue
                     seen.add(b.get("id"))
                     inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                    msg = inp.get("message")
+                    if b.get("name") == "SubagentHandback" and isinstance(msg, str) and VERDICT_RE.search(msg):
+                        last_report = parse_report(msg)
                     tests.on_tool_use(b.get("id"), b.get("name"), inp)
                     if b.get("name") == "Bash" and isinstance(inp.get("command"), str) and inp["command"].strip():
                         commands[_norm(inp["command"])] += 1
